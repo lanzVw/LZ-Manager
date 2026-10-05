@@ -256,12 +256,13 @@ export class ModEngine {
               if (!qe.isDirectory()) continue
               const rawName = qe.name
               const canonicalName = normalizeCharacterName(rawName, gameId)
-              if (!result[canonicalName]) {
+              if (!result[canonicalName] || !result[rawName]) {
                 const qCharDir = path.join(qGameDir, rawName)
                 for (const ext of exts) {
                   const qp = path.join(qCharDir, ext)
                   if (fs.existsSync(qp)) {
-                    result[canonicalName] = qp
+                    if (!result[canonicalName]) result[canonicalName] = qp
+                    if (!result[rawName]) result[rawName] = qp
                     break
                   }
                 }

@@ -1993,8 +1993,8 @@ const CHARACTERS_BY_GAME = {
     {
       "id": "mifu",
       "name": "弭弗",
-      "enName": "Mi Fu",
-      "gbCatId": 46272,
+      "enName": "Typhoeus",
+      "gbCatId": 48868,
       "pinyin": "mf"
     },
     {
@@ -2013,10 +2013,10 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "arcane",
-      "name": "奥秘",
+      "name": "诀",
       "enName": "Arcane",
       "gbCatId": 47395,
-      "pinyin": "am"
+      "pinyin": "j"
     },
     {
       "id": "tangtang",
@@ -2031,13 +2031,6 @@ const CHARACTERS_BY_GAME = {
       "enName": "Akekuri",
       "gbCatId": 42721,
       "pinyin": "akkl"
-    },
-    {
-      "id": "typhoeus",
-      "name": "提丰",
-      "enName": "Typhoeus",
-      "gbCatId": 48868,
-      "pinyin": "tf"
     },
     {
       "id": "xaihi",
@@ -2268,7 +2261,12 @@ const CN_NAME_ALIASES = {
   "男旅行者": "男主",
   "阿蕾奇诺 (仆人)": "阿蕾奇诺",
   "阿蕾奇诺(仆人)": "阿蕾奇诺",
-  "仆人": "阿蕾奇诺"
+  "仆人": "阿蕾奇诺",
+  "奥秘": "诀",
+  "李织烟": "诀",
+  "提丰": "弭弗",
+  "提弗洛斯": "弭弗",
+  "艾莉亚": "阿莉亚"
 };
 
 function resolveGameId(val) {
