@@ -22,11 +22,18 @@ if (app) {
       if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore()
         mainWindow.show()
+        mainWindow.setAlwaysOnTop(true)
         mainWindow.focus()
+        mainWindow.setAlwaysOnTop(false)
       }
     })
   }
 }
+
+process.on('uncaughtException', (err) => {
+  console.error('[LZ Main] Uncaught Exception:', err)
+})
+
 
 // 计算指定游戏的 3DMigoto / XXMI 运行环境根目录
 function getEnvRootForGame(game: any): string {
@@ -98,6 +105,10 @@ function createMainWindow() {
       sandbox: false,
       webSecurity: false // 允许加载本地 Mod 封面图片 file:///
     }
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('[LZ Main] mainWindow failed to load:', errorCode, errorDescription)
   })
 
   // 开发环境加载 Vite dev server，生产环境加载静态文件
