@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "gameId": "honkai-star-rail",
+  "generatedAt": "2026-07-14T11:59:02Z",
+  "source": {
+    "name": "Honkai: Star Rail Wiki",
+    "url": "https://honkai-star-rail.fandom.com/wiki/Outfits",
+    "license": "CC-BY-SA (community wiki content); game images remain property of their respective owner",
+    "categories": [
+      "Category:Alternate Outfits",
+      "Category:Outfit Trailblaze Fashion"
+    ],
+    "dataAsOf": "2026-07-14",
+    "currentVersion": "4.3",
+    "currentVersionUrl": "https://honkai-star-rail.fandom.com/wiki/Version/4.3",
+    "nextVersionUrl": "https://honkai-star-rail.fandom.com/wiki/Version/4.4",
+    "scope": "Released non-default full-character appearance replacements"
+  },
+  "outfitCount": 6,
+  "officialOutfitDesignCount": 5,
+  "characterCount": 6,
+  "characters": [
+    {
+      "nameZh": "男主",
+      "nameEn": "Caelus",
+      "skins": [
+        {
+          "id": "hsr-outfit-229001-m",
+          "sectionId": "skin:hsr-outfit-229001-m",
+          "officialOutfitId": "229001",
+          "characterNameZh": "男主",
+          "characterNameEn": "Caelus",
+          "wikiCharacterNameEn": "Trailblazer",
+          "nameZh": "龙马精神",
+          "nameEn": "Vim and Vigor",
+          "aliases": [
+            "龙马精神",
+            "Vim and Vigor"
+          ],
+          "type": [
+            "Trailblaze Fashion",
+            "Outfit"
+          ],
+          "releaseVersion": "4.0",
+          "image": "images/男主/hsr-outfit-229001-m.webp",
+          "imageWidth": 256,
+          "imageHeight": 256,
+          "imageBytes": 23174,
+          "imageSha256": "fab81ae1a497de676e2fd3926e942ada4f5d3d26e5c4abb07724cfe986c94980",
+          "sourcePageUrl": "https://honkai-star-rail.fandom.com/wiki/Vim_and_Vigor",
+          "sourceImageFile": "Item Vim and Vigor (M).png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/houkai-star-rail/images/d/dc/Item_Vim_and_Vigor_%28M%29.png/revision/latest?cb=20260217031958",
+          "sourceImageWidth": 256,
+          "sourceImageHeight": 256
+        }
+      ]
+    },
+    {
+      "nameZh": "遐蝶",
+      "nameEn": "Castorice",
+      "skins": [
+        {
+          "id": "hsr-outfit-1140701",
+          "sectionId": "skin:hsr-outfit-1140701",
+          "officialOutfitId": "1140701",
+          "characterNameZh": "遐蝶",
+          "characterNameEn": "Castorice",
+          "wikiCharacterNameEn": "Castorice",
+          "nameZh": "幽梦翩跹",
+          "nameEn": "Gossamer Flutter",
+          "aliases": [
+            "幽梦翩跹",
+            "Gossamer Flutter"
+          ],
+          "type": [
+            "Alternate"
+          ],
+          "releaseVersion": "4.2",
+          "image": "images/遐蝶/hsr-outfit-1140701.webp",
+          "imageWidth": 876,
+          "imageHeight": 1128,
+          "imageBytes": 139362,
+          "imageSha256": "d908714d90d050a3cb94d09ad25ac76ee08a23764b3ea91e996dd534ce96a98a",
+          "sourcePageUrl": "https://honkai-star-rail.fandom.com/wiki/Gossamer_Flutter",
+          "sourceImageFile": "Character Castorice Gossamer Flutter Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/houkai-star-rail/images/5/56/Character_Castorice_Gossamer_Flutter_Portrait.png/revision/latest?cb=20260526133700",
+          "sourceImageWidth": 876,
+          "sourceImageHeight": 1128
+        }
+      ]
+    },
+    {
+      "nameZh": "流萤",
+      "nameEn": "Firefly",
+      "skins": [
+        {
+          "id": "hsr-outfit-1131001",
+          "sectionId": "skin:hsr-outfit-1131001",
+          "officialOutfitId": "1131001",
+          "characterNameZh": "流萤",
+          "characterNameEn": "Firefly",
+          "wikiCharacterNameEn": "Firefly",
+          "nameZh": "春日手信",
+          "nameEn": "Spring Missive",
+          "aliases": [
+            "春日手信",
+            "Spring Missive"
+          ],
+          "type": [
+            "Alternate"
+          ],
+          "releaseVersion": "3.4",
+          "image": "images/流萤/hsr-outfit-1131001.webp",
+          "imageWidth": 950,
+          "imageHeight": 1194,
+          "imageBytes": 127778,
+          "imageSha256": "bf8d05b3118fefda762841fe12e1f769ac422c17717b4339ec5a45a13ea714e2",
+          "sourcePageUrl": "https://honkai-star-rail.fandom.com/wiki/Spring_Missive",
+          "sourceImageFile": "Character Firefly Spring Missive Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/houkai-star-rail/images/4/4a/Character_Firefly_Spring_Missive_Portrait.png/revision/latest?cb=20250702034517",
+          "sourceImageWidth": 950,
+          "sourceImageHeight": 1194
+        }
+      ]
+    },
+    {
+      "nameZh": "三月七-存护",
+      "nameEn": "March 7th",
+      "skins": [
+        {
+          "id": "hsr-outfit-1100101",
+          "sectionId": "skin:hsr-outfit-1100101",
+          "officialOutfitId": "1100101",
+          "characterNameZh": "三月七-存护",
+          "characterNameEn": "March 7th",
+          "wikiCharacterNameEn": "March 7th (Preservation)",
+          "nameZh": "冬去煦至",
+          "nameEn": "Nascent Spring",
+          "aliases": [
+            "冬去煦至",
+            "Nascent Spring"
+          ],
+          "type": [
+            "Alternate"
+          ],
+          "releaseVersion": "3.0",
+          "image": "images/三月七-存护/hsr-outfit-1100101.webp",
+          "imageWidth": 633,
+          "imageHeight": 1140,
+          "imageBytes": 81434,
+          "imageSha256": "a2752c0dbf4b61ba3194659a6a21ab29484aae04a5a08b2f5f00243e16e0c010",
+          "sourcePageUrl": "https://honkai-star-rail.fandom.com/wiki/Nascent_Spring",
+          "sourceImageFile": "Character March 7th (Preservation) Nascent Spring Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/houkai-star-rail/images/4/4c/Character_March_7th_%28Preservation%29_Nascent_Spring_Portrait.png/revision/latest?cb=20250117092049",
+          "sourceImageWidth": 633,
+          "sourceImageHeight": 1140
+        }
+      ]
+    },
+    {
+      "nameZh": "阮梅",
+      "nameEn": "Ruan Mei",
+      "skins": [
+        {
+          "id": "hsr-outfit-1130301",
+          "sectionId": "skin:hsr-outfit-1130301",
+          "officialOutfitId": "1130301",
+          "characterNameZh": "阮梅",
+          "characterNameEn": "Ruan Mei",
+          "wikiCharacterNameEn": "Ruan Mei",
+          "nameZh": "雪绽梅笺",
+          "nameEn": "Plumblossom Letter",
+          "aliases": [
+            "雪绽梅笺",
+            "Plumblossom Letter"
+          ],
+          "type": [
+            "Alternate"
+          ],
+          "releaseVersion": "4.0",
+          "image": "images/阮梅/hsr-outfit-1130301.webp",
+          "imageWidth": 619,
+          "imageHeight": 1200,
+          "imageBytes": 139510,
+          "imageSha256": "b3094deb5156ddb4a08af467ac0db5d610732ec939ddb24354f2c72cbfde74b6",
+          "sourcePageUrl": "https://honkai-star-rail.fandom.com/wiki/Plumblossom_Letter",
+          "sourceImageFile": "Character Ruan Mei Plumblossom Letter Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/houkai-star-rail/images/5/51/Character_Ruan_Mei_Plumblossom_Letter_Portrait.png/revision/latest?cb=20260213033830",
+          "sourceImageWidth": 691,
+          "sourceImageHeight": 1340
+        }
+      ]
+    },
+    {
+      "nameZh": "女主",
+      "nameEn": "Stelle",
+      "skins": [
+        {
+          "id": "hsr-outfit-229001-f",
+          "sectionId": "skin:hsr-outfit-229001-f",
+          "officialOutfitId": "229001",
+          "characterNameZh": "女主",
+          "characterNameEn": "Stelle",
+          "wikiCharacterNameEn": "Trailblazer",
+          "nameZh": "龙马精神",
+          "nameEn": "Vim and Vigor",
+          "aliases": [
+            "龙马精神",
+            "Vim and Vigor"
+          ],
+          "type": [
+            "Trailblaze Fashion",
+            "Outfit"
+          ],
+          "releaseVersion": "4.0",
+          "image": "images/女主/hsr-outfit-229001-f.webp",
+          "imageWidth": 256,
+          "imageHeight": 256,
+          "imageBytes": 22838,
+          "imageSha256": "cdd00d8077f3963a3c750531ef1399950433dd4490c7ec2f22d2c5142b5b8a04",
+          "sourcePageUrl": "https://honkai-star-rail.fandom.com/wiki/Vim_and_Vigor",
+          "sourceImageFile": "Item Vim and Vigor (F).png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/houkai-star-rail/images/2/2a/Item_Vim_and_Vigor_%28F%29.png/revision/latest?cb=20260217031953",
+          "sourceImageWidth": 256,
+          "sourceImageHeight": 256
+        }
+      ]
+    }
+  ]
+}
