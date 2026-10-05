@@ -15,13 +15,15 @@ interface ModsPageProps {
   loading: boolean
   onRefresh: () => void
   onToggleMod: (charName: string, modName: string, enabled: boolean) => Promise<void>
+  onSelectMod: (modFullPath: string) => void
 }
 
 export const ModsPage: React.FC<ModsPageProps> = ({
   modsData,
   loading,
   onRefresh,
-  onToggleMod
+  onToggleMod,
+  onSelectMod
 }) => {
   const [selectedChar, setSelectedChar] = useState<string>('all')
   const [searchChar, setSearchChar] = useState<string>('')
@@ -199,10 +201,11 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                 return (
                   <div
                     key={id}
-                    className={`rounded-xl border overflow-hidden transition-all duration-200 flex flex-col group ${
+                    onClick={() => onSelectMod(mod.fullPath)}
+                    className={`rounded-xl border overflow-hidden transition-all duration-200 flex flex-col group cursor-pointer ${
                       mod.enabled
-                        ? 'bg-slate-900/90 border-blue-500/50 shadow-lg shadow-blue-500/10'
-                        : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 opacity-80 hover:opacity-100'
+                        ? 'bg-slate-900/90 border-blue-500/50 shadow-lg shadow-blue-500/10 hover:border-blue-400'
+                        : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-600 opacity-80 hover:opacity-100'
                     }`}
                   >
                     {/* Cover Image */}
@@ -254,7 +257,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                           </div>
                         )}
                         <h3
-                          className="text-xs font-semibold text-slate-200 line-clamp-2 leading-relaxed"
+                          className="text-xs font-semibold text-slate-200 line-clamp-2 leading-relaxed group-hover:text-blue-400 transition"
                           title={mod.name}
                         >
                           {mod.name}
@@ -263,7 +266,10 @@ export const ModsPage: React.FC<ModsPageProps> = ({
 
                       {/* Switch Button */}
                       <button
-                        onClick={() => handleToggle(mod.charName, mod.name, mod.enabled)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleToggle(mod.charName, mod.name, mod.enabled)
+                        }}
                         disabled={isToggling}
                         className={`w-full py-1.5 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition ${
                           mod.enabled

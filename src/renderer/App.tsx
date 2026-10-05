@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Header } from './components/Header'
 import { ModsPage } from './pages/ModsPage'
+import { ModDetailPage } from './pages/ModDetailPage'
 import { GameBananaPage } from './pages/GameBananaPage'
 import { PresetsPage } from './pages/PresetsPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('mods')
+  const [selectedModPath, setSelectedModPath] = useState<string | null>(null)
   const [config, setConfig] = useState<any>(null)
   const [activeGame, setActiveGame] = useState<any>(null)
   const [modsData, setModsData] = useState<Record<string, any[]>>({})
@@ -49,6 +51,7 @@ export default function App() {
 
   // 切换游戏
   const handleSelectGame = async (gameId: string) => {
+    setSelectedModPath(null)
     await window.flairx.setActiveGame(gameId)
     await loadConfig()
   }
@@ -97,7 +100,10 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 font-sans antialiased overflow-hidden border border-slate-800/80 rounded-lg">
       <Header
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          setSelectedModPath(null)
+          setActiveTab(tab)
+        }}
         activeGame={activeGame}
         games={config?.games || []}
         onSelectGame={handleSelectGame}
@@ -107,14 +113,24 @@ export default function App() {
       />
 
       <div className="flex-1 flex overflow-hidden">
-        {activeTab === 'mods' && (
-          <ModsPage
-            modsData={modsData}
-            loading={loadingMods}
-            onRefresh={scanMods}
-            onToggleMod={handleToggleMod}
-          />
-        )}
+        {activeTab === 'mods' &&
+          (selectedModPath ? (
+            <ModDetailPage
+              modFullPath={selectedModPath}
+              onBack={() => setSelectedModPath(null)}
+              onToggleActive={async (char, mod, state) => {
+                await handleToggleMod(char, mod, state)
+              }}
+            />
+          ) : (
+            <ModsPage
+              modsData={modsData}
+              loading={loadingMods}
+              onRefresh={scanMods}
+              onToggleMod={handleToggleMod}
+              onSelectMod={(path) => setSelectedModPath(path)}
+            />
+          ))}
 
         {activeTab === 'gamebanana' && (
           <GameBananaPage

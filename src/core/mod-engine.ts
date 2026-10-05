@@ -170,11 +170,14 @@ export class ModEngine {
             hasIni = true
           }
           if (lower.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/)) {
-            const abs = path.join(folderPath, f.name)
-            previewImages.push(abs)
-            if (!coverPath) {
-              if (lower.includes('preview') || lower.includes('cover') || lower.includes('thumb')) {
-                coverPath = abs
+            const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap')
+            if (!isTexture) {
+              const abs = path.join(folderPath, f.name)
+              previewImages.push(abs)
+              if (!coverPath) {
+                if (lower.includes('preview') || lower.includes('cover') || lower.includes('thumb')) {
+                  coverPath = abs
+                }
               }
             }
           }
@@ -186,5 +189,182 @@ export class ModEngine {
     } catch (_) {}
 
     return { coverPath, previewImages, hasIni }
+  }
+
+  /**
+   * 获取指定 Mod 完整详情（包括所有图片、ini文件列表、体积、自定义元数据）
+   */
+  public getModDetails(modFullPath: string) {
+    if (!fs.existsSync(modFullPath)) return null
+
+    const folderName = path.basename(modFullPath)
+    const charDir = path.dirname(modFullPath)
+    const characterName = path.basename(charDir)
+    const isEnabled = !folderName.startsWith('DISABLED_')
+    const rawName = isEnabled ? folderName : folderName.substring('DISABLED_'.length)
+
+    let totalSize = 0
+    let fileCount = 0
+    const images: { path: string; name: string; isCover: boolean }[] = []
+    const iniFiles: { name: string; fullPath: string; size: number }[] = []
+    let coverPath: string | null = null
+
+    const scanDir = (dir: string) => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            scanDir(full)
+          } else if (entry.isFile()) {
+            fileCount++
+            try {
+              const stat = fs.statSync(full)
+              totalSize += stat.size
+              const lower = entry.name.toLowerCase()
+              if (lower.endsWith('.ini')) {
+                iniFiles.push({ name: entry.name, fullPath: full, size: stat.size })
+              }
+              if (lower.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/)) {
+                const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap')
+                if (!isTexture) {
+                  const isCover = lower.includes('preview') || lower.includes('cover') || lower.includes('thumb')
+                  images.push({ path: full, name: entry.name, isCover })
+                  if (isCover && !coverPath) {
+                    coverPath = full
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    scanDir(modFullPath)
+
+    if (!coverPath && images.length > 0) {
+      coverPath = images[0].path
+      images[0].isCover = true
+    }
+
+    let metadata: any = {}
+    const metaPath = path.join(modFullPath, 'mod.json')
+    if (fs.existsSync(metaPath)) {
+      try {
+        metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+      } catch (_) {}
+    }
+
+    let mtime = 0
+    let birthtime = 0
+    try {
+      const folderStat = fs.statSync(modFullPath)
+      mtime = folderStat.mtimeMs
+      birthtime = folderStat.birthtimeMs
+    } catch (_) {}
+
+    return {
+      id: `${characterName}::${rawName}`,
+      name: rawName,
+      folderName,
+      characterName,
+      enabled: isEnabled,
+      fullPath: modFullPath,
+      images,
+      coverPath,
+      iniFiles,
+      totalSize,
+      fileCount,
+      mtime,
+      birthtime,
+      metadata: {
+        author: metadata.author || '',
+        version: metadata.version || 'Version 1.0',
+        description: metadata.description || '',
+        checkTime: metadata.checkTime || new Date(mtime || Date.now()).toLocaleDateString(),
+        lastUpdated: metadata.lastUpdated || new Date(mtime || Date.now()).toLocaleDateString(),
+        ...metadata
+      }
+    }
+  }
+
+  /**
+   * 保存 Mod 自定义元数据 (author, description 等)
+   */
+  public saveModMetadata(modFullPath: string, metadata: any): boolean {
+    if (!fs.existsSync(modFullPath)) return false
+    try {
+      const metaPath = path.join(modFullPath, 'mod.json')
+      let current: any = {}
+      if (fs.existsSync(metaPath)) {
+        try {
+          current = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+        } catch (_) {}
+      }
+      const merged = { ...current, ...metadata, updatedAt: new Date().toISOString() }
+      fs.writeFileSync(metaPath, JSON.stringify(merged, null, 2), 'utf8')
+      return true
+    } catch (err) {
+      console.error('Failed to save mod.json:', err)
+      return false
+    }
+  }
+
+  /**
+   * 设置指定图片为封面
+   */
+  public setAsCoverImage(modFullPath: string, imagePath: string): boolean {
+    if (!fs.existsSync(modFullPath) || !fs.existsSync(imagePath)) return false
+    try {
+      const ext = path.extname(imagePath)
+      const targetPath = path.join(modFullPath, `preview${ext}`)
+      if (imagePath !== targetPath) {
+        fs.copyFileSync(imagePath, targetPath)
+      }
+      return true
+    } catch (err) {
+      console.error('Failed to set cover image:', err)
+      return false
+    }
+  }
+
+  /**
+   * 删除图片
+   */
+  public deleteModImage(imagePath: string): boolean {
+    if (!fs.existsSync(imagePath)) return false
+    try {
+      fs.unlinkSync(imagePath)
+      return true
+    } catch (err) {
+      console.error('Failed to delete image:', err)
+      return false
+    }
+  }
+
+  /**
+   * 读取 INI 文件文本
+   */
+  public readIniFile(iniPath: string): string {
+    if (!fs.existsSync(iniPath)) return ''
+    try {
+      return fs.readFileSync(iniPath, 'utf8')
+    } catch (_) {
+      return ''
+    }
+  }
+
+  /**
+   * 写入 INI 文件文本
+   */
+  public saveIniFile(iniPath: string, content: string): boolean {
+    try {
+      fs.writeFileSync(iniPath, content, 'utf8')
+      return true
+    } catch (err) {
+      console.error('Failed to save ini file:', err)
+      return false
+    }
   }
 }

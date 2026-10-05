@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog } from 'electron'
 import path from 'path'
 import { ConfigStore } from '../core/config-store'
 import { ModEngine } from '../core/mod-engine'
@@ -122,6 +122,34 @@ function setupIpc() {
       gameLauncher.triggerReloadF10().catch(() => {})
     }
     return res
+  })
+
+  ipcMain.handle('mods:getDetails', (_, modFullPath: string) => {
+    return modEngine.getModDetails(modFullPath)
+  })
+
+  ipcMain.handle('mods:saveMetadata', (_, modFullPath: string, metadata: any) => {
+    return modEngine.saveModMetadata(modFullPath, metadata)
+  })
+
+  ipcMain.handle('mods:openFolder', (_, modFullPath: string) => {
+    return shell.openPath(modFullPath)
+  })
+
+  ipcMain.handle('mods:setAsCover', (_, modFullPath: string, imagePath: string) => {
+    return modEngine.setAsCoverImage(modFullPath, imagePath)
+  })
+
+  ipcMain.handle('mods:deleteImage', (_, imagePath: string) => {
+    return modEngine.deleteModImage(imagePath)
+  })
+
+  ipcMain.handle('mods:readIni', (_, iniPath: string) => {
+    return modEngine.readIniFile(iniPath)
+  })
+
+  ipcMain.handle('mods:saveIni', (_, iniPath: string, content: string) => {
+    return modEngine.saveIniFile(iniPath, content)
   })
 
   // Presets

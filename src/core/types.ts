@@ -33,6 +33,29 @@ export interface ModItem {
   mtime: number
 }
 
+export interface ModDetailedInfo {
+  id: string
+  name: string
+  folderName: string
+  characterName: string
+  enabled: boolean
+  fullPath: string
+  images: { path: string; name: string; isCover: boolean }[]
+  coverPath: string | null
+  iniFiles: { name: string; fullPath: string; size: number }[]
+  totalSize: number
+  fileCount: number
+  mtime: number
+  birthtime: number
+  metadata: {
+    author?: string
+    version?: string
+    description?: string
+    checkTime?: string
+    lastUpdated?: string
+  }
+}
+
 export interface PresetModRef {
   characterName: string
   modName: string

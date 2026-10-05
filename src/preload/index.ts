@@ -10,6 +10,15 @@ const flairxApi = {
   scanMods: () => ipcRenderer.invoke('mods:scan'),
   toggleMod: (characterName: string, modName: string, enabled: boolean) =>
     ipcRenderer.invoke('mods:toggle', characterName, modName, enabled),
+  getModDetails: (modFullPath: string) => ipcRenderer.invoke('mods:getDetails', modFullPath),
+  saveModMetadata: (modFullPath: string, metadata: any) =>
+    ipcRenderer.invoke('mods:saveMetadata', modFullPath, metadata),
+  openModFolder: (modFullPath: string) => ipcRenderer.invoke('mods:openFolder', modFullPath),
+  setAsCoverImage: (modFullPath: string, imagePath: string) =>
+    ipcRenderer.invoke('mods:setAsCover', modFullPath, imagePath),
+  deleteModImage: (imagePath: string) => ipcRenderer.invoke('mods:deleteImage', imagePath),
+  readIni: (iniPath: string) => ipcRenderer.invoke('mods:readIni', iniPath),
+  saveIni: (iniPath: string, content: string) => ipcRenderer.invoke('mods:saveIni', iniPath, content),
 
   // Presets
   getPresets: () => ipcRenderer.invoke('presets:get'),
