@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs'
-import { getCharactersForGame } from './characters-data'
+import { getCharactersForGame, normalizeCharacterName } from './characters-data'
 import { resolve7zaPath, resolveUnrarPath, verifyArchiveMagic, identifyModRoot } from './gamebanana-service'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -121,7 +121,8 @@ export class ImportEngine {
       return { success: false, error: `Mod 存放根目录不存在: ${modFolderPath}` }
     }
 
-    const charDir = path.join(modFolderPath, targetCharName)
+    const canonicalChar = normalizeCharacterName(targetCharName)
+    const charDir = path.join(modFolderPath, canonicalChar)
     if (!fs.existsSync(charDir)) {
       try {
         fs.mkdirSync(charDir, { recursive: true })

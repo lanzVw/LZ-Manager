@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { ModItem, ModDetailedInfo } from './types'
 import { PersistBridgeManager } from './persist-bridge'
+import { normalizeCharacterName } from './characters-data'
 
 export class ModEngine {
   private modFolderPath: string
@@ -158,6 +159,7 @@ export class ModEngine {
         const charName = charDirent.name
         if (charName.startsWith('.') || charName === 'System Volume Information') continue
 
+        const canonicalName = normalizeCharacterName(charName, gameId)
         const charPath = path.join(this.modFolderPath, charName)
         let avatarPath: string | null = null
 
@@ -170,25 +172,29 @@ export class ModEngine {
           }
         }
 
-        // 2. 从 QAQM 系统资源池检索
+        // 2. 从 QAQM 系统资源池检索（同时尝试规范名与原始名）
         if (!avatarPath && foundQaqmBase && gameId) {
           const gameFolders = [gameId, gameId.toLowerCase()]
-          if (gameId === 'zzz') gameFolders.push('zzz')
-          if (gameId === 'genshin' || gameId === '8552') gameFolders.push('genshin-impact')
+          if (gameId === 'zzz' || gameId === '19567') gameFolders.push('zzz')
+          if (gameId === 'genshin' || gameId === '8552') gameFolders.push('genshin-impact', 'genshin')
           if (gameId === 'hsr' || gameId === '18366') gameFolders.push('honkai-star-rail')
-          if (gameId === 'wuwa' || gameId === '20357') gameFolders.push('wuthering-waves')
+          if (gameId === 'wuwa' || gameId === '20357') gameFolders.push('wuthering-waves', 'wuwa')
           if (gameId === 'endfield' || gameId === '21842') gameFolders.push('endfield')
 
+          const candidateNames = Array.from(new Set([canonicalName, charName]))
           for (const gf of gameFolders) {
-            const qCharDir = path.join(foundQaqmBase, gf, charName)
-            if (fs.existsSync(qCharDir)) {
-              for (const ext of exts) {
-                const qp = path.join(qCharDir, ext)
-                if (fs.existsSync(qp)) {
-                  avatarPath = qp
-                  break
+            for (const cn of candidateNames) {
+              const qCharDir = path.join(foundQaqmBase, gf, cn)
+              if (fs.existsSync(qCharDir)) {
+                for (const ext of exts) {
+                  const qp = path.join(qCharDir, ext)
+                  if (fs.existsSync(qp)) {
+                    avatarPath = qp
+                    break
+                  }
                 }
               }
+              if (avatarPath) break
             }
             if (avatarPath) break
           }
@@ -224,11 +230,46 @@ export class ModEngine {
         }
 
         if (avatarPath) {
+          result[canonicalName] = avatarPath
           result[charName] = avatarPath
         }
       }
     } catch (err) {
       console.error('Error scanning character avatars:', err)
+    }
+
+    // 4. 补充 QAQM 全局官方角色图鉴头像（覆盖尚未在本地建文件夹但已在官方图鉴的角色）
+    if (foundQaqmBase && gameId) {
+      try {
+        const gameFolders = [gameId, gameId.toLowerCase()]
+        if (gameId === 'zzz' || gameId === '19567') gameFolders.push('zzz')
+        if (gameId === 'genshin' || gameId === '8552') gameFolders.push('genshin-impact', 'genshin')
+        if (gameId === 'hsr' || gameId === '18366') gameFolders.push('honkai-star-rail')
+        if (gameId === 'wuwa' || gameId === '20357') gameFolders.push('wuthering-waves', 'wuwa')
+        if (gameId === 'endfield' || gameId === '21842') gameFolders.push('endfield')
+
+        for (const gf of gameFolders) {
+          const qGameDir = path.join(foundQaqmBase, gf)
+          if (fs.existsSync(qGameDir)) {
+            const qEntries = fs.readdirSync(qGameDir, { withFileTypes: true })
+            for (const qe of qEntries) {
+              if (!qe.isDirectory()) continue
+              const rawName = qe.name
+              const canonicalName = normalizeCharacterName(rawName, gameId)
+              if (!result[canonicalName]) {
+                const qCharDir = path.join(qGameDir, rawName)
+                for (const ext of exts) {
+                  const qp = path.join(qCharDir, ext)
+                  if (fs.existsSync(qp)) {
+                    result[canonicalName] = qp
+                    break
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
     }
 
     return result

@@ -8,7 +8,7 @@ const { execFile } = require("child_process");
 const { promisify } = require("util");
 
 const execFileAsync = promisify(execFile);
-const { getCharactersForGame } = require("./characters-data");
+import { getCharactersForGame, normalizeCharacterName } from "./characters-data";
 
 /**
  * P0 Verified Exact GameBanana Game ID Mappings
@@ -1196,7 +1196,14 @@ async function installMod({
   if (!downloadUrl) throw new Error("下载链接不能为空");
   if (!targetParentDir) throw new Error("目标安装目录不能为空");
 
-  fs.mkdirSync(targetParentDir, { recursive: true });
+  // 严格归一化角色目录名称（杜绝因非官方翻译或带括号别名导致的文件夹重复）
+  const parentBase = path.basename(targetParentDir);
+  const normalizedBase = typeof normalizeCharacterName === 'function' ? normalizeCharacterName(parentBase) : parentBase;
+  const safeTargetParentDir = normalizedBase !== parentBase
+    ? path.join(path.dirname(targetParentDir), normalizedBase)
+    : targetParentDir;
+
+  fs.mkdirSync(safeTargetParentDir, { recursive: true });
 
   const tempBase = path.join(os.tmpdir(), "qaqman_gb_downloads");
   fs.mkdirSync(tempBase, { recursive: true });
@@ -1263,11 +1270,11 @@ async function installMod({
     // 5. Zero-overwrite installation named `DISABLED_<SafeName>`
     const safeModName = sanitizeFileName(modName);
     const baseFolderName = `DISABLED_${safeModName}`;
-    let targetModDir = path.join(targetParentDir, baseFolderName);
+    let targetModDir = path.join(safeTargetParentDir, baseFolderName);
     let counter = 1;
 
     while (fs.existsSync(targetModDir)) {
-      targetModDir = path.join(targetParentDir, `${baseFolderName} (${counter})`);
+      targetModDir = path.join(safeTargetParentDir, `${baseFolderName} (${counter})`);
       counter++;
     }
 

@@ -1,13 +1,7 @@
 /**
- * LZ Manager - GameBanana 100% Official Verified Character Database
- * Contains full character roster with Chinese names, English canonical names,
- * and GameBanana Category IDs verified directly against the GameBanana Live API:
- * - Zenless Zone Zero (19567)
- * - Genshin Impact (8552)
- * - Honkai: Star Rail (18366)
- * - Wuthering Waves (20357)
- * - Arknights: Endfield (21842)
- * - Honkai Impact 3rd (10349)
+ * LZ Manager - 官方认证国服统一角色标准数据库 (Canonical Official Character Database)
+ * 严格以国服官方角色名称为准 (CN Server Official Names)
+ * 所有别名 (Alias) / 翻译变体均经由 normalizeCharacterName 规范化归一，杜绝一切重复条目与重复文件夹。
  */
 
 const CHARACTERS_BY_GAME = {
@@ -21,7 +15,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "lumine",
-      "name": "荧 (女主)",
+      "name": "女主",
       "enName": "Lumine",
       "gbCatId": 19763,
       "pinyin": "y"
@@ -49,7 +43,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "arlecchino",
-      "name": "阿蕾奇诺 (仆人)",
+      "name": "阿蕾奇诺",
       "enName": "Arlecchino",
       "gbCatId": 28961,
       "pinyin": "alqn"
@@ -84,7 +78,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "aether",
-      "name": "空 (男主)",
+      "name": "男主",
       "enName": "Aether",
       "gbCatId": 19510,
       "pinyin": "k"
@@ -746,7 +740,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "stelle",
-      "name": "星 (女开拓者)",
+      "name": "女主",
       "enName": "Stelle",
       "gbCatId": 22826,
       "pinyin": "x"
@@ -760,7 +754,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "topaz",
-      "name": "托帕",
+      "name": "托帕&账账",
       "enName": "Topaz",
       "gbCatId": 25643,
       "pinyin": "tp"
@@ -774,14 +768,14 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "march7th",
-      "name": "三月七",
+      "name": "三月七-存护",
       "enName": "March 7th",
       "gbCatId": 22815,
       "pinyin": "syq"
     },
     {
       "id": "ruanmei",
-      "name": "阮·梅",
+      "name": "阮梅",
       "enName": "Ruan Mei",
       "gbCatId": 26948,
       "pinyin": "rm"
@@ -809,7 +803,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "caelus",
-      "name": "穹 (男开拓者)",
+      "name": "男主",
       "enName": "Caelus",
       "gbCatId": 22825,
       "pinyin": "q"
@@ -844,21 +838,21 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "castorice",
-      "name": "卡斯托丽丝",
+      "name": "遐蝶",
       "enName": "Castorice",
       "gbCatId": 36361,
       "pinyin": "kstls"
     },
     {
       "id": "hyacine",
-      "name": "风信子",
+      "name": "风堇",
       "enName": "Hyacine",
       "gbCatId": 36978,
       "pinyin": "fxz"
     },
     {
       "id": "cyrene",
-      "name": "塞壬",
+      "name": "昔涟",
       "enName": "Cyrene",
       "gbCatId": 40903,
       "pinyin": "sr"
@@ -893,7 +887,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "phainon",
-      "name": "法伊农",
+      "name": "白厄",
       "enName": "Phainon",
       "gbCatId": 37300,
       "pinyin": "fyn"
@@ -914,7 +908,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "evernight",
-      "name": "永夜",
+      "name": "长夜月",
       "enName": "Evernight",
       "gbCatId": 39800,
       "pinyin": "yy"
@@ -949,7 +943,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "fugue",
-      "name": "归忘之流萤/停云",
+      "name": "忘归人",
       "enName": "Fugue",
       "gbCatId": 33640,
       "pinyin": "gw"
@@ -963,7 +957,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "danhengil",
-      "name": "丹恒·饮月",
+      "name": "丹恒-饮月",
       "enName": "Dan Heng Imbibitor Lunae",
       "gbCatId": 23979,
       "pinyin": "dhyy"
@@ -1182,14 +1176,14 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "miyabi",
-      "name": "星见雅",
+      "name": "雅",
       "enName": "Hoshimi Miyabi",
       "gbCatId": 30579,
       "pinyin": "xjy"
     },
     {
       "id": "belle",
-      "name": "铃 (女主)",
+      "name": "女主",
       "enName": "Belle",
       "gbCatId": 30334,
       "pinyin": "l"
@@ -1238,14 +1232,14 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "yanagi",
-      "name": "月城柳",
+      "name": "柳",
       "enName": "Yanagi Tsukishiro",
       "gbCatId": 33018,
       "pinyin": "ycl"
     },
     {
       "id": "remielle",
-      "name": "雷米尔",
+      "name": "蕾米埃尔",
       "enName": "Remielle Dan",
       "gbCatId": 47714,
       "pinyin": "lme"
@@ -1308,7 +1302,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "yuzuha",
-      "name": "浮波柚叶",
+      "name": "柚叶",
       "enName": "Yuzuha Ukinami",
       "gbCatId": 38177,
       "pinyin": "fbyy"
@@ -1322,7 +1316,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "yeshunguang",
-      "name": "叶舜光",
+      "name": "叶瞬光",
       "enName": "Ye Shunguang",
       "gbCatId": 42116,
       "pinyin": "ysg"
@@ -1336,7 +1330,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "velina",
-      "name": "薇莉娜",
+      "name": "维琳娜",
       "enName": "Velina Airgid",
       "gbCatId": 46553,
       "pinyin": "wln"
@@ -1378,7 +1372,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "wise",
-      "name": "哲 (男主)",
+      "name": "男主",
       "enName": "Wise",
       "gbCatId": 30316,
       "pinyin": "z"
@@ -1406,7 +1400,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "yidhari",
-      "name": "伊德哈里",
+      "name": "伊德海莉",
       "enName": "Yidhari Murphy",
       "gbCatId": 40880,
       "pinyin": "ydhl"
@@ -1420,7 +1414,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "lucia",
-      "name": "露西亚",
+      "name": "卢西娅",
       "enName": "Lucia Elowen",
       "gbCatId": 40361,
       "pinyin": "lxy"
@@ -1455,7 +1449,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "orphie",
-      "name": "奥菲",
+      "name": "奥菲丝&鬼火",
       "enName": "Orphie Magnusson",
       "gbCatId": 39946,
       "pinyin": "af"
@@ -1483,7 +1477,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "cissia",
-      "name": "茜西亚",
+      "name": "希希芙",
       "enName": "Cissia",
       "gbCatId": 44398,
       "pinyin": "xxy"
@@ -1497,7 +1491,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "promeia",
-      "name": "普罗梅亚",
+      "name": "普罗米娅",
       "enName": "Promeia",
       "gbCatId": 45448,
       "pinyin": "plmy"
@@ -1518,21 +1512,21 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "manato",
-      "name": "间人",
+      "name": "真斗",
       "enName": "Komano Manato",
       "gbCatId": 40360,
       "pinyin": "jr"
     },
     {
       "id": "norma",
-      "name": "诺玛",
+      "name": "诺姆",
       "enName": "Norma Hollowell",
       "gbCatId": 46552,
       "pinyin": "nm"
     },
     {
       "id": "harumasa",
-      "name": "浅羽悠真",
+      "name": "悠真",
       "enName": "Asaba Harumasa",
       "gbCatId": 34036,
       "pinyin": "qbyz"
@@ -1553,14 +1547,14 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "banyue",
-      "name": "伴月",
+      "name": "般岳",
       "enName": "Banyue",
       "gbCatId": 41775,
       "pinyin": "by"
     },
     {
       "id": "pyrois",
-      "name": "皮洛斯",
+      "name": "佩洛伊斯",
       "enName": "Pyrois",
       "gbCatId": 46646,
       "pinyin": "pls"
@@ -1604,7 +1598,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "female_rover",
-      "name": "漂泊者 (女主)",
+      "name": "女主",
       "enName": "Rover Female",
       "gbCatId": 30250,
       "pinyin": "pbz"
@@ -1653,14 +1647,14 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "male_rover",
-      "name": "漂泊者 (男主)",
+      "name": "男主",
       "enName": "Rover Male",
       "gbCatId": 30249,
       "pinyin": "pbz"
     },
     {
       "id": "cartethyia",
-      "name": "卡特西娅",
+      "name": "卡提希娅",
       "enName": "Cartethyia",
       "gbCatId": 37392,
       "pinyin": "ktxy"
@@ -1688,7 +1682,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "aemeath",
-      "name": "艾蜜斯",
+      "name": "爱弥斯",
       "enName": "Aemeath",
       "gbCatId": 43048,
       "pinyin": "ams"
@@ -1702,7 +1696,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "iuno",
-      "name": "朱诺",
+      "name": "尤诺",
       "enName": "Iuno",
       "gbCatId": 39624,
       "pinyin": "zn"
@@ -1723,7 +1717,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "lupa",
-      "name": "卢帕",
+      "name": "露帕",
       "enName": "Lupa",
       "gbCatId": 37891,
       "pinyin": "lp"
@@ -1744,7 +1738,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "lynae",
-      "name": "莱奈",
+      "name": "琳奈",
       "enName": "Lynae",
       "gbCatId": 41929,
       "pinyin": "ln"
@@ -1765,7 +1759,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "galbrena",
-      "name": "迦布丽娜",
+      "name": "嘉贝莉娜",
       "enName": "Galbrena",
       "gbCatId": 40281,
       "pinyin": "jbln"
@@ -1793,7 +1787,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "yangyang",
-      "name": "泱泱",
+      "name": "秧秧",
       "enName": "Yangyang",
       "gbCatId": 30246,
       "pinyin": "yy"
@@ -1935,7 +1929,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "endministrator_f",
-      "name": "管理员 (女)",
+      "name": "女主",
       "enName": "Endministrator (F)",
       "gbCatId": 42719,
       "pinyin": "glyn"
@@ -1949,7 +1943,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "zhuangfangyi",
-      "name": "庄芳仪",
+      "name": "庄方宜",
       "enName": "Zhuang Fangyi",
       "gbCatId": 44984,
       "pinyin": "zfy"
@@ -1998,7 +1992,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "mifu",
-      "name": "米芙",
+      "name": "弭弗",
       "enName": "Mi Fu",
       "gbCatId": 46272,
       "pinyin": "mf"
@@ -2012,7 +2006,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "liino",
-      "name": "莉诺",
+      "name": "梨诺",
       "enName": "Liino",
       "gbCatId": 48075,
       "pinyin": "ln"
@@ -2033,7 +2027,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "akekuri",
-      "name": "阿克库里",
+      "name": "秋栗",
       "enName": "Akekuri",
       "gbCatId": 42721,
       "pinyin": "akkl"
@@ -2054,7 +2048,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "endministrator_m",
-      "name": "管理员 (男)",
+      "name": "男主",
       "enName": "Endministrator (M)",
       "gbCatId": 42720,
       "pinyin": "glyn"
@@ -2075,14 +2069,14 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "ardelia",
-      "name": "阿尔黛莉亚",
+      "name": "艾尔黛拉",
       "enName": "Ardelia",
       "gbCatId": 42725,
       "pinyin": "aedly"
     },
     {
       "id": "pogranichnik",
-      "name": "边境哨卫",
+      "name": "骏卫",
       "enName": "Pogranichnik",
       "gbCatId": 42738,
       "pinyin": "bjsw"
@@ -2096,7 +2090,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "estella",
-      "name": "艾丝黛拉",
+      "name": "埃特拉",
       "enName": "Estella",
       "gbCatId": 42731,
       "pinyin": "asdl"
@@ -2110,7 +2104,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "camille",
-      "name": "卡米尔",
+      "name": "卡繆",
       "enName": "Camille",
       "gbCatId": 46924,
       "pinyin": "kme"
@@ -2131,7 +2125,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "catcher",
-      "name": "捕手",
+      "name": "卡契尔",
       "enName": "Catcher",
       "gbCatId": 42727,
       "pinyin": "bs"
@@ -2173,6 +2167,110 @@ const GAME_KEY_TO_ID = {
   hi3: 10349
 };
 
+const CN_NAME_ALIASES = {
+  "星见雅": "雅",
+  "铃 (女主)": "女主",
+  "铃(女主)": "女主",
+  "铃": "女主",
+  "belle": "女主",
+  "哲 (男主)": "男主",
+  "哲(男主)": "男主",
+  "哲": "男主",
+  "wise": "男主",
+  "月城柳": "柳",
+  "雷米尔": "蕾米埃尔",
+  "浮波柚叶": "柚叶",
+  "叶舜光": "叶瞬光",
+  "薇莉娜": "维琳娜",
+  "浅羽悠真": "悠真",
+  "伊德哈里": "伊德海莉",
+  "露西亚": "卢西娅",
+  "茜西亚": "希希芙",
+  "普罗梅亚": "普罗米娅",
+  "间人": "真斗",
+  "诺玛": "诺姆",
+  "伴月": "般岳",
+  "皮洛斯": "佩洛伊斯",
+  "奥菲": "奥菲丝&鬼火",
+  "零号安比": "零号·安比",
+  "零号·安比（安比）": "零号·安比",
+  "管理员 (女)": "女主",
+  "管理员(女)": "女主",
+  "管理员 (男)": "男主",
+  "管理员(男)": "男主",
+  "管理员女": "女主",
+  "管理员男": "男主",
+  "女管理员": "女主",
+  "男管理员": "男主",
+  "庄芳仪": "庄方宜",
+  "米芙": "弭弗",
+  "莉诺": "梨诺",
+  "阿克库里": "秋栗",
+  "阿尔黛莉亚": "艾尔黛拉",
+  "边境哨卫": "骏卫",
+  "卡米尔": "卡繆",
+  "卡缪": "卡繆",
+  "捕手": "卡契尔",
+  "艾丝黛拉": "埃特拉",
+  "星 (女开拓者)": "女主",
+  "星(女开拓者)": "女主",
+  "穹 (男开拓者)": "男主",
+  "穹(男开拓者)": "男主",
+  "女开拓者": "女主",
+  "男开拓者": "男主",
+  "开拓者 (女)": "女主",
+  "开拓者 (男)": "男主",
+  "开拓者(女)": "女主",
+  "开拓者(男)": "男主",
+  "开拓者女": "女主",
+  "开拓者男": "男主",
+  "星": "女主",
+  "穹": "男主",
+  "阮·梅": "阮梅",
+  "托帕": "托帕&账账",
+  "三月七": "三月七-存护",
+  "三月七·存护": "三月七-存护",
+  "三月七·巡猎": "三月七-巡猎",
+  "卡斯托丽丝": "遐蝶",
+  "风信子": "风堇",
+  "塞壬": "昔涟",
+  "法伊农": "白厄",
+  "永夜": "长夜月",
+  "归忘之流萤/停云": "忘归人",
+  "归忘之流萤": "忘归人",
+  "丹恒·饮月": "丹恒-饮月",
+  "漂泊者 (女主)": "女主",
+  "漂泊者(女主)": "女主",
+  "漂泊者 (男主)": "男主",
+  "漂泊者(男主)": "男主",
+  "漂泊者女": "女主",
+  "漂泊者男": "男主",
+  "漂泊者(女)": "女主",
+  "漂泊者(男)": "男主",
+  "女漂泊者": "女主",
+  "男漂泊者": "男主",
+  "卡特西娅": "卡提希娅",
+  "艾蜜斯": "爱弥斯",
+  "朱诺": "尤诺",
+  "卢帕": "露帕",
+  "莱奈": "琳奈",
+  "迦布丽娜": "嘉贝莉娜",
+  "泱泱": "秧秧",
+  "荧 (女主)": "女主",
+  "荧(女主)": "女主",
+  "空 (男主)": "男主",
+  "空(男主)": "男主",
+  "旅行者 (女)": "女主",
+  "旅行者 (男)": "男主",
+  "旅行者(女)": "女主",
+  "旅行者(男)": "男主",
+  "女旅行者": "女主",
+  "男旅行者": "男主",
+  "阿蕾奇诺 (仆人)": "阿蕾奇诺",
+  "阿蕾奇诺(仆人)": "阿蕾奇诺",
+  "仆人": "阿蕾奇诺"
+};
+
 function resolveGameId(val) {
   if (typeof val === "number" && !isNaN(val)) return val;
   if (!val) return 19567;
@@ -2186,8 +2284,36 @@ function getCharactersForGame(gameId) {
   return CHARACTERS_BY_GAME[resolved] || CHARACTERS_BY_GAME[19567] || [];
 }
 
+/**
+ * 将任意角色名称（包含 GameBanana 翻译、非正式译名、带括号别名等）严格统一为国服官方标准角色名
+ */
+function normalizeCharacterName(rawName, gameId) {
+  if (!rawName || typeof rawName !== 'string') return '';
+  const trimmed = rawName.trim();
+  if (!trimmed) return '';
+
+  // 1. 优先查显式别名字典
+  if (CN_NAME_ALIASES[trimmed]) {
+    return CN_NAME_ALIASES[trimmed];
+  }
+
+  // 2. 移除尾随的多余括号说明，如 "xxx (女主)" -> "xxx"
+  // 若剥离括号后能够匹配别名字典则转换
+  const bracketMatch = trimmed.match(/^(.+?)\s*[\(（][^\)）]+[\)）]$/);
+  if (bracketMatch) {
+    const core = bracketMatch[1].trim();
+    if (CN_NAME_ALIASES[core]) {
+      return CN_NAME_ALIASES[core];
+    }
+  }
+
+  return trimmed;
+}
+
 export {
   CHARACTERS_BY_GAME,
   getCharactersForGame,
-  resolveGameId
-}
+  resolveGameId,
+  normalizeCharacterName,
+  CN_NAME_ALIASES
+};

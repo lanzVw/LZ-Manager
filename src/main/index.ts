@@ -5,7 +5,7 @@ import { ConfigStore } from '../core/config-store'
 import { ModEngine } from '../core/mod-engine'
 import { PresetEngine } from '../core/preset-engine'
 import { GameLauncher } from '../core/game-launcher'
-import { getCharactersForGame } from '../core/characters-data'
+import { getCharactersForGame, normalizeCharacterName } from '../core/characters-data'
 import { searchMods, getModDetails, installMod } from '../core/gamebanana-service'
 import { PersistBridgeManager } from '../core/persist-bridge'
 
@@ -229,16 +229,28 @@ function setupIpc() {
     const g = configStore.getActiveGame()
     if (!g) return {}
     modEngine.setModFolderPath(g.modFolderPath)
-    const result = modEngine.scanMods()
+    const rawLocalResult = modEngine.scanMods()
+    const result: Record<string, any[]> = {}
 
-    // 合并游戏官方全量角色图鉴，确保尚未在本地建目录的角色也能在“全部角色”筛选中显示
+    // 1. 扫描本地文件夹并统一归一化为国服官方标准名（消除因别名并存产生的重复条目）
+    for (const [rawCharName, mods] of Object.entries(rawLocalResult)) {
+      const canonicalName = normalizeCharacterName(rawCharName, g.id)
+      if (!result[canonicalName]) {
+        result[canonicalName] = [...mods]
+      } else {
+        result[canonicalName].push(...mods)
+      }
+    }
+
+    // 2. 合并游戏官方全量角色图鉴，确保尚未在本地建目录的角色也能在“全部角色”筛选中显示
     try {
       const roster = getCharactersForGame(g.id)
       if (Array.isArray(roster)) {
         for (const item of roster) {
           if (item.id === 'all' || !item.name) continue
-          if (!result[item.name]) {
-            result[item.name] = []
+          const canonicalName = normalizeCharacterName(item.name, g.id)
+          if (!result[canonicalName]) {
+            result[canonicalName] = []
           }
         }
       }
@@ -250,7 +262,8 @@ function setupIpc() {
   ipcMain.handle('mods:openCharacterFolder', (_, charName: string) => {
     const g = configStore.getActiveGame()
     if (!g || !g.modFolderPath) return { success: false, error: '未选择游戏或未配置Mod路径' }
-    const charPath = path.join(g.modFolderPath, charName)
+    const canonicalName = normalizeCharacterName(charName, g.id)
+    const charPath = path.join(g.modFolderPath, canonicalName)
     if (!fs.existsSync(charPath)) {
       try {
         fs.mkdirSync(charPath, { recursive: true })
@@ -451,10 +464,25 @@ function setupIpc() {
 
   ipcMain.handle('gamebanana:install', async (event, params: any) => {
     const g = configStore.getActiveGame()
-    const targetParentDir = params.targetParentDir || (g ? g.modFolderPath : '')
+    let targetParentDir = params.targetParentDir
+    if (!targetParentDir && g && g.modFolderPath) {
+      if (params.characterName) {
+        const canonicalChar = normalizeCharacterName(params.characterName, g.id)
+        targetParentDir = path.join(g.modFolderPath, canonicalChar)
+      } else {
+        targetParentDir = g.modFolderPath
+      }
+    } else if (targetParentDir && g && g.modFolderPath) {
+      const rel = path.relative(g.modFolderPath, targetParentDir)
+      if (rel && !rel.startsWith('..')) {
+        const parts = rel.split(path.sep)
+        parts[0] = normalizeCharacterName(parts[0], g.id)
+        targetParentDir = path.join(g.modFolderPath, ...parts)
+      }
+    }
     return installMod({
       ...params,
-      targetParentDir,
+      targetParentDir: targetParentDir || (g ? g.modFolderPath : ''),
       onProgress: (p: any) => {
         event.sender.send('gamebanana:installProgress', p)
       }
