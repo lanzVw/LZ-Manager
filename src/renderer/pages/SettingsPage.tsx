@@ -159,31 +159,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 select-none porcelain-scrollbar">
+    <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 select-none porcelain-scrollbar-light">
       <div className="max-w-3xl mx-auto w-full space-y-6">
         {/* Header */}
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center space-x-2.5 tracking-wide">
-            <Settings className="w-5 h-5 text-sky-400" />
+          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2.5 tracking-wide">
+            <Settings className="w-5 h-5 text-blue-600" />
             <span>游戏环境与路径设置 · {activeGame?.name}</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             配置当前游戏的可执行文件、Mods 存放目录以及 XXMI / 3DMigoto 加载器路径
           </p>
         </div>
 
         {/* 1. 3DMigoto / XXMI 运行环境诊断与一键部署 */}
-        <div className="bg-[#0c1426]/75 border border-white/[0.08] backdrop-blur-xl rounded-3xl p-5 space-y-4 shadow-xl">
+        <div className="bg-white border border-blue-100 rounded-3xl p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-2xl bg-blue-500/15 text-sky-400 border border-blue-400/20">
+              <div className="p-2 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200">
                 <Wrench className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
                   <span>3DMigoto / XXMI 运行环境健康度诊断</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5">
                   自动检查 DirectX 运行库挂载、DLL 依赖与 Mods 映射
                 </p>
               </div>
@@ -192,10 +192,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <button
               onClick={loadEnvironmentStatus}
               disabled={envChecking}
-              className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 hover:text-white border border-white/10 hover:border-sky-400/40 transition active:scale-95 shadow-sm"
+              className="p-2 rounded-xl bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-300 transition active:scale-95 shadow-sm"
               title="刷新环境诊断"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${envChecking ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${envChecking ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
@@ -203,63 +203,63 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           {envStatus && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
               {/* Game Exe */}
-              <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-between">
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-mono text-slate-400 uppercase">GAME EXECUTABLE</span>
-                  <div className="text-xs font-mono font-bold text-slate-200 mt-0.5 truncate max-w-[190px]">
+                  <div className="text-xs font-mono font-bold text-slate-800 mt-0.5 truncate max-w-[190px]">
                     {envStatus.gamePath ? envStatus.gamePath.split(/[/\\]/).pop() : '未配置'}
                   </div>
                 </div>
                 {envStatus.gameExeExists ? (
-                  <span className="flex items-center space-x-1 text-xs text-sky-300 font-semibold bg-blue-500/15 px-2.5 py-0.5 rounded-full border border-blue-400/20">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="flex items-center space-x-1 text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
                     <span>存在</span>
                   </span>
                 ) : (
-                  <span className="flex items-center space-x-1 text-xs text-rose-300 font-semibold bg-rose-500/15 px-2.5 py-0.5 rounded-full border border-rose-500/30">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                  <span className="flex items-center space-x-1 text-xs text-rose-600 font-semibold bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
                     <span>缺失</span>
                   </span>
                 )}
               </div>
 
               {/* 3DMigoto DLL */}
-              <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-between">
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-mono text-slate-400 uppercase">INJECTION DLL</span>
-                  <div className="text-xs font-mono font-bold text-slate-200 mt-0.5">
+                  <div className="text-xs font-mono font-bold text-slate-800 mt-0.5">
                     d3d11.dll / dxgi.dll
                   </div>
                 </div>
                 {envStatus.d3d11Exists || envStatus.dxgiExists ? (
-                  <span className="flex items-center space-x-1 text-xs text-sky-300 font-semibold bg-blue-500/15 px-2.5 py-0.5 rounded-full border border-blue-400/20">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="flex items-center space-x-1 text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
                     <span>已挂载</span>
                   </span>
                 ) : envStatus.xxmiRuntimeExists ? (
-                  <span className="flex items-center space-x-1 text-xs text-sky-300 font-semibold bg-blue-500/15 px-2.5 py-0.5 rounded-full border border-blue-400/20">
-                    <Layers className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="flex items-center space-x-1 text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    <Layers className="w-3.5 h-3.5 text-blue-600" />
                     <span>XXMI独立</span>
                   </span>
                 ) : (
-                  <span className="flex items-center space-x-1 text-xs text-amber-300 font-semibold bg-amber-500/15 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="flex items-center space-x-1 text-xs text-amber-700 font-semibold bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                     <span>未挂载</span>
                   </span>
                 )}
               </div>
 
               {/* XXMI Runtime */}
-              <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-between">
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-mono text-slate-400 uppercase">XXMI RUNTIME</span>
-                  <div className="text-xs font-mono font-bold text-slate-200 mt-0.5 truncate max-w-[190px]">
+                  <div className="text-xs font-mono font-bold text-slate-800 mt-0.5 truncate max-w-[190px]">
                     {envStatus.xxmiRuntimePath ? envStatus.xxmiRuntimePath.split(/[/\\]/).pop() : '未检测到'}
                   </div>
                 </div>
                 {envStatus.xxmiRuntimeExists ? (
-                  <span className="flex items-center space-x-1 text-xs text-sky-300 font-semibold bg-blue-500/15 px-2.5 py-0.5 rounded-full border border-blue-400/20">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="flex items-center space-x-1 text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
                     <span>就绪</span>
                   </span>
                 ) : (
@@ -268,21 +268,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
 
               {/* Mod Directory */}
-              <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-between">
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-mono text-slate-400 uppercase">MOD FOLDER</span>
-                  <div className="text-xs font-mono font-bold text-slate-200 mt-0.5">
+                  <div className="text-xs font-mono font-bold text-slate-800 mt-0.5">
                     Mods 目录
                   </div>
                 </div>
                 {envStatus.modFolderExists ? (
-                  <span className="flex items-center space-x-1 text-xs text-sky-300 font-semibold bg-blue-500/15 px-2.5 py-0.5 rounded-full border border-blue-400/20">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="flex items-center space-x-1 text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
                     <span>有效</span>
                   </span>
                 ) : (
-                  <span className="flex items-center space-x-1 text-xs text-rose-300 font-semibold bg-rose-500/15 px-2.5 py-0.5 rounded-full border border-rose-500/30">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                  <span className="flex items-center space-x-1 text-xs text-rose-600 font-semibold bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
                     <span>不可用</span>
                   </span>
                 )}
@@ -291,9 +291,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
 
           {/* Deploy Action */}
-          <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-white/[0.06]">
+          <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100">
             <div className="text-xs font-sans">
-              <span className={`font-semibold ${envStatus?.ready ? 'text-sky-300' : 'text-amber-300'}`}>
+              <span className={`font-semibold ${envStatus?.ready ? 'text-blue-700' : 'text-amber-700'}`}>
                 {envStatus?.message || '正在检测环境状态...'}
               </span>
             </div>
@@ -301,41 +301,41 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <button
               onClick={handleAutoDeploy}
               disabled={deploying || !envStatus?.gameExeExists}
-              className="flex items-center justify-center space-x-2 px-4 py-2 rounded-2xl bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white text-xs font-bold shadow-md shadow-blue-900/30 transition active:scale-95 disabled:opacity-50"
+              className="flex items-center justify-center space-x-2 px-4 py-2 rounded-2xl bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white text-xs font-bold shadow-md shadow-blue-500/25 transition active:scale-95 disabled:opacity-50"
             >
-              <Sparkles className="w-4 h-4 fill-sky-200" />
+              <Sparkles className="w-4 h-4 fill-white" />
               <span>{deploying ? '正在部署运行库...' : '一键部署 / 同步 3DMigoto 运行库'}</span>
             </button>
           </div>
 
           {deployResult && (
-            <div className="p-3 rounded-2xl bg-black/40 border border-white/10 text-xs font-mono text-slate-200">
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-800">
               {deployResult}
             </div>
           )}
         </div>
 
         {/* 2. 保留 Mod 设定数值 (Persist Bridge 状态记忆) */}
-        <div className="bg-[#0c1426]/75 border border-white/[0.08] backdrop-blur-xl rounded-3xl p-5 space-y-4 shadow-xl">
+        <div className="bg-white border border-blue-100 rounded-3xl p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-2xl bg-blue-500/15 text-sky-400 border border-blue-400/20">
+              <div className="p-2 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200">
                 <Sliders className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
                   <span>保留 Mod 设定数值 (PERSIST BRIDGE)</span>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold font-mono ${
                       persistBridgeEnabled
-                        ? 'bg-blue-500/15 text-sky-300 border border-blue-400/20'
-                        : 'bg-white/[0.06] text-slate-400'
+                        ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                        : 'bg-slate-100 text-slate-500'
                     }`}
                   >
                     {persistBridgeEnabled ? '已开启' : '已停用'}
                   </span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5">
                   智能记忆服装、发型、开关等设定数值，Mod 停用/切换或重启游戏后无缝保留还原
                 </p>
               </div>
@@ -346,7 +346,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               type="button"
               onClick={() => handleTogglePersistBridge(!persistBridgeEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                persistBridgeEnabled ? 'bg-blue-600 shadow-md shadow-blue-900/50' : 'bg-white/10'
+                persistBridgeEnabled ? 'bg-blue-600 shadow-sm' : 'bg-slate-200'
               }`}
             >
               <span
@@ -357,12 +357,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </button>
           </div>
 
-          <div className="pt-2 border-t border-white/[0.06] space-y-4 text-xs">
+          <div className="pt-2 border-t border-slate-100 space-y-4 text-xs">
             {/* Cache size slider */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-slate-200">最近记忆 Mod 数量缓存上限</h4>
-                <p className="text-slate-400 text-[11px] mt-0.5">
+                <h4 className="font-semibold text-slate-800">最近记忆 Mod 数量缓存上限</h4>
+                <p className="text-slate-500 text-[11px] mt-0.5">
                   超出此数量时将自动清理最旧的历史 Mod 状态缓存 (建议 12 ~ 20)
                 </p>
               </div>
@@ -375,19 +375,19 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   step="1"
                   value={persistBridgeCacheSize}
                   onChange={(e) => handleChangeCacheSize(parseInt(e.target.value, 10))}
-                  className="w-32 accent-sky-400 cursor-pointer"
+                  className="w-32 accent-blue-600 cursor-pointer"
                 />
-                <span className="font-mono font-bold text-sky-300 bg-black/40 px-3 py-1 rounded-xl border border-white/10 min-w-[3.5rem] text-center">
+                <span className="font-mono font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200 min-w-[3.5rem] text-center">
                   {persistBridgeCacheSize === 0 ? '无上限' : `${persistBridgeCacheSize} 个`}
                 </span>
               </div>
             </div>
 
             {/* Clear cache action */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-white/[0.06]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
               <div>
-                <h4 className="font-semibold text-slate-200">清理 Persist Bridge 缓存</h4>
-                <p className="text-slate-400 text-[11px] mt-0.5">
+                <h4 className="font-semibold text-slate-800">清理 Persist Bridge 缓存</h4>
+                <p className="text-slate-500 text-[11px] mt-0.5">
                   清空 qaqm/cache 目录下的所有已停用 Mod 状态文件并重置激活列表
                 </p>
               </div>
@@ -396,7 +396,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 type="button"
                 onClick={handleClearPersistCache}
                 disabled={clearingCache}
-                className="flex items-center space-x-1.5 px-4 py-2 rounded-2xl bg-white/[0.05] hover:bg-rose-950/40 text-slate-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 transition disabled:opacity-50 active:scale-95 font-semibold shrink-0 shadow-sm"
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-2xl bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition disabled:opacity-50 active:scale-95 font-semibold shrink-0 shadow-sm"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{clearingCache ? '正在清理...' : '清空状态缓存'}</span>
@@ -404,7 +404,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
 
             {clearResult && (
-              <div className="p-3 rounded-2xl bg-black/40 border border-white/10 text-xs font-mono text-sky-200">
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-mono text-blue-700">
                 {clearResult}
               </div>
             )}
@@ -413,14 +413,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         {/* 3. 路径配置表单 */}
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="bg-[#0c1426]/75 border border-white/[0.08] backdrop-blur-xl rounded-3xl p-5 space-y-4 shadow-xl">
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-              <Folder className="w-4 h-4 text-sky-400" />
+          <div className="bg-white border border-blue-100 rounded-3xl p-5 space-y-4 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+              <Folder className="w-4 h-4 text-blue-600" />
               <span>路径详细配置</span>
             </h3>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 游戏本体可执行文件路径 (Game Executable)
               </label>
               <input
@@ -428,12 +428,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 value={gamePath}
                 onChange={(e) => setGamePath(e.target.value)}
                 placeholder="例如：E:\Games\ZenlessZoneZero\ZenlessZoneZero.exe"
-                className="w-full bg-white/[0.05] border border-white/10 focus:border-sky-400/60 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none font-mono transition"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none font-mono transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Mod 目录路径 (Mods Folder)
               </label>
               <input
@@ -441,12 +441,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 value={modFolderPath}
                 onChange={(e) => setModFolderPath(e.target.value)}
                 placeholder="例如：F:\XXMI\ZZMI\Mods"
-                className="w-full bg-white/[0.05] border border-white/10 focus:border-sky-400/60 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none font-mono transition"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none font-mono transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 XXMI / 3DMigoto 加载器路径 (Mod Loader)
               </label>
               <input
@@ -454,24 +454,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 value={modLoaderPath}
                 onChange={(e) => setModLoaderPath(e.target.value)}
                 placeholder="例如：F:\XXMI\Resources\Bin\XXMI Launcher.exe"
-                className="w-full bg-white/[0.05] border border-white/10 focus:border-sky-400/60 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none font-mono transition"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none font-mono transition"
               />
             </div>
           </div>
 
           {/* 4. 系统托盘常驻说明 */}
-          <div className="bg-[#0c1426]/60 border border-white/[0.06] rounded-3xl p-5 space-y-2 shadow-lg backdrop-blur-xl">
-            <h3 className="text-xs font-bold text-sky-300 flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-sky-400" />
+          <div className="bg-blue-50/60 border border-blue-100 rounded-3xl p-5 space-y-2 shadow-sm">
+            <h3 className="text-xs font-bold text-blue-700 flex items-center space-x-2">
+              <ShieldCheck className="w-4 h-4 text-blue-600" />
               <span>系统托盘常驻与游戏内即时响应</span>
             </h3>
-            <p className="text-xs text-slate-400 leading-relaxed font-sans">
-              LZ Manager 已默认开启系统托盘常驻。关闭窗口时程序将自动隐藏至右下角系统托盘，保持低内存占用（约 30MB），并在您按下 <kbd className="px-1.5 py-0.5 bg-white/[0.08] border border-white/10 rounded-lg text-sky-300 font-mono">Ctrl+F</kbd> 或手柄 <kbd className="px-1.5 py-0.5 bg-white/[0.08] border border-white/10 rounded-lg text-sky-300 font-mono">Back+Start</kbd> 时瞬间在游戏上层呼出悬浮窗。
+            <p className="text-xs text-slate-600 leading-relaxed font-sans">
+              LZ Manager 已默认开启系统托盘常驻。关闭窗口时程序将自动隐藏至右下角系统托盘，保持低内存占用（约 30MB），并在您按下 <kbd className="px-1.5 py-0.5 bg-white border border-blue-200 rounded-lg text-blue-700 font-mono">Ctrl+F</kbd> 或手柄 <kbd className="px-1.5 py-0.5 bg-white border border-blue-200 rounded-lg text-blue-700 font-mono">Back+Start</kbd> 时瞬间在游戏上层呼出悬浮窗。
             </p>
           </div>
 
           <div className="flex items-center justify-between pt-2">
-            <span className="text-xs font-mono text-slate-500">
+            <span className="text-xs font-mono text-slate-400">
               * 设置会自动与原版 QAQManager 配置文件保持双向兼容同步
             </span>
 
@@ -480,7 +480,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               className={`flex items-center space-x-2 px-6 py-2.5 rounded-2xl text-xs font-bold transition-all active:scale-95 ${
                 saved
                   ? 'bg-emerald-600 text-white shadow-md'
-                  : 'bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white shadow-md shadow-blue-900/30'
+                  : 'bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white shadow-md shadow-blue-500/25'
               }`}
             >
               {saved ? (
