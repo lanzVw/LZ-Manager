@@ -19,6 +19,8 @@ const flairxApi = {
   deleteModImage: (imagePath: string) => ipcRenderer.invoke('mods:deleteImage', imagePath),
   readIni: (iniPath: string) => ipcRenderer.invoke('mods:readIni', iniPath),
   saveIni: (iniPath: string, content: string) => ipcRenderer.invoke('mods:saveIni', iniPath, content),
+  inspectArchive: (archivePath: string) => ipcRenderer.invoke('mods:inspectArchive', archivePath),
+  importArchive: (params: any) => ipcRenderer.invoke('mods:importArchive', params),
 
   // Presets
   getPresets: () => ipcRenderer.invoke('presets:get'),

@@ -5,6 +5,8 @@ import { ModDetailPage } from './pages/ModDetailPage'
 import { GameBananaPage } from './pages/GameBananaPage'
 import { PresetsPage } from './pages/PresetsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ImportModal } from './components/ImportModal'
+import { UploadCloud } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('mods')
@@ -13,6 +15,8 @@ export default function App() {
   const [activeGame, setActiveGame] = useState<any>(null)
   const [modsData, setModsData] = useState<Record<string, any[]>>({})
   const [loadingMods, setLoadingMods] = useState<boolean>(false)
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false)
+  const [importTarget, setImportTarget] = useState<{ archivePath: string; inspection: any } | null>(null)
 
   // 1. 初始化读取配置
   const loadConfig = useCallback(async () => {
@@ -48,6 +52,56 @@ export default function App() {
       scanMods()
     }
   }, [activeGame, scanMods])
+
+  // 全局本地压缩包拖拽导入监听 (.zip / .7z / .rar)
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+        setIsDraggingFile(true)
+      }
+    }
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDraggingFile(false)
+    }
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDraggingFile(false)
+
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0]
+        const filePath = (file as any).path
+        if (filePath && filePath.match(/\.(zip|7z|rar)$/i)) {
+          try {
+            const inspection = await window.lz.inspectArchive(filePath)
+            if (inspection.valid) {
+              setImportTarget({ archivePath: filePath, inspection })
+            } else {
+              alert(`无法解析该压缩包: ${inspection.error}`)
+            }
+          } catch (err: any) {
+            alert(`检查压缩包失败: ${err.message}`)
+          }
+        }
+      }
+    }
+
+    window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('dragleave', handleDragLeave)
+    window.addEventListener('drop', handleDrop)
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('dragleave', handleDragLeave)
+      window.removeEventListener('drop', handleDrop)
+    }
+  }, [])
 
   // 切换游戏
   const handleSelectGame = async (gameId: string) => {
@@ -153,6 +207,35 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* Full-screen Drag Overlay */}
+      {isDraggingFile && (
+        <div className="fixed inset-0 z-50 bg-blue-950/80 backdrop-blur-md border-4 border-dashed border-blue-400 m-2 rounded-2xl flex flex-col items-center justify-center space-y-3 pointer-events-none animate-in fade-in duration-150">
+          <div className="p-4 rounded-full bg-blue-600/30 text-blue-300">
+            <UploadCloud className="w-12 h-12 animate-bounce" />
+          </div>
+          <h3 className="text-base font-bold text-white tracking-wide">
+            释放以导入 Mod 压缩包
+          </h3>
+          <p className="text-xs text-blue-300 font-mono">
+            支持 .zip / .7z / .rar 格式，自动识别角色与 INI 配置
+          </p>
+        </div>
+      )}
+
+      {/* Import Confirmation Modal */}
+      {importTarget && (
+        <ImportModal
+          archivePath={importTarget.archivePath}
+          inspection={importTarget.inspection}
+          onClose={() => setImportTarget(null)}
+          onSuccess={async (modPath) => {
+            setImportTarget(null)
+            await scanMods()
+            setSelectedModPath(modPath)
+          }}
+        />
+      )}
     </div>
   )
 }

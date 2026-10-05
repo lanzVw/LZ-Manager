@@ -37,11 +37,13 @@ const presetEngine = new PresetEngine(configStore, modEngine)
 
 import { OverlayManager } from './overlay-manager'
 import { ControllerService } from './controller-service'
+import { ImportEngine } from '../core/import-engine'
 
 const binariesDir = (app && app.isPackaged)
   ? path.join(process.resourcesPath, 'binaries')
   : path.join(__dirname, '../../resources/binaries')
 const gameLauncher = new GameLauncher(binariesDir)
+const importEngine = new ImportEngine()
 
 const preloadPath = path.join(__dirname, '../preload/index.cjs')
 const isDev = process.env.NODE_ENV === 'development'
@@ -151,6 +153,23 @@ function setupIpc() {
 
   ipcMain.handle('mods:saveIni', (_, iniPath: string, content: string) => {
     return modEngine.saveIniFile(iniPath, content)
+  })
+
+  ipcMain.handle('mods:inspectArchive', (_, archivePath: string) => {
+    const g = configStore.getActiveGame()
+    return importEngine.inspectArchive(archivePath, g ? g.id : 'zzz')
+  })
+
+  ipcMain.handle('mods:importArchive', async (_, params: any) => {
+    const g = configStore.getActiveGame()
+    const res = await importEngine.importArchive({
+      ...params,
+      modFolderPath: g ? g.modFolderPath : ''
+    })
+    if (res.success && params.enableImmediately) {
+      gameLauncher.triggerReloadF10().catch(() => {})
+    }
+    return res
   })
 
   // Presets
