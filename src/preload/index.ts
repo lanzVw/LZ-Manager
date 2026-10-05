@@ -44,6 +44,11 @@ const flairxApi = {
     return () => ipcRenderer.removeListener('gamebanana:installProgress', handler)
   },
 
+  // Overlay
+  toggleOverlay: () => ipcRenderer.invoke('overlay:toggle'),
+  hideOverlay: () => ipcRenderer.invoke('overlay:hide'),
+  showOverlay: () => ipcRenderer.invoke('overlay:show'),
+
   // Window Controls
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),

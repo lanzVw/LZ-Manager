@@ -9,7 +9,8 @@ import {
   Minus,
   Square,
   X,
-  Zap
+  Zap,
+  Gamepad2
 } from 'lucide-react'
 
 interface HeaderProps {
@@ -132,6 +133,15 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden md:inline">加载器</span>
+          </button>
+
+          <button
+            onClick={() => window.lz.toggleOverlay()}
+            title="唤起/测试游戏内悬浮窗 (Ctrl+F)"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-medium transition"
+          >
+            <Gamepad2 className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden lg:inline">悬浮窗 (Ctrl+F)</span>
           </button>
 
           <button

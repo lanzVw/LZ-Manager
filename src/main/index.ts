@@ -35,10 +35,18 @@ const modEngine = new ModEngine(
 )
 const presetEngine = new PresetEngine(configStore, modEngine)
 
+import { OverlayManager } from './overlay-manager'
+import { ControllerService } from './controller-service'
+
 const binariesDir = (app && app.isPackaged)
   ? path.join(process.resourcesPath, 'binaries')
   : path.join(__dirname, '../../resources/binaries')
 const gameLauncher = new GameLauncher(binariesDir)
+
+const preloadPath = path.join(__dirname, '../preload/index.cjs')
+const isDev = process.env.NODE_ENV === 'development'
+const overlayManager = new OverlayManager(preloadPath, isDev)
+const controllerService = new ControllerService(binariesDir)
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -67,19 +75,12 @@ function createMainWindow() {
   })
 }
 
-// 全局快捷键注册 (Ctrl+F 唤起/隐藏主窗口与 F10 触发)
+// 全局快捷键注册 (默认 Ctrl+F 唤起游戏内侧边悬浮窗)
 function registerHotkeys() {
   const hotkey = configStore.getConfig().overlayHotkey || 'CommandOrControl+F'
   try {
     globalShortcut.register(hotkey, () => {
-      if (mainWindow) {
-        if (mainWindow.isVisible()) {
-          mainWindow.hide()
-        } else {
-          mainWindow.show()
-          mainWindow.focus()
-        }
-      }
+      overlayManager.toggleOverlay()
     })
   } catch (err) {
     console.warn('Failed to register global hotkey:', err)
@@ -227,6 +228,11 @@ function setupIpc() {
     })
   })
 
+  // Overlay Controls
+  ipcMain.handle('overlay:toggle', () => overlayManager.toggleOverlay())
+  ipcMain.handle('overlay:hide', () => overlayManager.hide())
+  ipcMain.handle('overlay:show', () => overlayManager.show())
+
   // Window Controls
   ipcMain.handle('window:minimize', () => mainWindow?.minimize())
   ipcMain.handle('window:maximize', () => {
@@ -244,7 +250,14 @@ if (app) {
   app.whenReady().then(() => {
     setupIpc()
     createMainWindow()
+    overlayManager.createOverlayWindow()
     registerHotkeys()
+
+    // 启动手柄后台监听
+    controllerService.start()
+    controllerService.on('toggle', () => {
+      overlayManager.toggleOverlay()
+    })
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -254,6 +267,7 @@ if (app) {
   })
 
   app.on('will-quit', () => {
+    controllerService.stop()
     globalShortcut.unregisterAll()
   })
 
