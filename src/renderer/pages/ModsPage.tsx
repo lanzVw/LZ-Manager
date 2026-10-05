@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Search,
   CheckCircle2,
@@ -7,8 +7,10 @@ import {
   Image as ImageIcon,
   ShieldCheck,
   RefreshCw,
-  Sliders
+  Sliders,
+  AlertTriangle
 } from 'lucide-react'
+import { CharacterConflictReport, ModConflictSummary } from '../../core/types'
 
 interface ModsPageProps {
   modsData: Record<string, any[]>
@@ -29,6 +31,38 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const [searchChar, setSearchChar] = useState<string>('')
   const [searchMod, setSearchMod] = useState<string>('')
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [conflictsMap, setConflictsMap] = useState<Record<string, CharacterConflictReport>>({})
+  const [conflictFilterOnly, setConflictFilterOnly] = useState<boolean>(false)
+
+  // 扫描检测所有冲突
+  const loadConflicts = async () => {
+    try {
+      const reps: any = await window.lz.detectConflicts()
+      if (reps) setConflictsMap(reps)
+    } catch (_) {}
+  }
+
+  useEffect(() => {
+    loadConflicts()
+  }, [modsData])
+
+  const getModConflict = (charName: string, modName: string): ModConflictSummary | null => {
+    const charReport = conflictsMap[charName]
+    if (charReport && charReport.conflictsByMod && charReport.conflictsByMod[modName]?.hasConflict) {
+      return charReport.conflictsByMod[modName]
+    }
+    return null
+  }
+
+  const totalConflictsCount = useMemo(() => {
+    let count = 0
+    for (const rep of Object.values(conflictsMap)) {
+      if (rep && rep.allCollisions) {
+        count += rep.allCollisions.length
+      }
+    }
+    return count
+  }, [conflictsMap])
 
   // Character list with counts
   const characters = useMemo(() => {
@@ -71,8 +105,12 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       )
     }
 
+    if (conflictFilterOnly) {
+      list = list.filter((m) => getModConflict(m.charName, m.name) !== null)
+    }
+
     return list
-  }, [modsData, selectedChar, searchMod])
+  }, [modsData, selectedChar, searchMod, conflictFilterOnly, conflictsMap])
 
   const handleToggle = async (charName: string, modName: string, currentState: boolean) => {
     const id = `${charName}::${modName}`
@@ -160,6 +198,21 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               <ShieldCheck className="w-3 h-3" />
               <span>单选互斥已启用</span>
             </div>
+
+            {/* 冲突过滤器按钮 */}
+            {totalConflictsCount > 0 && (
+              <button
+                onClick={() => setConflictFilterOnly(!conflictFilterOnly)}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition ${
+                  conflictFilterOnly
+                    ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                    : 'bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25'
+                }`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>仅看冲突 ({totalConflictsCount})</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center space-x-3">
@@ -175,7 +228,10 @@ export const ModsPage: React.FC<ModsPageProps> = ({
             </div>
 
             <button
-              onClick={onRefresh}
+              onClick={() => {
+                onRefresh()
+                loadConflicts()
+              }}
               disabled={loading}
               className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
               title="重新扫描 Mod 目录"
@@ -190,20 +246,25 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           {displayedMods.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-2">
               <FolderOpen className="w-10 h-10 stroke-[1.2]" />
-              <p className="text-xs">未找到任何匹配的 Mod 文件</p>
+              <p className="text-xs">
+                {conflictFilterOnly ? '当前没有检测到任何 Mod 冲突' : '未找到任何匹配的 Mod 文件'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {displayedMods.map((mod) => {
                 const id = `${mod.charName}::${mod.name}`
                 const isToggling = togglingId === id
+                const conflict = getModConflict(mod.charName, mod.name)
 
                 return (
                   <div
                     key={id}
                     onClick={() => onSelectMod(mod.fullPath)}
                     className={`rounded-xl border overflow-hidden transition-all duration-200 flex flex-col group cursor-pointer ${
-                      mod.enabled
+                      conflict
+                        ? 'bg-slate-900/90 border-red-500/60 shadow-lg shadow-red-500/10 hover:border-red-400 ring-1 ring-red-500/30'
+                        : mod.enabled
                         ? 'bg-slate-900/90 border-blue-500/50 shadow-lg shadow-blue-500/10 hover:border-blue-400'
                         : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-600 opacity-80 hover:opacity-100'
                     }`}
@@ -238,8 +299,21 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                         )}
                       </div>
 
+                      {/* Conflict Badge */}
+                      {conflict && (
+                        <div className="absolute top-2 right-2 z-10">
+                          <span
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-600/95 text-white flex items-center space-x-1 shadow-lg shadow-red-950/60 backdrop-blur-sm border border-red-400/80 animate-pulse"
+                            title={`与 ${conflict.conflictingMods.join(', ')} 存在 ${conflict.collisions.length} 处 Hash 冲突`}
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>冲突 ({conflict.collisions.length})</span>
+                          </span>
+                        </div>
+                      )}
+
                       {/* INI tag */}
-                      {mod.hasIni && (
+                      {mod.hasIni && !conflict && (
                         <div className="absolute top-2 right-2">
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-950/80 text-blue-400 border border-blue-900/60 backdrop-blur-sm">
                             INI

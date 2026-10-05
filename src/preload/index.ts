@@ -16,11 +16,29 @@ const flairxApi = {
   openModFolder: (modFullPath: string) => ipcRenderer.invoke('mods:openFolder', modFullPath),
   setAsCoverImage: (modFullPath: string, imagePath: string) =>
     ipcRenderer.invoke('mods:setAsCover', modFullPath, imagePath),
+  saveModCover: (modFullPath: string, dataUrl: string) =>
+    ipcRenderer.invoke('mods:saveCoverFromData', modFullPath, dataUrl),
+  hasCoverBackup: (modFullPath: string) =>
+    ipcRenderer.invoke('mods:hasCoverBackup', modFullPath),
+  rollbackModCover: (modFullPath: string) =>
+    ipcRenderer.invoke('mods:rollbackCover', modFullPath),
   deleteModImage: (imagePath: string) => ipcRenderer.invoke('mods:deleteImage', imagePath),
   readIni: (iniPath: string) => ipcRenderer.invoke('mods:readIni', iniPath),
   saveIni: (iniPath: string, content: string) => ipcRenderer.invoke('mods:saveIni', iniPath, content),
   inspectArchive: (archivePath: string) => ipcRenderer.invoke('mods:inspectArchive', archivePath),
   importArchive: (params: any) => ipcRenderer.invoke('mods:importArchive', params),
+
+  // Conflicts
+  detectConflicts: (characterName?: string) =>
+    ipcRenderer.invoke('conflicts:detect', characterName),
+  resolveConflicts: (characterName: string, keepModName: string, conflictingModNames: string[]) =>
+    ipcRenderer.invoke('conflicts:resolve', characterName, keepModName, conflictingModNames),
+
+  // Environment
+  checkEnvironment: (gameId?: string) =>
+    ipcRenderer.invoke('env:check', gameId),
+  deployEnvironment: (gameId?: string) =>
+    ipcRenderer.invoke('env:deploy', gameId),
 
   // Presets
   getPresets: () => ipcRenderer.invoke('presets:get'),

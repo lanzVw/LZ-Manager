@@ -367,4 +367,89 @@ export class ModEngine {
       return false
     }
   }
+
+  /**
+   * 保存 Base64 裁剪图片为 Mod 封面 (带自动版本备份)
+   */
+  public saveCoverFromDataUrl(modFullPath: string, dataUrl: string): { success: boolean; coverPath?: string; error?: string } {
+    if (!fs.existsSync(modFullPath)) {
+      return { success: false, error: 'Mod 目录不存在' }
+    }
+
+    try {
+      const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/)
+      const base64Data = matches ? matches[2] : dataUrl
+      const buffer = Buffer.from(base64Data, 'base64')
+
+      const previewPngPath = path.join(modFullPath, 'preview.png')
+      const backupPath = path.join(modFullPath, 'preview.png.lz_bak')
+
+      // 如果当前已存在封面图片，则创建安全回滚备份
+      if (fs.existsSync(previewPngPath)) {
+        try {
+          fs.copyFileSync(previewPngPath, backupPath)
+        } catch (_) {}
+      }
+
+      // 写入新封面
+      fs.writeFileSync(previewPngPath, buffer)
+
+      return { success: true, coverPath: previewPngPath }
+    } catch (err: any) {
+      console.error('Failed to save cover from dataUrl:', err)
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * 检查是否存在封面备份
+   */
+  public hasCoverBackup(modFullPath: string): boolean {
+    if (!fs.existsSync(modFullPath)) return false
+    return fs.existsSync(path.join(modFullPath, 'preview.png.lz_bak'))
+  }
+
+  /**
+   * 恢复上一个版本的封面备份
+   */
+  public rollbackCover(modFullPath: string): { success: boolean; error?: string } {
+    if (!fs.existsSync(modFullPath)) return { success: false, error: 'Mod 目录不存在' }
+    const backupPath = path.join(modFullPath, 'preview.png.lz_bak')
+    const previewPngPath = path.join(modFullPath, 'preview.png')
+
+    if (!fs.existsSync(backupPath)) {
+      return { success: false, error: '未找到封面备份文件' }
+    }
+
+    try {
+      fs.copyFileSync(backupPath, previewPngPath)
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: `回滚失败: ${err.message}` }
+    }
+  }
+
+  /**
+   * 解决 Mod 冲突：保留指定 Mod，并禁用其他指定冲突 Mod
+   */
+  public async resolveConflicts(
+    characterName: string,
+    keepModName: string,
+    conflictingModNames: string[]
+  ): Promise<{ success: boolean; disabledCount: number }> {
+    let disabledCount = 0
+    // 确保保留项是启用的
+    await this.toggleMod(characterName, keepModName, true)
+
+    // 禁用冲突项
+    for (const badMod of conflictingModNames) {
+      if (badMod !== keepModName) {
+        const res = await this.toggleMod(characterName, badMod, false)
+        if (res.success) disabledCount++
+      }
+    }
+
+    return { success: true, disabledCount }
+  }
 }
+

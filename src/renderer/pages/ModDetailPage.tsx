@@ -16,9 +16,13 @@ import {
   ExternalLink,
   Save,
   Check,
-  Tag
+  Tag,
+  Crop as CropIcon,
+  AlertTriangle,
+  Sparkles
 } from 'lucide-react'
-import { ModDetailedInfo } from '../../core/types'
+import { ModDetailedInfo, ModConflictSummary } from '../../core/types'
+import { CropDialog } from '../components/CropDialog'
 
 interface ModDetailPageProps {
   modFullPath: string
@@ -43,6 +47,14 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   const [iniContent, setIniContent] = useState<string>('')
   const [toggling, setToggling] = useState<boolean>(false)
 
+  // Smart Crop Workshop State
+  const [isCropOpen, setIsCropOpen] = useState<boolean>(false)
+  const [cropImageSrc, setCropImageSrc] = useState<string>('')
+
+  // Mod Conflict Diagnostic State
+  const [conflictSummary, setConflictSummary] = useState<ModConflictSummary | null>(null)
+  const [resolvingConflict, setResolvingConflict] = useState<boolean>(false)
+
   // 加载 Mod 详情
   const loadDetails = async () => {
     setLoading(true)
@@ -60,6 +72,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           const content = await window.lz.readIni(data.iniFiles[0].fullPath)
           setIniContent(content)
         }
+
+        // 检查 3DMigoto 资源冲突
+        checkConflicts(data.characterName, data.name)
       }
     } catch (err) {
       console.error('Failed to load mod details:', err)
@@ -67,6 +82,70 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       setLoading(false)
     }
   }
+
+  // 检查 Mod 冲突
+  const checkConflicts = async (charName: string, modName: string) => {
+    try {
+      const rep: any = await window.lz.detectConflicts(charName)
+      if (rep && rep.conflictsByMod && rep.conflictsByMod[modName]?.hasConflict) {
+        setConflictSummary(rep.conflictsByMod[modName])
+      } else {
+        setConflictSummary(null)
+      }
+    } catch (err) {
+      console.warn('Conflict detection error:', err)
+    }
+  }
+
+  // 解决冲突：仅保留此 Mod，禁用冲突项
+  const handleResolveConflicts = async () => {
+    if (!details || !conflictSummary) return
+    setResolvingConflict(true)
+    try {
+      await window.lz.resolveConflicts(
+        details.characterName,
+        details.name,
+        conflictSummary.conflictingMods
+      )
+      await loadDetails()
+    } finally {
+      setResolvingConflict(false)
+    }
+  }
+
+  // 全局 Ctrl+V 截图直接进入裁剪工坊
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return
+      }
+
+      const items = e.clipboardData?.items
+      if (!items) return
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile()
+          if (blob) {
+            const reader = new FileReader()
+            reader.onload = (event) => {
+              if (event.target?.result) {
+                setCropImageSrc(event.target.result as string)
+                setIsCropOpen(true)
+              }
+            }
+            reader.readAsDataURL(blob)
+            e.preventDefault()
+            break
+          }
+        }
+      }
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [])
 
   useEffect(() => {
     loadDetails()
@@ -224,6 +303,55 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
 
       {/* Main Content Body */}
       <div className="max-w-5xl mx-auto w-full p-6 space-y-8">
+        
+        {/* Mod Conflict Diagnostic Banner */}
+        {conflictSummary && conflictSummary.hasConflict && (
+          <div className="p-4 rounded-2xl bg-red-950/40 border border-red-800/80 shadow-xl shadow-red-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 rounded-xl bg-red-900/40 border border-red-700/60 text-red-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-xs font-bold text-red-200 tracking-wide">
+                    检测到 3DMigoto 资源 Hash 冲突！
+                  </h3>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-800/60 text-red-200 font-mono">
+                    {conflictSummary.collisions.length} 处重叠
+                  </span>
+                </div>
+                <p className="text-xs text-red-300/80 mt-1 leading-relaxed">
+                  当前 Mod 与已启用的同角色 Mod <strong className="text-red-200">{conflictSummary.conflictingMods.join(', ')}</strong> 存在相同的纹理/网格识别码，同时加载将导致模型撕裂或贴图闪烁。
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {conflictSummary.collisions.slice(0, 5).map((col, idx) => (
+                    <span
+                      key={idx}
+                      className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-900/60 text-red-200 border border-red-800/50"
+                      title={`${col.sectionA} <-> ${col.sectionB} (${col.fileA})`}
+                    >
+                      {col.type}: {col.hash}
+                    </span>
+                  ))}
+                  {conflictSummary.collisions.length > 5 && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 text-red-400">
+                      +{conflictSummary.collisions.length - 5} 项
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleResolveConflicts}
+              disabled={resolvingConflict}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 shrink-0 transition active:scale-95 disabled:opacity-50"
+            >
+              {resolvingConflict ? '正在解决...' : '⚡ 一键保留此 Mod (禁用冲突项)'}
+            </button>
+          </div>
+        )}
+
         {/* 2. Preview Section ("预览") */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -273,9 +401,19 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 className="w-full h-full object-contain"
               />
             ) : (
-              <div className="flex flex-col items-center justify-center text-slate-600 space-y-2">
+              <div className="flex flex-col items-center justify-center text-slate-600 space-y-3">
                 <FolderOpen className="w-12 h-12 stroke-[1.2]" />
                 <span className="text-xs">该 Mod 目录内暂无预览图片</span>
+                <button
+                  onClick={() => {
+                    setCropImageSrc('')
+                    setIsCropOpen(true)
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center space-x-1.5 shadow-md shadow-indigo-600/20"
+                >
+                  <CropIcon className="w-3.5 h-3.5" />
+                  <span>制作或粘贴封面 (Ctrl+V)</span>
+                </button>
               </div>
             )}
 
@@ -303,6 +441,18 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               </span>
 
               <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    setCropImageSrc(`file://${activeImage.path}`)
+                    setIsCropOpen(true)
+                  }}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition"
+                  title="使用智能裁剪工坊构图"
+                >
+                  <CropIcon className="w-3 h-3" />
+                  <span>智能裁剪封面</span>
+                </button>
+
                 {!activeImage.isCover && (
                   <button
                     onClick={() => handleSetCover(activeImage.path)}
@@ -528,6 +678,21 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           </div>
         )}
       </div>
+
+      {/* 5. Smart Crop Modal */}
+      {isCropOpen && (
+        <CropDialog
+          isOpen={isCropOpen}
+          onClose={() => setIsCropOpen(false)}
+          imageSrc={cropImageSrc || (activeImage ? `file://${activeImage.path}` : '')}
+          modFullPath={modFullPath}
+          characterName={details.characterName}
+          modName={details.name}
+          onCoverSaved={async () => {
+            await loadDetails()
+          }}
+        />
+      )}
     </div>
   )
 }

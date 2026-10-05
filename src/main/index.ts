@@ -38,12 +38,18 @@ const presetEngine = new PresetEngine(configStore, modEngine)
 import { OverlayManager } from './overlay-manager'
 import { ControllerService } from './controller-service'
 import { ImportEngine } from '../core/import-engine'
+import { ConflictDetector } from '../core/conflict-detector'
+import { EnvironmentDeployer } from '../core/environment-deployer'
+import { TrayManager } from './tray-manager'
 
 const binariesDir = (app && app.isPackaged)
   ? path.join(process.resourcesPath, 'binaries')
   : path.join(__dirname, '../../resources/binaries')
 const gameLauncher = new GameLauncher(binariesDir)
 const importEngine = new ImportEngine()
+const conflictDetector = new ConflictDetector(activeGame ? activeGame.modFolderPath : '')
+const environmentDeployer = new EnvironmentDeployer()
+let trayManager: TrayManager | null = null
 
 const preloadPath = path.join(__dirname, '../preload/index.cjs')
 const isDev = process.env.NODE_ENV === 'development'
@@ -98,6 +104,7 @@ function setupIpc() {
     const g = configStore.getActiveGame()
     if (g) {
       modEngine.setModFolderPath(g.modFolderPath)
+      conflictDetector.setModFolderPath(g.modFolderPath)
     }
     return { success: true }
   })
@@ -106,6 +113,7 @@ function setupIpc() {
     const g = configStore.getActiveGame()
     if (g && g.id === gameId) {
       modEngine.setModFolderPath(g.modFolderPath)
+      conflictDetector.setModFolderPath(g.modFolderPath)
     }
     return { success: true }
   })
@@ -143,6 +151,18 @@ function setupIpc() {
     return modEngine.setAsCoverImage(modFullPath, imagePath)
   })
 
+  ipcMain.handle('mods:saveCoverFromData', (_, modFullPath: string, dataUrl: string) => {
+    return modEngine.saveCoverFromDataUrl(modFullPath, dataUrl)
+  })
+
+  ipcMain.handle('mods:hasCoverBackup', (_, modFullPath: string) => {
+    return modEngine.hasCoverBackup(modFullPath)
+  })
+
+  ipcMain.handle('mods:rollbackCover', (_, modFullPath: string) => {
+    return modEngine.rollbackCover(modFullPath)
+  })
+
   ipcMain.handle('mods:deleteImage', (_, imagePath: string) => {
     return modEngine.deleteModImage(imagePath)
   })
@@ -153,6 +173,39 @@ function setupIpc() {
 
   ipcMain.handle('mods:saveIni', (_, iniPath: string, content: string) => {
     return modEngine.saveIniFile(iniPath, content)
+  })
+
+  // Conflicts
+  ipcMain.handle('conflicts:detect', (_, characterName?: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return characterName ? null : {}
+    conflictDetector.setModFolderPath(g.modFolderPath)
+    if (characterName) {
+      return conflictDetector.detectCharacterConflicts(characterName)
+    } else {
+      return conflictDetector.detectAllConflicts()
+    }
+  })
+
+  ipcMain.handle('conflicts:resolve', async (_, characterName: string, keepModName: string, conflictingModNames: string[]) => {
+    const res = await modEngine.resolveConflicts(characterName, keepModName, conflictingModNames)
+    if (res.success) {
+      gameLauncher.triggerReloadF10().catch(() => {})
+    }
+    return res
+  })
+
+  // Environment Deployer
+  ipcMain.handle('env:check', (_, gameId?: string) => {
+    const g = gameId ? configStore.getGameById(gameId) : configStore.getActiveGame()
+    if (!g) return null
+    return environmentDeployer.checkEnvironment(g)
+  })
+
+  ipcMain.handle('env:deploy', (_, gameId?: string) => {
+    const g = gameId ? configStore.getGameById(gameId) : configStore.getActiveGame()
+    if (!g) return { success: false, message: '游戏未配置', deployedFiles: [] }
+    return environmentDeployer.deployEnvironment(g)
   })
 
   ipcMain.handle('mods:inspectArchive', (_, archivePath: string) => {
@@ -272,6 +325,20 @@ if (app) {
     overlayManager.createOverlayWindow()
     registerHotkeys()
 
+    // 初始化系统托盘常驻
+    if (mainWindow) {
+      trayManager = new TrayManager(mainWindow, {
+        onToggleOverlay: () => overlayManager.toggleOverlay(),
+        onReloadModsF10: () => gameLauncher.triggerReloadF10(),
+        onLaunchGame: async () => {
+          const g = configStore.getActiveGame()
+          if (g && g.gamePath) {
+            gameLauncher.launchExecutable(g.gamePath, false)
+          }
+        }
+      })
+    }
+
     // 启动手柄后台监听
     controllerService.start()
     controllerService.on('toggle', () => {
@@ -281,11 +348,15 @@ if (app) {
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createMainWindow()
+      } else {
+        trayManager?.showMainWindow()
       }
     })
   })
 
   app.on('will-quit', () => {
+    trayManager?.setQuitting(true)
+    trayManager?.destroy()
     controllerService.stop()
     globalShortcut.unregisterAll()
   })
@@ -301,5 +372,7 @@ export {
   ConfigStore,
   ModEngine,
   PresetEngine,
-  GameLauncher
+  GameLauncher,
+  ConflictDetector,
+  EnvironmentDeployer
 }
