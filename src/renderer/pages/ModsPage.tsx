@@ -11,6 +11,8 @@ import {
   Zap,
   Sparkles,
   Layers,
+  LayoutList,
+  LayoutGrid,
   ChevronRight
 } from 'lucide-react'
 import { CharacterConflictReport, ModConflictSummary } from '../../core/types'
@@ -23,6 +25,65 @@ interface ModsPageProps {
   onSelectMod: (modFullPath: string) => void
 }
 
+// 角色头像/缩略图组件 (专为二游立绘优化，顶部居中、尺寸自适应、错误优雅兜底)
+const CharacterThumbnail: React.FC<{
+  src: string | null
+  name: string
+  hasActive: boolean
+  isSelected: boolean
+  className?: string
+  aspectRatioClass?: string
+}> = ({ src, name, hasActive, isSelected, className = 'w-11 h-11', aspectRatioClass = 'aspect-square' }) => {
+  const [hasError, setHasError] = useState(false)
+
+  // 当 src 改变时重置错误状态
+  useEffect(() => {
+    setHasError(false)
+  }, [src])
+
+  return (
+    <div
+      className={`relative ${className} ${aspectRatioClass} rounded-xl overflow-hidden shrink-0 border transition-all duration-300 bg-slate-100/90 shadow-xs flex items-center justify-center ${
+        isSelected
+          ? 'ring-2 ring-white/95 border-white/70 shadow-sm'
+          : hasActive
+          ? 'border-blue-400/80 ring-2 ring-blue-500/20'
+          : 'border-slate-200/90'
+      }`}
+    >
+      {src && !hasError ? (
+        <img
+          src={`file://${src}`}
+          alt={name}
+          className="w-full h-full object-cover object-top select-none pointer-events-none transition-transform duration-300 group-hover:scale-108"
+          loading="lazy"
+          onError={() => setHasError(true)}
+        />
+      ) : (
+        <div
+          className={`w-full h-full flex items-center justify-center font-bold text-xs select-none ${
+            isSelected
+              ? 'bg-white/20 text-white font-black'
+              : hasActive
+              ? 'bg-blue-100 text-blue-700 font-bold'
+              : 'bg-slate-200/70 text-slate-600 font-semibold'
+          }`}
+        >
+          {name.slice(0, 1)}
+        </div>
+      )}
+
+      {/* 装备状态微光角标 */}
+      {hasActive && (
+        <span
+          className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white shadow-xs"
+          title="该角色当前已有装载生效的 Mod"
+        />
+      )}
+    </div>
+  )
+}
+
 export const ModsPage: React.FC<ModsPageProps> = ({
   modsData,
   loading,
@@ -33,6 +94,8 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const [selectedChar, setSelectedChar] = useState<string>('all')
   const [searchChar, setSearchChar] = useState<string>('')
   const [searchMod, setSearchMod] = useState<string>('')
+  const [sidebarMode, setSidebarMode] = useState<'list' | 'grid'>('list')
+  const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [conflictsMap, setConflictsMap] = useState<Record<string, CharacterConflictReport>>({})
   const [conflictFilterOnly, setConflictFilterOnly] = useState<boolean>(false)
@@ -45,8 +108,21 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     } catch (_) {}
   }
 
+  // 加载全量角色的缩略图/头像映射表
+  const loadCharacterAvatars = async () => {
+    try {
+      const avatars = await window.lz.getCharacterAvatars?.()
+      if (avatars) {
+        setCharacterAvatars(avatars)
+      }
+    } catch (err) {
+      console.error('Failed to load character avatars:', err)
+    }
+  }
+
   useEffect(() => {
     loadConflicts()
+    loadCharacterAvatars()
   }, [modsData])
 
   const getModConflict = (charName: string, modName: string): ModConflictSummary | null => {
@@ -67,7 +143,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     return count
   }, [conflictsMap])
 
-  // Character list with counts
+  // Character list with counts and avatars
   const characters = useMemo(() => {
     const list = Object.keys(modsData).map((name) => {
       const mods = modsData[name] || []
@@ -75,11 +151,12 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       return {
         name,
         total: mods.length,
-        enabled: enabledCount
+        enabled: enabledCount,
+        avatarPath: characterAvatars[name] || null
       }
     })
     return list.sort((a, b) => b.total - a.total)
-  }, [modsData])
+  }, [modsData, characterAvatars])
 
   const filteredCharacters = useMemo(() => {
     if (!searchChar) return characters
@@ -135,18 +212,46 @@ export const ModsPage: React.FC<ModsPageProps> = ({
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
-      {/* Left Sidebar: Character Categories (白瓷蓝调侧边栏) */}
-      <aside className="w-64 bg-white/80 border-r border-blue-100 backdrop-blur-2xl flex flex-col shrink-0 select-none z-10 shadow-sm">
+      {/* Left Sidebar: Character Categories (角色缩略图选项侧边栏) */}
+      <aside className="w-72 bg-white/80 border-r border-blue-100 backdrop-blur-2xl flex flex-col shrink-0 select-none z-10 shadow-sm transition-all duration-300">
         {/* Roster Header */}
-        <div className="p-3.5 border-b border-blue-100 space-y-2.5">
+        <div className="p-3 border-b border-blue-100/80 space-y-2.5 bg-white/50">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800 tracking-wide flex items-center space-x-2">
+            <span className="text-xs font-bold text-slate-800 tracking-wide flex items-center space-x-1.5">
               <Layers className="w-3.5 h-3.5 text-blue-600" />
               <span>角色分类</span>
+              <span className="text-[10px] font-mono text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                {characters.length}
+              </span>
             </span>
-            <span className="text-[10px] font-mono text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-              {characters.length} 个角色
-            </span>
+
+            {/* View Mode Switcher (列表模式 / 缩略图画廊模式) */}
+            <div className="flex items-center bg-slate-100/90 p-0.5 rounded-lg border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setSidebarMode('list')}
+                title="图文列表模式"
+                className={`p-1 rounded-md transition ${
+                  sidebarMode === 'list'
+                    ? 'bg-white text-blue-600 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <LayoutList className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSidebarMode('grid')}
+                title="头像网格模式 (QAQM 风格)"
+                className={`p-1 rounded-md transition ${
+                  sidebarMode === 'grid'
+                    ? 'bg-white text-blue-600 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="relative">
@@ -156,82 +261,156 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               placeholder="快速检索角色..."
               value={searchChar}
               onChange={(e) => setSearchChar(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition font-sans"
+              className="w-full bg-slate-50/90 border border-slate-200 focus:border-blue-400 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition font-sans shadow-2xs"
             />
           </div>
         </div>
 
         {/* Character Categories List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1 porcelain-scrollbar-light">
+        <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 porcelain-scrollbar-light">
           {/* All Characters Option */}
           <button
             onClick={() => setSelectedChar('all')}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+            className={`w-full flex items-center justify-between p-2 rounded-2xl text-xs font-semibold transition-all group relative border ${
               selectedChar === 'all'
-                ? 'bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-md shadow-blue-500/25'
-                : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70'
+                ? 'bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-md shadow-blue-500/25 border-blue-500'
+                : 'bg-white/90 hover:bg-blue-50/80 text-slate-700 hover:text-blue-600 border-slate-200/70 hover:border-blue-200 shadow-xs'
             }`}
           >
             <div className="flex items-center space-x-2.5 truncate">
-              <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[10px] font-mono ${
-                selectedChar === 'all' ? 'bg-white text-blue-600 font-black shadow-sm' : 'bg-slate-100 text-slate-600'
-              }`}>
-                全
+              <div
+                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border transition-transform duration-300 group-hover:scale-105 shadow-sm ${
+                  selectedChar === 'all'
+                    ? 'bg-white text-blue-600 ring-2 ring-white/90 border-white/50'
+                    : 'bg-gradient-to-br from-blue-600 via-indigo-600 to-sky-500 text-white border-blue-300'
+                }`}
+              >
+                <LayoutGrid className="w-5 h-5" />
               </div>
-              <span className="truncate">全部角色</span>
+              <div className="flex flex-col text-left truncate">
+                <span className={`truncate tracking-wide font-bold ${selectedChar === 'all' ? 'text-white' : 'text-slate-800'}`}>
+                  全部角色
+                </span>
+                <span className={`text-[10px] truncate ${selectedChar === 'all' ? 'text-blue-100' : 'text-slate-400'}`}>
+                  全库模组汇总
+                </span>
+              </div>
             </div>
 
-            <div className={`flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 rounded-full ${
-              selectedChar === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-            }`}>
+            <div
+              className={`flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 ml-1.5 ${
+                selectedChar === 'all' ? 'bg-white/20 text-white font-bold' : 'bg-slate-100 text-slate-600 font-semibold'
+              }`}
+            >
               <span className="font-bold">{totalEnabledInAll}</span>
-              <span>/</span>
+              <span className="opacity-50">/</span>
               <span>{characters.reduce((acc, c) => acc + c.total, 0)}</span>
             </div>
           </button>
 
-          {/* Individual Character Buttons */}
-          {filteredCharacters.map((c) => {
-            const isSelected = selectedChar === c.name
-            const hasActive = c.enabled > 0
+          {sidebarMode === 'list' ? (
+            /* 1. 图文列表视图 (以角色高清头像为核心选项) */
+            <div className="space-y-1.5 pt-1">
+              {filteredCharacters.map((c) => {
+                const isSelected = selectedChar === c.name
+                const hasActive = c.enabled > 0
 
-            return (
-              <button
-                key={c.name}
-                onClick={() => setSelectedChar(c.name)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all group ${
-                  isSelected
-                    ? 'bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-md shadow-blue-500/25'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-blue-50/70'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5 truncate">
-                  <div
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[11px] font-sans shrink-0 transition-transform group-hover:scale-105 ${
+                return (
+                  <button
+                    key={c.name}
+                    onClick={() => setSelectedChar(c.name)}
+                    className={`w-full flex items-center justify-between p-2 rounded-2xl text-xs font-semibold transition-all group relative border text-left ${
                       isSelected
-                        ? 'bg-white text-blue-600 font-black shadow-sm'
-                        : hasActive
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-slate-100 text-slate-500'
+                        ? 'bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-md shadow-blue-500/25 border-blue-500'
+                        : 'bg-white/90 hover:bg-blue-50/80 text-slate-700 hover:text-blue-600 border-slate-200/70 hover:border-blue-200 shadow-xs'
                     }`}
                   >
-                    {c.name.slice(0, 1)}
-                  </div>
-                  <span className="truncate tracking-wide">{c.name}</span>
-                </div>
+                    <div className="flex items-center space-x-2.5 truncate">
+                      <CharacterThumbnail
+                        src={c.avatarPath}
+                        name={c.name}
+                        hasActive={hasActive}
+                        isSelected={isSelected}
+                        className="w-11 h-11"
+                      />
+                      <div className="flex flex-col truncate">
+                        <span className={`truncate tracking-wide font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                          {c.name}
+                        </span>
+                        <span className={`text-[10px] truncate ${isSelected ? 'text-blue-100' : hasActive ? 'text-blue-600 font-medium' : 'text-slate-400'}`}>
+                          {hasActive ? `已装载 ${c.enabled} 款` : `${c.total} 款待命中`}
+                        </span>
+                      </div>
+                    </div>
 
-                <div className={`flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                  isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  <span className={`font-bold ${isSelected ? 'text-white' : hasActive ? 'text-blue-600' : 'text-slate-500'}`}>
-                    {c.enabled}
-                  </span>
-                  <span>/</span>
-                  <span>{c.total}</span>
-                </div>
-              </button>
-            )
-          })}
+                    <div
+                      className={`flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 ml-1.5 ${
+                        isSelected
+                          ? 'bg-white/20 text-white font-bold'
+                          : hasActive
+                          ? 'bg-blue-50 text-blue-600 border border-blue-200/80 font-bold'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <span className={`font-bold ${isSelected ? 'text-white' : hasActive ? 'text-blue-600' : 'text-slate-600'}`}>
+                        {c.enabled}
+                      </span>
+                      <span className="opacity-50">/</span>
+                      <span>{c.total}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            /* 2. QAQM 经典头像卡片画廊视图 (2列正方卡片) */
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {filteredCharacters.map((c) => {
+                const isSelected = selectedChar === c.name
+                const hasActive = c.enabled > 0
+
+                return (
+                  <button
+                    key={c.name}
+                    onClick={() => setSelectedChar(c.name)}
+                    className={`group relative flex flex-col p-1.5 rounded-2xl border transition-all text-left cursor-pointer overflow-hidden ${
+                      isSelected
+                        ? 'bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/30 shadow-md shadow-blue-500/10'
+                        : 'bg-white hover:bg-blue-50/60 border-slate-200 hover:border-blue-300 shadow-xs hover:-translate-y-0.5'
+                    }`}
+                  >
+                    {/* Square Thumbnail */}
+                    <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-slate-100 border border-slate-200/70 shadow-inner">
+                      <CharacterThumbnail
+                        src={c.avatarPath}
+                        name={c.name}
+                        hasActive={hasActive}
+                        isSelected={isSelected}
+                        className="w-full h-full rounded-none border-0 shadow-none"
+                      />
+
+                      {/* Top-Right Badge (QAQM 经典悬浮角标) */}
+                      <div className="absolute top-1 right-1 flex items-center space-x-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-slate-900/75 backdrop-blur-md text-white font-bold shadow-xs">
+                        <span className={hasActive ? 'text-amber-300' : 'text-slate-200'}>{c.enabled}</span>
+                        <span className="text-slate-400">/</span>
+                        <span>{c.total}</span>
+                      </div>
+                    </div>
+
+                    {/* Character Name below thumbnail */}
+                    <div className="mt-1 px-1 flex items-center justify-between">
+                      <span className={`text-xs font-bold truncate ${isSelected ? 'text-blue-600' : 'text-slate-800'}`}>
+                        {c.name}
+                      </span>
+                      {isSelected && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0 ml-1 shadow-xs" />
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -240,7 +419,17 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         {/* Sub-Header */}
         <div className="h-14 px-6 border-b border-blue-100 flex items-center justify-between shrink-0 bg-white/70 backdrop-blur-xl">
           <div className="flex items-center space-x-3.5">
-            <div>
+            <div className="flex items-center space-x-3">
+              {/* 当选中单个角色时，在标题前同步呈现该角色的微缩头像 */}
+              {selectedChar !== 'all' && characterAvatars[selectedChar] && (
+                <div className="w-8 h-8 rounded-xl overflow-hidden border border-blue-200/80 shadow-xs shrink-0 bg-slate-100">
+                  <img
+                    src={`file://${characterAvatars[selectedChar]}`}
+                    alt={selectedChar}
+                    className="w-full h-full object-cover object-top"
+                  />
+                </div>
+              )}
               <h2 className="text-sm font-bold text-slate-900 flex items-center space-x-2.5 tracking-wide">
                 <span>{selectedChar === 'all' ? '全部角色模组' : `${selectedChar} · 模组列表`}</span>
                 <span className="text-xs font-mono text-blue-600 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 font-semibold">

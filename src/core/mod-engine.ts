@@ -114,6 +114,164 @@ export class ModEngine {
   }
 
   /**
+   * 获取所有角色的缩略图/头像映射表 (以角色缩略图为选项)
+   */
+  public getCharacterAvatars(gameId?: string): Record<string, string> {
+    const result: Record<string, string> = {}
+    if (!this.modFolderPath || !fs.existsSync(this.modFolderPath)) {
+      return result
+    }
+
+    const exts = [
+      '_cover.webp',
+      '_cover.png',
+      '_cover.jpg',
+      'cover.png',
+      'cover.webp',
+      'cover.jpg',
+      'avatar.png',
+      'avatar.webp',
+      'avatar.jpg',
+      'gbicon.png',
+      'icon.png'
+    ]
+
+    // QAQM 系统全局资源池路径候选
+    const qaqmCandidates = [
+      path.resolve(process.cwd(), '../QAQManagerV4/resources/images'),
+      path.resolve(__dirname, '../../../QAQManagerV4/resources/images'),
+      path.resolve(__dirname, '../../QAQManagerV4/resources/images'),
+      'F:/XXMI/QAQMAN/QAQManagerV4/resources/images',
+      path.join(process.resourcesPath || '', 'images')
+    ]
+    let foundQaqmBase = ''
+    for (const q of qaqmCandidates) {
+      if (fs.existsSync(q)) {
+        foundQaqmBase = q
+        break
+      }
+    }
+
+    try {
+      const charDirs = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
+      for (const charDirent of charDirs) {
+        if (!charDirent.isDirectory()) continue
+        const charName = charDirent.name
+        if (charName.startsWith('.') || charName === 'System Volume Information') continue
+
+        const charPath = path.join(this.modFolderPath, charName)
+        let avatarPath: string | null = null
+
+        // 1. 优先从角色本目录下匹配缩略图文件
+        for (const ext of exts) {
+          const p = path.join(charPath, ext)
+          if (fs.existsSync(p)) {
+            avatarPath = p
+            break
+          }
+        }
+
+        // 2. 从 QAQM 系统资源池检索
+        if (!avatarPath && foundQaqmBase && gameId) {
+          const gameFolders = [gameId, gameId.toLowerCase()]
+          if (gameId === 'zzz') gameFolders.push('zzz')
+          if (gameId === 'genshin' || gameId === '8552') gameFolders.push('genshin-impact')
+          if (gameId === 'hsr' || gameId === '18366') gameFolders.push('honkai-star-rail')
+          if (gameId === 'wuwa' || gameId === '20357') gameFolders.push('wuthering-waves')
+          if (gameId === 'endfield' || gameId === '21842') gameFolders.push('endfield')
+
+          for (const gf of gameFolders) {
+            const qCharDir = path.join(foundQaqmBase, gf, charName)
+            if (fs.existsSync(qCharDir)) {
+              for (const ext of exts) {
+                const qp = path.join(qCharDir, ext)
+                if (fs.existsSync(qp)) {
+                  avatarPath = qp
+                  break
+                }
+              }
+            }
+            if (avatarPath) break
+          }
+        }
+
+        // 3. Fallback: 从角色所属的子 Mod 目录中提取封面
+        if (!avatarPath) {
+          try {
+            const modDirs = fs.readdirSync(charPath, { withFileTypes: true })
+            // 先尝试从启用的 mod 中获取
+            for (const mDirent of modDirs) {
+              if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
+              if (!mDirent.name.startsWith('DISABLED_')) {
+                const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
+                if (coverPath) {
+                  avatarPath = coverPath
+                  break
+                }
+              }
+            }
+            // 若无已启用 mod 封面，尝试从任意 mod 获取
+            if (!avatarPath) {
+              for (const mDirent of modDirs) {
+                if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
+                const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
+                if (coverPath) {
+                  avatarPath = coverPath
+                  break
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
+        if (avatarPath) {
+          result[charName] = avatarPath
+        }
+      }
+    } catch (err) {
+      console.error('Error scanning character avatars:', err)
+    }
+
+    return result
+  }
+
+  /**
+   * 将指定图片设为角色缩略图/封面
+   */
+  public async setCharacterAvatar(characterName: string, sourceImagePath: string): Promise<{ success: boolean; avatarPath?: string; error?: string }> {
+    const charPath = path.join(this.modFolderPath, characterName)
+    if (!fs.existsSync(charPath)) {
+      return { success: false, error: `角色目录不存在: ${charPath}` }
+    }
+    const targetFile = path.join(charPath, '_cover.png')
+    try {
+      fs.copyFileSync(sourceImagePath, targetFile)
+      return { success: true, avatarPath: targetFile }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * 从 Data URL 保存角色缩略图/封面
+   */
+  public async saveCharacterAvatarFromData(characterName: string, dataUrl: string): Promise<{ success: boolean; avatarPath?: string; error?: string }> {
+    const charPath = path.join(this.modFolderPath, characterName)
+    if (!fs.existsSync(charPath)) {
+      return { success: false, error: `角色目录不存在: ${charPath}` }
+    }
+    const targetFile = path.join(charPath, '_cover.png')
+    try {
+      const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '')
+      const buffer = Buffer.from(base64Data, 'base64')
+      fs.writeFileSync(targetFile, buffer)
+      return { success: true, avatarPath: targetFile }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
    * 切换单个 Mod 启用/停用状态
    * 如果开启角色单选互斥 (Option A) 且当前操作为启用，则自动将同角色的其他 Mod 全部置为停用
    */

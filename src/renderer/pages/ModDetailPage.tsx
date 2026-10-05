@@ -455,12 +455,28 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                     <button
                       onClick={() => handleSetCover(activeImage.path)}
                       className="flex items-center space-x-1 px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold transition"
-                      title="直接将此图设为封面"
+                      title="直接将此图设为当前 Mod 封面"
                     >
                       <Star className="w-3.5 h-3.5" />
-                      <span>设为封面</span>
+                      <span>设为Mod封面</span>
                     </button>
                   )}
+
+                  {/* Set as Character Avatar */}
+                  <button
+                    onClick={async () => {
+                      if (!details) return
+                      const res = await window.lz.setCharacterAvatar(details.characterName, activeImage.path)
+                      if (res?.success) {
+                        alert(`已成功将此图设为【${details.characterName}】的角色缩略图！`)
+                      }
+                    }}
+                    className="flex items-center space-x-1 px-3 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold transition"
+                    title="将此图设为左侧菜单中该角色的代表头像"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>设为角色头像</span>
+                  </button>
 
                   {/* Delete Image */}
                   {images.length > 1 && (

@@ -232,6 +232,31 @@ function setupIpc() {
     return modEngine.scanMods()
   })
 
+  ipcMain.handle('characters:getAvatars', (_, gameId?: string) => {
+    const g = configStore.getActiveGame()
+    const targetGameId = gameId || g?.id
+    if (g) {
+      modEngine.setModFolderPath(g.modFolderPath)
+    }
+    return modEngine.getCharacterAvatars(targetGameId)
+  })
+
+  ipcMain.handle('characters:setAvatar', async (_, charName: string, imagePath: string) => {
+    const g = configStore.getActiveGame()
+    if (g) {
+      modEngine.setModFolderPath(g.modFolderPath)
+    }
+    return modEngine.setCharacterAvatar(charName, imagePath)
+  })
+
+  ipcMain.handle('characters:saveAvatarFromData', async (_, charName: string, dataUrl: string) => {
+    const g = configStore.getActiveGame()
+    if (g) {
+      modEngine.setModFolderPath(g.modFolderPath)
+    }
+    return modEngine.saveCharacterAvatarFromData(charName, dataUrl)
+  })
+
   ipcMain.handle('mods:toggle', async (_, charName: string, modName: string, enabled: boolean) => {
     const res = await modEngine.toggleMod(charName, modName, enabled)
     // 切换成功后自动触发 F10 游戏内热刷新

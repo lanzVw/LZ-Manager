@@ -29,6 +29,13 @@ const flairxApi = {
   inspectArchive: (archivePath: string) => ipcRenderer.invoke('mods:inspectArchive', archivePath),
   importArchive: (params: any) => ipcRenderer.invoke('mods:importArchive', params),
 
+  // Characters
+  getCharacterAvatars: (gameId?: string) => ipcRenderer.invoke('characters:getAvatars', gameId),
+  setCharacterAvatar: (characterName: string, imagePath: string) =>
+    ipcRenderer.invoke('characters:setAvatar', characterName, imagePath),
+  saveCharacterAvatar: (characterName: string, dataUrl: string) =>
+    ipcRenderer.invoke('characters:saveAvatarFromData', characterName, dataUrl),
+
   // Persist Bridge
   getModPersistInfo: (modFullPath: string) => ipcRenderer.invoke('persist:getInfo', modFullPath),
   updateModVariable: (modFullPath: string, varName: string, value: string) =>
