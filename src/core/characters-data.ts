@@ -1378,11 +1378,11 @@ const CHARACTERS_BY_GAME = {
       "pinyin": "z"
     },
     {
-      "id": "dialyn",
-      "name": "黛琳",
+      "id": "liuyin",
+      "name": "琉音",
       "enName": "Dialyn",
       "gbCatId": 41303,
-      "pinyin": "dl"
+      "pinyin": "ly"
     },
     {
       "id": "zhao",
@@ -1392,11 +1392,11 @@ const CHARACTERS_BY_GAME = {
       "pinyin": "z"
     },
     {
-      "id": "claret",
-      "name": "克拉蕾特",
+      "id": "kelalei",
+      "name": "克拉蕾",
       "enName": "Claret Flint",
       "gbCatId": 49001,
-      "pinyin": "kllt"
+      "pinyin": "kll"
     },
     {
       "id": "yidhari",
@@ -1434,18 +1434,18 @@ const CHARACTERS_BY_GAME = {
       "pinyin": "lhab"
     },
     {
-      "id": "aria",
-      "name": "阿莉亚",
+      "id": "airui",
+      "name": "爱芮",
       "enName": "Aria",
       "gbCatId": 43004,
-      "pinyin": "aly"
+      "pinyin": "ar"
     },
     {
-      "id": "pulchra",
-      "name": "普尔克拉",
+      "id": "bokena",
+      "name": "波可娜",
       "enName": "Pulchra Fellini",
       "gbCatId": 35673,
-      "pinyin": "pekl"
+      "pinyin": "bkn"
     },
     {
       "id": "orphie",
@@ -1483,11 +1483,11 @@ const CHARACTERS_BY_GAME = {
       "pinyin": "xxy"
     },
     {
-      "id": "sunna",
-      "name": "苏娜",
+      "id": "qianxia",
+      "name": "千夏",
       "enName": "Sunna",
       "gbCatId": 43003,
-      "pinyin": "sn"
+      "pinyin": "qx"
     },
     {
       "id": "promeia",
@@ -2266,7 +2266,18 @@ const CN_NAME_ALIASES = {
   "李织烟": "诀",
   "提丰": "弭弗",
   "提弗洛斯": "弭弗",
-  "艾莉亚": "阿莉亚"
+  "阿莉亚": "爱芮",
+  "艾莉亚": "爱芮",
+  "Aria": "爱芮",
+  "黛琳": "琉音",
+  "Dialyn": "琉音",
+  "克拉蕾特": "克拉蕾",
+  "Claret": "克拉蕾",
+  "普尔克拉": "波可娜",
+  "普洱克拉": "波可娜",
+  "Pulchra": "波可娜",
+  "苏娜": "千夏",
+  "Sunna": "千夏"
 };
 
 function resolveGameId(val) {
