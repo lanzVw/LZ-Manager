@@ -24,7 +24,8 @@ import {
   RotateCcw,
   ToggleLeft,
   ToggleRight,
-  Zap
+  Zap,
+  Cpu
 } from 'lucide-react'
 import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
@@ -120,7 +121,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     try {
       const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal)
       if (res && res.success) {
-        setPersistToast(`已设定 $${v.name} = ${nextVal} (已触发 F10 热刷新)`)
+        setPersistToast(`已成功设定 $${v.name} = ${nextVal} (已触发 F10 热刷新)`)
         setTimeout(() => setPersistToast(null), 3000)
       } else {
         setPersistToast(`修改失败: ${res?.error || '未知错误'}`)
@@ -194,24 +195,23 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return
       }
-
-      const items = e.clipboardData?.items
-      if (!items) return
-
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-          const blob = items[i].getAsFile()
-          if (blob) {
-            const reader = new FileReader()
-            reader.onload = (event) => {
-              if (event.target?.result) {
-                setCropImageSrc(event.target.result as string)
-                setIsCropOpen(true)
+      if (e.clipboardData && e.clipboardData.items) {
+        for (const item of e.clipboardData.items) {
+          if (item.type.startsWith('image/')) {
+            const file = item.getAsFile()
+            if (file) {
+              const reader = new FileReader()
+              reader.onload = (event) => {
+                const dataUrl = event.target?.result as string
+                if (dataUrl) {
+                  setCropImageSrc(dataUrl)
+                  setIsCropOpen(true)
+                }
               }
+              reader.readAsDataURL(file)
+              e.preventDefault()
+              break
             }
-            reader.readAsDataURL(blob)
-            e.preventDefault()
-            break
           }
         }
       }
@@ -225,14 +225,16 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     loadDetails()
   }, [modFullPath])
 
-  // 切换 ini 查看
-  const handleSelectIni = async (iniPath: string) => {
-    setSelectedIni(iniPath)
-    const content = await window.lz.readIni(iniPath)
-    setIniContent(content)
+  const handleSelectIni = async (fullPath: string) => {
+    setSelectedIni(fullPath)
+    try {
+      const content = await window.lz.readIni(fullPath)
+      setIniContent(content)
+    } catch (err) {
+      console.error('Failed to read INI:', err)
+    }
   }
 
-  // 保存元数据 (作者、版本、描述)
   const handleSaveMetadata = async () => {
     if (!details) return
     setSavingMeta(true)
@@ -249,18 +251,15 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     }
   }
 
-  // 打开所在文件夹
   const handleOpenFolder = () => {
     window.lz.openModFolder(modFullPath)
   }
 
-  // 设为封面
   const handleSetCover = async (imagePath: string) => {
     await window.lz.setAsCoverImage(modFullPath, imagePath)
     await loadDetails()
   }
 
-  // 删除当前图片
   const handleDeleteImage = async (imagePath: string) => {
     if (!confirm('确定要删除这张预览图吗？')) return
     await window.lz.deleteModImage(imagePath)
@@ -270,7 +269,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     await loadDetails()
   }
 
-  // 切换启停
   const handleToggle = async () => {
     if (!details) return
     setToggling(true)
@@ -284,10 +282,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-slate-950/60">
-        <div className="flex flex-col items-center space-y-2 text-slate-400">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs">加载 Mod 详细信息...</span>
+      <div className="flex-1 flex items-center justify-center bg-[#07090F]/90">
+        <div className="flex flex-col items-center space-y-3 text-cyan-400">
+          <div className="w-10 h-10 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,240,255,0.4)]" />
+          <span className="text-xs font-mono tracking-widest uppercase text-cyan-300">
+            // LOADING MOD TELEMETRY //
+          </span>
         </div>
       </div>
     )
@@ -295,13 +295,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
 
   if (!details) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 p-6 space-y-3">
-        <p className="text-sm text-slate-400">未能找到此 Mod 的目录或文件已被移除</p>
+      <div className="flex-1 flex flex-col items-center justify-center bg-[#07090F] p-6 space-y-4">
+        <p className="text-sm font-mono text-slate-400">未能找到此 Mod 的目录实体或已被移除</p>
         <button
           onClick={onBack}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs"
+          className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-black font-extrabold rounded-xl text-xs uppercase tracking-wider"
         >
-          返回列表
+          返回名册 // RETURN
         </button>
       </div>
     )
@@ -318,257 +318,212 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto bg-slate-950 text-slate-100">
-      {/* 1. Header Toolbar */}
-      <div className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-6 py-3 flex items-center justify-between">
+    <div className="flex-1 flex flex-col overflow-y-auto bg-[#07090E] text-slate-100 select-none">
+      {/* 1. Tactical HUD Header Bar */}
+      <div className="sticky top-0 z-30 bg-[#0B0D14]/95 backdrop-blur-xl border-b border-cyan-500/20 px-6 py-3 flex items-center justify-between shadow-2xl">
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80 transition"
-            title="返回列表"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#121622] hover:bg-[#1A2033] text-cyan-300 hover:text-white border border-cyan-500/30 hover:border-cyan-400 transition text-xs font-bold active:scale-95"
+            title="返回名册"
           >
             <ArrowLeft className="w-4 h-4" />
+            <span>返回名册</span>
           </button>
 
           <button
             onClick={handleOpenFolder}
-            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80 transition"
-            title="在资源管理器中打开文件夹"
+            className="p-1.5 rounded-xl bg-[#121622] hover:bg-[#1A2033] text-cyan-300 hover:text-white border border-cyan-500/30 hover:border-cyan-400 transition active:scale-95"
+            title="在系统资源管理器中打开文件夹"
           >
             <FolderOpen className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center space-x-2">
-            <h1 className="text-sm font-bold text-slate-100">{details.name}</h1>
-            <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-medium">
-              {version}
+          <div className="flex items-center space-x-2 pl-2 border-l border-cyan-500/20">
+            <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded-md border border-cyan-800/50">
+              #{details.characterName}
             </span>
-            <span className="text-xs text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded border border-blue-900/40">
-              {details.characterName}
+            <h1 className="text-sm font-black text-white tracking-wide truncate max-w-sm sm:max-w-md">
+              {details.name}
+            </h1>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800/80 text-slate-400 font-semibold border border-slate-700/60">
+              {version}
             </span>
           </div>
         </div>
 
-        {/* Toggle Active Button */}
+        {/* Right Action: Equip / Unequip Tactical Trigger */}
         <div className="flex items-center space-x-3">
           <button
             onClick={handleToggle}
             disabled={toggling}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition ${
+            className={`flex items-center space-x-2 px-5 py-2 rounded-xl text-xs font-black tracking-wider uppercase transition-all shadow-lg active:scale-95 ${
               details.enabled
-                ? 'bg-emerald-500 hover:bg-emerald-600 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-            }`}
+                ? 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 hover:border-rose-400 shadow-rose-950/30'
+                : 'bg-gradient-to-r from-[#E5FE40] via-[#CCFF00] to-[#84CC16] hover:brightness-110 text-black shadow-[0_0_20px_rgba(229,254,64,0.4)]'
+            } ${toggling ? 'opacity-50 cursor-wait' : ''}`}
           >
-            {details.enabled ? (
+            {toggling ? (
+              <RotateCcw className="w-4 h-4 animate-spin" />
+            ) : details.enabled ? (
               <>
-                <CheckCircle2 className="w-4 h-4 fill-current" />
-                <span>已激活</span>
+                <XCircle className="w-4 h-4 text-rose-400" />
+                <span>卸下脱除 // EJECT</span>
               </>
             ) : (
               <>
-                <XCircle className="w-4 h-4" />
-                <span>未启用 (点击激活)</span>
+                <Zap className="w-4 h-4 fill-black text-black" />
+                <span>装备启用 // EQUIP</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Main Content Body */}
-      <div className="max-w-5xl mx-auto w-full p-6 space-y-8">
-        
-        {/* Mod Conflict Diagnostic Banner */}
-        {conflictSummary && conflictSummary.hasConflict && (
-          <div className="p-4 rounded-2xl bg-red-950/40 border border-red-800/80 shadow-xl shadow-red-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+      <div className="max-w-5xl mx-auto w-full p-6 space-y-6">
+        {/* 1.5 冲突诊断预警条 (Conflict Warning Banner) */}
+        {conflictSummary && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/80 via-rose-900/40 to-slate-900 border border-rose-500/60 shadow-[0_0_25px_rgba(244,63,94,0.25)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start space-x-3">
-              <div className="p-2 rounded-xl bg-red-900/40 border border-red-700/60 text-red-400 shrink-0">
-                <AlertTriangle className="w-5 h-5" />
+              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40 shrink-0">
+                <AlertTriangle className="w-5 h-5 animate-pulse" />
               </div>
               <div>
-                <div className="flex items-center space-x-2">
-                  <h3 className="text-xs font-bold text-red-200 tracking-wide">
-                    检测到 3DMigoto 资源 Hash 冲突！
-                  </h3>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-800/60 text-red-200 font-mono">
-                    {conflictSummary.collisions.length} 处重叠
+                <h3 className="text-xs font-black text-rose-200 tracking-wide flex items-center space-x-2">
+                  <span>检测到 3DMIGOTO 资源冲突</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-600 text-white font-mono">
+                    {conflictSummary.collisions.length} 处 Hash 重叠
                   </span>
-                </div>
-                <p className="text-xs text-red-300/80 mt-1 leading-relaxed">
-                  当前 Mod 与已启用的同角色 Mod <strong className="text-red-200">{conflictSummary.conflictingMods.join(', ')}</strong> 存在相同的纹理/网格识别码，同时加载将导致模型撕裂或贴图闪烁。
+                </h3>
+                <p className="text-[11px] text-rose-300/80 mt-1 leading-relaxed">
+                  当前 Mod 与已启用的{' '}
+                  <span className="font-bold text-white underline underline-offset-2">
+                    {conflictSummary.conflictingMods.join(', ')}
+                  </span>{' '}
+                  修改了相同的人物模型材质或 Shader，同时开启会导致游戏内模型拉丝撕裂或闪退。
                 </p>
-                <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  {conflictSummary.collisions.slice(0, 5).map((col, idx) => (
-                    <span
-                      key={idx}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-900/60 text-red-200 border border-red-800/50"
-                      title={`${col.sectionA} <-> ${col.sectionB} (${col.fileA})`}
-                    >
-                      {col.type}: {col.hash}
-                    </span>
-                  ))}
-                  {conflictSummary.collisions.length > 5 && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 text-red-400">
-                      +{conflictSummary.collisions.length - 5} 项
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
 
             <button
               onClick={handleResolveConflicts}
               disabled={resolvingConflict}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 shrink-0 transition active:scale-95 disabled:opacity-50"
+              className="flex items-center justify-center space-x-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-lg shadow-rose-600/30 transition shrink-0 active:scale-95 disabled:opacity-50"
             >
-              {resolvingConflict ? '正在解决...' : '⚡ 一键保留此 Mod (禁用冲突项)'}
+              <Sparkles className="w-4 h-4" />
+              <span>{resolvingConflict ? '正在排除冲突...' : '一键排除冲突 (仅保留此 Mod)'}</span>
             </button>
           </div>
         )}
 
-        {/* 2. Preview Section ("预览") */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-slate-300 tracking-wider uppercase flex items-center space-x-2">
-              <span>预览</span>
-              <span className="text-slate-500 font-normal">
-                ({images.length} 张图片)
-              </span>
-            </h2>
-
-            {/* Navigation Arrows */}
-            {images.length > 1 && (
-              <div className="flex items-center space-x-1.5">
-                <button
-                  onClick={() =>
-                    setCurrentImageIndex((prev) =>
-                      prev > 0 ? prev - 1 : images.length - 1
-                    )
-                  }
-                  className="p-1.5 rounded-md bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="text-xs text-slate-400 font-mono px-1">
-                  {currentImageIndex + 1} / {images.length}
-                </span>
-                <button
-                  onClick={() =>
-                    setCurrentImageIndex((prev) =>
-                      prev < images.length - 1 ? prev + 1 : 0
-                    )
-                  }
-                  className="p-1.5 rounded-md bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Main Large Image Display */}
-          <div className="relative w-full aspect-[16/9] max-h-[500px] bg-slate-950 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-2xl group">
+        {/* 2. Anime Hero Equipment Showcase Frame */}
+        <div className="relative rounded-3xl bg-[#0B0D14]/90 border border-cyan-500/30 overflow-hidden shadow-2xl p-5 space-y-4 acg-corner-markers">
+          {/* Main Visual Display */}
+          <div className="relative aspect-[16/9] w-full bg-[#07090F] rounded-2xl overflow-hidden flex items-center justify-center border border-cyan-500/20 shadow-inner group">
             {activeImage ? (
               <img
                 src={`file://${activeImage.path}`}
-                alt={details.name}
-                className="w-full h-full object-contain"
+                alt={activeImage.name}
+                className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-102"
               />
             ) : (
-              <div className="flex flex-col items-center justify-center text-slate-600 space-y-3">
-                <FolderOpen className="w-12 h-12 stroke-[1.2]" />
-                <span className="text-xs">该 Mod 目录内暂无预览图片</span>
+              <div className="flex flex-col items-center justify-center text-slate-600 space-y-2">
+                <ImageIcon className="w-12 h-12 stroke-[1.2] text-cyan-500/30" />
+                <span className="text-xs font-mono text-cyan-400/50 uppercase tracking-widest">
+                  // NO VISUAL ASSET ARCHIVED //
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  支持按 Ctrl+V 粘贴系统截图直接存为封面
+                </span>
+              </div>
+            )}
+
+            {/* Left/Right Carousel Nav */}
+            {hasImages && images.length > 1 && (
+              <>
                 <button
-                  onClick={() => {
-                    setCropImageSrc('')
-                    setIsCropOpen(true)
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center space-x-1.5 shadow-md shadow-indigo-600/20"
+                  onClick={() =>
+                    setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1))
+                  }
+                  className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-cyan-500/30 text-white border border-cyan-500/30 backdrop-blur-md opacity-0 group-hover:opacity-100 transition shadow-lg"
                 >
-                  <CropIcon className="w-3.5 h-3.5" />
-                  <span>制作或粘贴封面 (Ctrl+V)</span>
+                  <ChevronLeft className="w-5 h-5" />
                 </button>
-              </div>
+                <button
+                  onClick={() =>
+                    setCurrentImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0))
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-cyan-500/30 text-white border border-cyan-500/30 backdrop-blur-md opacity-0 group-hover:opacity-100 transition shadow-lg"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </>
             )}
 
-            {/* Current Index Badge */}
-            {hasImages && (
-              <div className="absolute bottom-4 right-4 px-3 py-1 rounded-full bg-slate-950/80 backdrop-blur-md text-xs font-mono text-slate-300 border border-slate-800">
-                {currentImageIndex + 1}/{images.length}
-              </div>
-            )}
+            {/* Floating Image Tools Overlay */}
+            {activeImage && (
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur-md px-4 py-2.5 rounded-xl border border-cyan-500/30">
+                <span className="text-xs font-mono font-bold text-cyan-300 truncate max-w-xs">
+                  {activeImage.name}
+                </span>
 
-            {/* Cover indicator */}
-            {activeImage?.isCover && (
-              <div className="absolute top-4 left-4 px-2.5 py-1 rounded-lg bg-blue-600/90 backdrop-blur-md text-white text-xs font-semibold flex items-center space-x-1 shadow-lg">
-                <Star className="w-3.5 h-3.5 fill-current" />
-                <span>默认主封面</span>
+                <div className="flex items-center space-x-2">
+                  {/* Smart Crop Workshop Button */}
+                  <button
+                    onClick={() => {
+                      setCropImageSrc(`file://${activeImage.path}`)
+                      setIsCropOpen(true)
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-[#E5FE40]/20 hover:bg-[#E5FE40]/30 text-[#E5FE40] border border-[#E5FE40]/50 transition"
+                    title="在智能裁剪工坊微调比例并保存为高清封面"
+                  >
+                    <CropIcon className="w-3.5 h-3.5" />
+                    <span>裁剪封面</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSetCover(activeImage.path)}
+                    disabled={activeImage.isCover}
+                    className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-bold transition ${
+                      activeImage.isCover
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40'
+                    }`}
+                  >
+                    <Star className="w-3.5 h-3.5 fill-current" />
+                    <span>{activeImage.isCover ? '默认封面' : '设为封面'}</span>
+                  </button>
+
+                  {images.length > 1 && (
+                    <button
+                      onClick={() => handleDeleteImage(activeImage.path)}
+                      className="p-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 transition"
+                      title="删除此图片"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Image Toolbar */}
-          {activeImage && (
-            <div className="flex items-center justify-between px-2 pt-1 text-xs text-slate-400">
-              <span className="truncate text-slate-500 font-mono text-[11px]">
-                {activeImage.name}
-              </span>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => {
-                    setCropImageSrc(`file://${activeImage.path}`)
-                    setIsCropOpen(true)
-                  }}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition"
-                  title="使用智能裁剪工坊构图"
-                >
-                  <CropIcon className="w-3 h-3" />
-                  <span>智能裁剪封面</span>
-                </button>
-
-                {!activeImage.isCover && (
-                  <button
-                    onClick={() => handleSetCover(activeImage.path)}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white transition"
-                  >
-                    <Star className="w-3 h-3 text-amber-400" />
-                    <span>设为封面</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => handleDeleteImage(activeImage.path)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-400 transition"
-                  title="删除当前图片"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  <span>删除图片</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Thumbnail Carousel Strip */}
-          {images.length > 1 && (
-            <div className="flex items-center space-x-2 overflow-x-auto py-2">
+          {/* Thumbnails Row */}
+          {hasImages && images.length > 1 && (
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1">
               {images.map((img, idx) => (
                 <button
                   key={img.path}
                   onClick={() => setCurrentImageIndex(idx)}
-                  className={`relative w-20 h-14 rounded-lg overflow-hidden border-2 shrink-0 transition ${
-                    idx === currentImageIndex
-                      ? 'border-blue-500 scale-105 shadow-md shadow-blue-500/20'
-                      : 'border-slate-800 opacity-60 hover:opacity-100'
+                  className={`relative w-20 h-14 rounded-xl overflow-hidden shrink-0 border transition ${
+                    currentImageIndex === idx
+                      ? 'border-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.4)] scale-105 ring-1 ring-cyan-400'
+                      : 'border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-600'
                   }`}
                 >
-                  <img
-                    src={`file://${img.path}`}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={`file://${img.path}`} alt="" className="w-full h-full object-cover" />
                   {img.isCover && (
-                    <div className="absolute top-1 left-1 w-2 h-2 rounded-full bg-amber-400 shadow" />
+                    <div className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-[#E5FE40] shadow-[0_0_6px_rgba(229,254,64,0.8)]" />
                   )}
                 </button>
               ))}
@@ -576,39 +531,46 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           )}
         </div>
 
-        {/* 2.5 Mod 设定数值记忆与调节 (Persist Bridge) */}
+        {/* 3. Mod 设定数值记忆与调节 (Persist Bridge Matrix) */}
         {persistInfo && persistInfo.hasPersist && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Sliders className="w-4 h-4 text-cyan-400" />
-                <h2 className="text-xs font-bold text-slate-200 tracking-wider uppercase flex items-center space-x-2">
-                  <span>Mod 设定数值记忆与调节 (Persist Bridge)</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-950/80 text-cyan-400 border border-cyan-800/60 font-mono">
-                    {persistInfo.variables.length} 项参数已记忆
-                  </span>
-                </h2>
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-[0_0_15px_rgba(0,240,255,0.2)]">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-xs font-black text-white tracking-wider uppercase flex items-center space-x-2">
+                    <span>Mod 设定数值记忆与调节 // VARIABLE MATRIX</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#E5FE40]/20 text-[#E5FE40] border border-[#E5FE40]/40">
+                      {persistInfo.variables.length} PARAMS ACTIVE
+                    </span>
+                  </h2>
+                  <p className="text-[11px] text-cyan-400/80 font-mono mt-0.5">
+                    // 实时调整发型、衣服开关、湿身度，点击立即写回 3DMigoto 并触发热刷新
+                  </p>
+                </div>
               </div>
 
               <button
                 onClick={handleResetVariables}
                 disabled={resettingVars}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 transition disabled:opacity-50 active:scale-95"
+                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-[#121622] hover:bg-[#1A2033] border border-cyan-500/30 hover:border-cyan-400 transition disabled:opacity-50 active:scale-95 shadow-sm"
                 title="将此 Mod 的所有服装与开关数值重置为默认值"
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${resettingVars ? 'animate-spin' : ''}`} />
-                <span>重置为默认值</span>
+                <span>重置默认值 // RECALIBRATE</span>
               </button>
             </div>
 
             {persistToast && (
-              <div className="p-3 rounded-xl bg-cyan-950/50 border border-cyan-800/80 text-xs text-cyan-200 flex items-center space-x-2 animate-in fade-in duration-200 shadow-lg shadow-cyan-950/40">
-                <Zap className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span>{persistToast}</span>
+              <div className="p-3 rounded-xl bg-cyan-950/80 border border-cyan-400/80 text-xs text-cyan-200 flex items-center space-x-2 animate-in fade-in duration-200 shadow-[0_0_20px_rgba(0,240,255,0.25)]">
+                <Zap className="w-4 h-4 text-[#E5FE40] shrink-0 fill-current" />
+                <span className="font-medium">{persistToast}</span>
               </div>
             )}
 
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div className="bg-[#0B0D14]/90 border border-cyan-500/20 rounded-3xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4 shadow-xl">
               {persistInfo.variables.map((v) => {
                 const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
                 const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
@@ -618,70 +580,72 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 return (
                   <div
                     key={v.name}
-                    className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/90 hover:border-slate-700 transition flex flex-col justify-between space-y-3"
+                    className="p-4 rounded-2xl bg-[#0F121C] border border-cyan-500/20 hover:border-cyan-400/60 transition-all flex flex-col justify-between space-y-3.5 shadow-md"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center space-x-2">
-                          <span className="text-xs font-mono font-bold text-slate-100 tracking-wide">
+                          <span className="text-sm font-mono font-black text-white tracking-wide">
                             ${v.name}
                           </span>
                           {v.keybind && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-950/70 text-blue-300 border border-blue-800/50">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#131326] text-fuchsia-300 border border-fuchsia-500/40 shadow-sm">
                               {v.keybind}
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                          来自 {v.iniFile} · 默认值: {v.defaultValue}
+                        <div className="text-[10.5px] text-slate-400 font-mono mt-0.5">
+                          来源: {v.iniFile} · 默认值: {v.defaultValue}
                         </div>
                       </div>
 
                       <div className="flex items-center space-x-1.5">
-                        <span className="text-[11px] text-slate-400 font-medium">当前值:</span>
-                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-cyan-900/40">
+                        <span className="text-[11px] text-slate-400 font-mono">VAL:</span>
+                        <span className="text-xs font-mono font-black px-2.5 py-0.5 rounded-lg bg-[#07090F] text-[#E5FE40] border border-[#E5FE40]/40 shadow-sm">
                           {v.currentValue}
                         </span>
                       </div>
                     </div>
 
                     {/* Interactive Switch or Segmented Cycle */}
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
-                      <span className="text-[11px] text-slate-400">切换 / 调节:</span>
+                    <div className="flex items-center justify-between pt-2 border-t border-cyan-500/10">
+                      <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
+                        // TUNING CONTROL:
+                      </span>
 
                       {isBinary ? (
                         <button
                           onClick={() => handleUpdateVariable(v, isOn ? '0' : '1')}
                           disabled={isUpdating}
-                          className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-black tracking-wider uppercase transition-all active:scale-95 ${
                             isOn
-                              ? 'bg-cyan-600/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-600/30'
-                              : 'bg-slate-800/60 text-slate-400 border border-slate-700/50 hover:bg-slate-800'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.3)] hover:bg-cyan-500/30'
+                              : 'bg-slate-800/60 text-slate-400 border border-slate-700/60 hover:bg-slate-800'
                           } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
                         >
                           {isOn ? (
                             <>
                               <ToggleRight className="w-4 h-4 text-cyan-400" />
-                              <span>开启 (1)</span>
+                              <span>已开启 (1)</span>
                             </>
                           ) : (
                             <>
                               <ToggleLeft className="w-4 h-4 text-slate-400" />
-                              <span>关闭 (0)</span>
+                              <span>已关闭 (0)</span>
                             </>
                           )}
                         </button>
                       ) : (
-                        <div className="flex items-center space-x-1">
+                        <div className="flex items-center space-x-1.5">
                           {allowed.map((val) => (
                             <button
                               key={val}
                               onClick={() => handleUpdateVariable(v, val)}
                               disabled={isUpdating}
-                              className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition ${
+                              className={`px-3 py-1 rounded-lg text-xs font-mono font-black transition-all active:scale-95 ${
                                 v.currentValue === val
-                                  ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/30'
-                                  : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800 hover:bg-slate-800'
+                                  ? 'bg-[#E5FE40] text-black shadow-[0_0_15px_rgba(229,254,64,0.5)] scale-105'
+                                  : 'bg-[#121622] text-slate-400 hover:text-white border border-cyan-500/20 hover:border-cyan-400'
                               } ${isUpdating ? 'opacity-50' : ''}`}
                             >
                               {val}
@@ -697,83 +661,84 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           </div>
         )}
 
-        {/* 3. Details Section ("详情") */}
+        {/* 4. Details Section (Equipment Specifications) */}
         <div className="space-y-4">
-          <h2 className="text-xs font-bold text-slate-300 tracking-wider uppercase">
-            详情
+          <h2 className="text-xs font-black text-cyan-400/90 tracking-widest uppercase flex items-center space-x-2">
+            <Cpu className="w-4 h-4" />
+            <span>模组技术规格 // MOD SPECIFICATIONS</span>
           </h2>
 
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-4">
+          <div className="bg-[#0B0D14]/90 border border-cyan-500/20 rounded-3xl p-5 space-y-4 shadow-xl">
             {/* 检查时间 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800/80 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-cyan-500/10 gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-slate-800 text-blue-400">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-200">检查时间</h4>
-                  <p className="text-[11px] text-slate-500">您上次检查此模组的时间</p>
+                  <h4 className="text-xs font-bold text-slate-200">检查时间 // CHECK TIME</h4>
+                  <p className="text-[11px] text-slate-500">您上次检查此模组的时间戳</p>
                 </div>
               </div>
 
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-300">
-                  {details.metadata?.checkTime || '2026/10/4'}
+                <span className="text-xs font-mono bg-[#07090F] px-3 py-1.5 rounded-lg border border-cyan-500/20 text-slate-300">
+                  {details.metadata?.checkTime || '2026/10/5'}
                 </span>
-                <Clock className="w-4 h-4 text-slate-500" />
+                <Clock className="w-4 h-4 text-cyan-500/60" />
               </div>
             </div>
 
             {/* 最后更新 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800/80 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-cyan-500/10 gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-slate-800 text-blue-400">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-200">最后更新</h4>
-                  <p className="text-[11px] text-slate-500">此模组上次更新时间</p>
+                  <h4 className="text-xs font-bold text-slate-200">最后更新 // LAST UPDATED</h4>
+                  <p className="text-[11px] text-slate-500">此模组文件上次物理写入修改时间</p>
                 </div>
               </div>
 
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-300">
-                  {details.metadata?.lastUpdated || '2026/10/4'}
+                <span className="text-xs font-mono bg-[#07090F] px-3 py-1.5 rounded-lg border border-cyan-500/20 text-slate-300">
+                  {details.metadata?.lastUpdated || '2026/10/5'}
                 </span>
-                <Clock className="w-4 h-4 text-slate-500" />
+                <Clock className="w-4 h-4 text-cyan-500/60" />
               </div>
             </div>
 
             {/* 作者 (可编辑) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800/80 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-cyan-500/10 gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-slate-800 text-blue-400">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
                   <User className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-200">作者</h4>
-                  <p className="text-[11px] text-slate-500">此模组的创作者</p>
+                  <h4 className="text-xs font-bold text-slate-200">创作者 // AUTHOR</h4>
+                  <p className="text-[11px] text-slate-500">模组原作者署名</p>
                 </div>
               </div>
 
               <input
                 type="text"
-                placeholder="Enter author name"
+                placeholder="请输入创作者署名..."
                 value={author}
                 onChange={(e) => setAuthor(e.target.value)}
-                className="w-64 bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-64 bg-[#07090F] border border-cyan-500/30 focus:border-cyan-400 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-sans"
               />
             </div>
 
             {/* 版本号 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800/80 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-cyan-500/10 gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-slate-800 text-blue-400">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
                   <Tag className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-200">版本号</h4>
-                  <p className="text-[11px] text-slate-500">模组当前发布的版本号</p>
+                  <h4 className="text-xs font-bold text-slate-200">版本标识 // REVISION</h4>
+                  <p className="text-[11px] text-slate-500">模组发布版本编号</p>
                 </div>
               </div>
 
@@ -782,26 +747,26 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 placeholder="例如：Version 1.0"
                 value={version}
                 onChange={(e) => setVersion(e.target.value)}
-                className="w-64 bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-64 bg-[#07090F] border border-cyan-500/30 focus:border-cyan-400 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-sans"
               />
             </div>
 
             {/* 磁盘路径与体积 */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-slate-800 text-blue-400">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
                   <HardDrive className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-200">占用空间与路径</h4>
-                  <p className="text-[11px] text-slate-500 truncate max-w-sm sm:max-w-md">
+                  <h4 className="text-xs font-bold text-slate-200">物理存储路径 // STORAGE</h4>
+                  <p className="text-[11px] font-mono text-slate-400 truncate max-w-sm sm:max-w-md">
                     {details.fullPath}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 text-xs font-mono text-slate-400">
-                <span>{formatSize(details.totalSize)}</span>
+              <div className="flex items-center space-x-2 text-xs font-mono text-cyan-300 bg-[#07090F] px-3 py-1.5 rounded-xl border border-cyan-500/20">
+                <span className="font-bold text-[#E5FE40]">{formatSize(details.totalSize)}</span>
                 <span className="text-slate-600">/</span>
                 <span>{details.fileCount} 个文件</span>
               </div>
@@ -812,21 +777,21 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               <button
                 onClick={handleSaveMetadata}
                 disabled={savingMeta}
-                className={`flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition ${
+                className={`flex items-center space-x-1.5 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 ${
                   savedSuccess
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'
+                    ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(52,211,153,0.5)]'
+                    : 'bg-cyan-600 hover:bg-cyan-500 text-black shadow-lg shadow-cyan-600/30'
                 }`}
               >
                 {savedSuccess ? (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>已保存元数据！</span>
+                    <span>元数据已固化！</span>
                   </>
                 ) : (
                   <>
                     <Save className="w-4 h-4" />
-                    <span>保存信息修改</span>
+                    <span>保存信息修改 // COMMIT</span>
                   </>
                 )}
               </button>
@@ -834,25 +799,25 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           </div>
         </div>
 
-        {/* 4. INI 配置文件查看器 */}
+        {/* 5. INI 配置文件查看器 (Technical Console) */}
         {details.iniFiles && details.iniFiles.length > 0 && (
           <div className="space-y-3">
-            <h2 className="text-xs font-bold text-slate-300 tracking-wider uppercase flex items-center space-x-2">
-              <FileText className="w-4 h-4 text-blue-400" />
-              <span>INI 配置文件 ({details.iniFiles.length})</span>
+            <h2 className="text-xs font-black text-cyan-400/90 tracking-widest uppercase flex items-center space-x-2">
+              <FileText className="w-4 h-4 text-cyan-400" />
+              <span>3DMIGOTO 配置脚本 // INI DESCRIPTORS ({details.iniFiles.length})</span>
             </h2>
 
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="bg-[#0B0D14]/90 border border-cyan-500/20 rounded-3xl p-5 space-y-3 shadow-xl">
               {/* Tab Selector for INI files */}
               <div className="flex items-center space-x-2 overflow-x-auto pb-1">
                 {details.iniFiles.map((ini) => (
                   <button
                     key={ini.fullPath}
                     onClick={() => handleSelectIni(ini.fullPath)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition ${
                       selectedIni === ini.fullPath
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                        ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,240,255,0.4)]'
+                        : 'bg-[#121622] text-slate-400 hover:text-white border border-cyan-500/20'
                     }`}
                   >
                     {ini.name}
@@ -866,7 +831,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   readOnly
                   value={iniContent}
                   rows={10}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 leading-relaxed focus:outline-none resize-y"
+                  className="w-full bg-[#07090F] border border-cyan-500/20 rounded-2xl p-4 text-xs font-mono text-cyan-300 leading-relaxed focus:outline-none resize-y selection:bg-cyan-500 selection:text-black"
                 />
               </div>
             </div>
@@ -874,7 +839,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         )}
       </div>
 
-      {/* 5. Smart Crop Modal */}
+      {/* Smart Crop Modal */}
       {isCropOpen && (
         <CropDialog
           isOpen={isCropOpen}

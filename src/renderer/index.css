@@ -2,37 +2,140 @@
 
 @layer base {
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(10, 12, 18, 0.8);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 9999px;
+    background: rgba(0, 240, 255, 0.25);
+    border-radius: 4px;
+    border: 1px solid rgba(0, 240, 255, 0.4);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.25);
+    background: rgba(229, 254, 64, 0.6);
+    border-color: rgba(229, 254, 64, 0.9);
+    box-shadow: 0 0 8px rgba(229, 254, 64, 0.8);
   }
 }
 
-.glass-card {
-  background: rgba(22, 27, 34, 0.75);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* 二次元 / Cyber ACG 游戏背景网格与光效 */
+.acg-bg-grid {
+  background-color: #0b0d14;
+  background-image: 
+    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 240, 255, 0.08), transparent 70%);
+  background-size: 32px 32px, 32px 32px, 100% 100%;
 }
 
-.glass-card-hover {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.glass-card-hover:hover {
-  background: rgba(30, 38, 48, 0.85);
-  border-color: rgba(59, 130, 246, 0.4);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(59, 130, 246, 0.15);
+.acg-subtle-dots {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 16px 16px;
 }
 
-.glow-accent {
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.35);
+/* 45度战术切角剪裁 (ZZZ / 明日方舟风格) */
+.acg-clip-chamfer {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+.acg-clip-chamfer-tl-br {
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+.acg-clip-chamfer-sm {
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+.acg-clip-tag {
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+
+.acg-clip-tab {
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+
+/* 霓虹发光光晕效果 */
+.glow-neon-yellow {
+  box-shadow: 0 0 15px rgba(229, 254, 64, 0.35), inset 0 0 10px rgba(229, 254, 64, 0.15);
+}
+
+.glow-neon-cyan {
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.35), inset 0 0 10px rgba(0, 240, 255, 0.15);
+}
+
+.glow-neon-pink {
+  box-shadow: 0 0 16px rgba(255, 46, 147, 0.35), inset 0 0 10px rgba(255, 46, 147, 0.15);
+}
+
+.glow-neon-emerald {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.35);
+}
+
+/* 二次元警示斜纹背景 (Hazard Stripes) */
+.acg-stripes-yellow {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(229, 254, 64, 0.12),
+    rgba(229, 254, 64, 0.12) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+.acg-stripes-cyan {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 240, 255, 0.12),
+    rgba(0, 240, 255, 0.12) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+/* 高科技玻璃卡片底板 */
+.acg-card {
+  background: rgba(15, 18, 26, 0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.acg-card:hover {
+  border-color: rgba(0, 240, 255, 0.35);
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 240, 255, 0.12);
+}
+
+.acg-card-active {
+  background: rgba(17, 24, 39, 0.95);
+  border-color: rgba(0, 240, 255, 0.6);
+  box-shadow: 0 0 25px rgba(0, 240, 255, 0.2), inset 0 0 15px rgba(0, 240, 255, 0.05);
+}
+
+/* 科技角标装饰 ⌜ ⌝ ⌞ ⌟ */
+.acg-corner-markers {
+  position: relative;
+}
+.acg-corner-markers::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid rgba(0, 240, 255, 0.8);
+  border-left: 2px solid rgba(0, 240, 255, 0.8);
+  pointer-events: none;
+}
+.acg-corner-markers::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid rgba(0, 240, 255, 0.8);
+  border-right: 2px solid rgba(0, 240, 255, 0.8);
+  pointer-events: none;
 }

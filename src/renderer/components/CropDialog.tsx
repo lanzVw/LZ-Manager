@@ -376,38 +376,38 @@ export const CropDialog: React.FC<CropDialogProps> = ({
   const cropHeightPct = (cropBox.height / naturalH) * 100
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-6 select-none animate-in fade-in duration-200">
-      <div className="relative w-full max-w-5xl h-[90vh] bg-gray-900 border border-gray-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl p-6 select-none animate-in fade-in duration-200">
+      <div className="relative w-full max-w-5xl h-[90vh] bg-[#0B0D14] border border-cyan-500/30 rounded-3xl shadow-[0_0_50px_rgba(0,240,255,0.2)] flex flex-col overflow-hidden acg-corner-markers">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/20 bg-[#07090F]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.2)]">
               <CropIcon className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white tracking-wide">智能封面裁剪工坊</h2>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <h2 className="text-base font-black text-white tracking-wide">智能封面裁剪工坊 // AI WORKSHOP</h2>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#E5FE40]/20 text-[#E5FE40] border border-[#E5FE40]/40 font-bold">
                   AI Saliency Engine
                 </span>
               </div>
-              <p className="text-xs text-gray-400">
-                {characterName} / <span className="text-gray-300 font-medium">{modName}</span>
-                {naturalSize.width > 0 && ` • 原图尺寸 ${naturalSize.width} × ${naturalSize.height} px`}
+              <p className="text-xs text-slate-400 font-mono mt-0.5">
+                {characterName} / <span className="text-cyan-300 font-bold">{modName}</span>
+                {naturalSize.width > 0 && ` • 原图规格 ${naturalSize.width} × ${naturalSize.height} px`}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 hover:text-white rounded-lg cursor-pointer transition border border-gray-700">
-              <Upload className="w-3.5 h-3.5" />
+            <label className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-slate-200 bg-[#121622] hover:bg-[#1A2033] hover:text-white rounded-xl cursor-pointer transition border border-cyan-500/30">
+              <Upload className="w-3.5 h-3.5 text-cyan-400" />
               选择新图片
               <input type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
             </label>
             <button
               onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -641,11 +641,11 @@ export const CropDialog: React.FC<CropDialogProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-800 bg-gray-900/80">
-          <div className="text-xs text-gray-400 flex items-center gap-2">
-            <ImageIcon className="w-4 h-4 text-gray-400" />
+        <div className="flex items-center justify-between px-6 py-4 border-t border-cyan-500/20 bg-[#07090F]">
+          <div className="text-xs text-slate-400 flex items-center gap-2 font-mono">
+            <ImageIcon className="w-4 h-4 text-cyan-400" />
             <span>
-              裁剪规格: <span className="font-mono text-gray-200">{cropBox.width} × {cropBox.height} px</span>
+              裁剪规格: <span className="font-bold text-[#E5FE40]">{cropBox.width} × {cropBox.height} px</span>
             </span>
           </div>
 
@@ -653,17 +653,17 @@ export const CropDialog: React.FC<CropDialogProps> = ({
             <button
               onClick={onClose}
               disabled={isSaving}
-              className="px-5 py-2 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-xl transition"
+              className="px-5 py-2 text-xs font-bold text-slate-400 hover:text-white bg-[#121622] hover:bg-slate-800 rounded-xl transition"
             >
-              取消
+              取消 // CANCEL
             </button>
             <button
               onClick={handleSaveCrop}
               disabled={isSaving || isAnalyzing}
-              className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/30 transition disabled:opacity-50 active:scale-95"
+              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-[#E5FE40] to-[#A3E635] hover:brightness-110 text-black font-black uppercase tracking-wider rounded-xl text-xs shadow-[0_0_20px_rgba(229,254,64,0.35)] transition disabled:opacity-50 active:scale-95"
             >
               <Save className="w-4 h-4" />
-              {isSaving ? '正在保存...' : '确认并保存为 Mod 封面'}
+              {isSaving ? '正在生成封面...' : '确认并固化为 MOD 封面 // COMMIT'}
             </button>
           </div>
         </div>

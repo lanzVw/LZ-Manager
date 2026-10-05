@@ -151,7 +151,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 font-sans antialiased overflow-hidden border border-slate-800/80 rounded-lg">
+    <div className="h-screen w-screen flex flex-col acg-bg-grid text-slate-100 font-sans antialiased overflow-hidden border border-cyan-500/25 rounded-none shadow-2xl relative select-none">
       <Header
         activeTab={activeTab}
         setActiveTab={(tab) => {
@@ -213,18 +213,23 @@ export default function App() {
         )}
       </div>
 
-      {/* Full-screen Drag Overlay */}
+      {/* Full-screen Drag Overlay (Anime Tactical File Injection) */}
       {isDraggingFile && (
-        <div className="fixed inset-0 z-50 bg-blue-950/80 backdrop-blur-md border-4 border-dashed border-blue-400 m-2 rounded-2xl flex flex-col items-center justify-center space-y-3 pointer-events-none animate-in fade-in duration-150">
-          <div className="p-4 rounded-full bg-blue-600/30 text-blue-300">
-            <UploadCloud className="w-12 h-12 animate-bounce" />
+        <div className="fixed inset-0 z-50 bg-[#0B0D14]/90 backdrop-blur-2xl border-4 border-dashed border-[#00F0FF] m-3 rounded-3xl flex flex-col items-center justify-center space-y-4 pointer-events-none animate-in fade-in duration-200 shadow-[0_0_60px_rgba(0,240,255,0.35)]">
+          <div className="p-6 rounded-2xl bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40 shadow-[0_0_30px_rgba(0,240,255,0.4)]">
+            <UploadCloud className="w-16 h-16 animate-bounce stroke-[1.8]" />
           </div>
-          <h3 className="text-base font-bold text-white tracking-wide">
-            释放以导入 Mod 压缩包
-          </h3>
-          <p className="text-xs text-blue-300 font-mono">
-            支持 .zip / .7z / .rar 格式，自动识别角色与 INI 配置
-          </p>
+          <div className="text-center">
+            <div className="text-xs font-mono tracking-widest text-[#E5FE40] uppercase font-black mb-1">
+              // EXTERNAL MOD ARCHIVE DETECTED //
+            </div>
+            <h3 className="text-2xl font-black text-white tracking-wider uppercase">
+              释放以注入 MOD 压缩包
+            </h3>
+            <p className="text-xs text-cyan-300 font-mono mt-2">
+              支持 .ZIP / .7Z / .RAR 格式 · 智能识别角色特工与 3DMigoto 映射
+            </p>
+          </div>
         </div>
       )}
 
