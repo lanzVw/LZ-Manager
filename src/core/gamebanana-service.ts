@@ -70,7 +70,7 @@ const MAGIC_7Z = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
 const MAGIC_RAR = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07]; // RAR 4 or 5
 
 const API_BASE_URL = "https://gamebanana.com/apiv11";
-const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QAQManager-FlairX/4.7.8";
+const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) LZ-Manager/1.0.0";
 
 /**
  * Resolve game input to GameBanana numeric Game ID

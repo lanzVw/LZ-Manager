@@ -1,7 +1,7 @@
 {
-  "name": "flairx-manager",
+  "name": "lz-manager",
   "version": "1.0.0",
-  "description": "",
+  "description": "LZ Manager - Modern Mod Manager for HoYoverse & Hypergryph Games",
   "main": "dist/main/index.cjs",
   "scripts": {
     "build:main": "vite build --config vite.config.main.ts",

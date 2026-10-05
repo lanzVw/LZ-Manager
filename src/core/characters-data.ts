@@ -1,5 +1,5 @@
 /**
- * QAQManager FlairX - GameBanana 100% Official Verified Character Database
+ * LZ Manager - GameBanana 100% Official Verified Character Database
  * Contains full character roster with Chinese names, English canonical names,
  * and GameBanana Category IDs verified directly against the GameBanana Live API:
  * - Zenless Zone Zero (19567)

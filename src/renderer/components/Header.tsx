@@ -39,10 +39,10 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center space-x-3 no-drag">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/20">
-            FX
+            LZ
           </div>
           <span className="font-bold text-slate-100 tracking-wide text-sm hidden sm:inline">
-            FlairX Manager
+            LZ Manager
           </span>
         </div>
 

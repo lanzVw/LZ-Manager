@@ -41,6 +41,8 @@ const flairxApi = {
   close: () => ipcRenderer.invoke('window:close')
 }
 
+contextBridge.exposeInMainWorld('lz', flairxApi)
 contextBridge.exposeInMainWorld('flairx', flairxApi)
 
-export type FlairXApi = typeof flairxApi
+export type LZApi = typeof flairxApi
+export type FlairXApi = LZApi
