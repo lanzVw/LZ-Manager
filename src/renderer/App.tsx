@@ -151,7 +151,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col acg-bg-grid text-slate-100 font-sans antialiased overflow-hidden border border-cyan-500/25 rounded-none shadow-2xl relative select-none">
+    <div className="h-screen w-screen flex flex-col bg-porcelain-canvas text-slate-100 font-sans antialiased overflow-hidden border border-white/10 rounded-none shadow-2xl relative select-none">
       <Header
         activeTab={activeTab}
         setActiveTab={(tab) => {
@@ -213,21 +213,21 @@ export default function App() {
         )}
       </div>
 
-      {/* Full-screen Drag Overlay (Anime Tactical File Injection) */}
+      {/* Full-screen Drag Overlay (Porcelain Glass File Ingestion) */}
       {isDraggingFile && (
-        <div className="fixed inset-0 z-50 bg-[#0B0D14]/90 backdrop-blur-2xl border-4 border-dashed border-[#00F0FF] m-3 rounded-3xl flex flex-col items-center justify-center space-y-4 pointer-events-none animate-in fade-in duration-200 shadow-[0_0_60px_rgba(0,240,255,0.35)]">
-          <div className="p-6 rounded-2xl bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40 shadow-[0_0_30px_rgba(0,240,255,0.4)]">
-            <UploadCloud className="w-16 h-16 animate-bounce stroke-[1.8]" />
+        <div className="fixed inset-0 z-50 bg-[#0b111e]/85 backdrop-blur-2xl border-2 border-dashed border-sky-400/80 m-4 rounded-3xl flex flex-col items-center justify-center space-y-4 pointer-events-none animate-in fade-in duration-200 shadow-[0_0_60px_rgba(37,99,235,0.25)]">
+          <div className="p-6 rounded-2xl bg-sky-500/15 text-sky-300 border border-sky-400/30 shadow-[0_0_30px_rgba(56,189,248,0.25)]">
+            <UploadCloud className="w-14 h-14 animate-bounce stroke-[1.8]" />
           </div>
           <div className="text-center">
-            <div className="text-xs font-mono tracking-widest text-[#E5FE40] uppercase font-black mb-1">
-              // EXTERNAL MOD ARCHIVE DETECTED //
+            <div className="text-xs font-mono tracking-widest text-sky-400 uppercase font-bold mb-1.5">
+              // MOD ARCHIVE IMPORT //
             </div>
-            <h3 className="text-2xl font-black text-white tracking-wider uppercase">
-              释放以注入 MOD 压缩包
+            <h3 className="text-2xl font-bold text-white tracking-wide">
+              释放以导入 MOD 压缩包
             </h3>
-            <p className="text-xs text-cyan-300 font-mono mt-2">
-              支持 .ZIP / .7Z / .RAR 格式 · 智能识别角色特工与 3DMigoto 映射
+            <p className="text-xs text-slate-300 mt-2 font-medium">
+              支持 .ZIP / .7Z / .RAR 格式 · 智能识别角色与 3DMigoto 映射
             </p>
           </div>
         </div>

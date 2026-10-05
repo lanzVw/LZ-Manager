@@ -376,38 +376,38 @@ export const CropDialog: React.FC<CropDialogProps> = ({
   const cropHeightPct = (cropBox.height / naturalH) * 100
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl p-6 select-none animate-in fade-in duration-200">
-      <div className="relative w-full max-w-5xl h-[90vh] bg-[#0B0D14] border border-cyan-500/30 rounded-3xl shadow-[0_0_50px_rgba(0,240,255,0.2)] flex flex-col overflow-hidden acg-corner-markers">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xl p-6 select-none animate-in fade-in duration-200">
+      <div className="relative w-full max-w-5xl h-[90vh] bg-[#0c1426]/95 border border-white/10 rounded-3xl shadow-2xl flex flex-col overflow-hidden backdrop-blur-2xl">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/20 bg-[#07090F]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08] bg-[#090f1d]/80">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.2)]">
+            <div className="w-10 h-10 rounded-2xl bg-blue-500/15 border border-blue-400/20 flex items-center justify-center text-sky-400 shadow-sm">
               <CropIcon className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-black text-white tracking-wide">智能封面裁剪工坊 // AI WORKSHOP</h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#E5FE40]/20 text-[#E5FE40] border border-[#E5FE40]/40 font-bold">
-                  AI Saliency Engine
+                <h2 className="text-base font-bold text-white tracking-wide">智能封面裁剪工坊</h2>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-sky-300 border border-blue-400/30 font-semibold">
+                  AI 构图引擎
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                {characterName} / <span className="text-cyan-300 font-bold">{modName}</span>
+              <p className="text-xs text-slate-400 font-sans mt-0.5">
+                {characterName} / <span className="text-sky-300 font-semibold">{modName}</span>
                 {naturalSize.width > 0 && ` • 原图规格 ${naturalSize.width} × ${naturalSize.height} px`}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-slate-200 bg-[#121622] hover:bg-[#1A2033] hover:text-white rounded-xl cursor-pointer transition border border-cyan-500/30">
-              <Upload className="w-3.5 h-3.5 text-cyan-400" />
+            <label className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-200 bg-white/[0.05] hover:bg-white/[0.1] hover:text-white rounded-xl cursor-pointer transition border border-white/10">
+              <Upload className="w-3.5 h-3.5 text-sky-400" />
               选择新图片
               <input type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
             </label>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-white/[0.08] rounded-xl transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -641,11 +641,11 @@ export const CropDialog: React.FC<CropDialogProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-cyan-500/20 bg-[#07090F]">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-white/[0.08] bg-[#090f1d]/80">
           <div className="text-xs text-slate-400 flex items-center gap-2 font-mono">
-            <ImageIcon className="w-4 h-4 text-cyan-400" />
+            <ImageIcon className="w-4 h-4 text-sky-400" />
             <span>
-              裁剪规格: <span className="font-bold text-[#E5FE40]">{cropBox.width} × {cropBox.height} px</span>
+              裁剪规格: <span className="font-bold text-sky-300">{cropBox.width} × {cropBox.height} px</span>
             </span>
           </div>
 
@@ -653,17 +653,17 @@ export const CropDialog: React.FC<CropDialogProps> = ({
             <button
               onClick={onClose}
               disabled={isSaving}
-              className="px-5 py-2 text-xs font-bold text-slate-400 hover:text-white bg-[#121622] hover:bg-slate-800 rounded-xl transition"
+              className="px-5 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-white/[0.05] hover:bg-white/[0.1] rounded-xl transition"
             >
-              取消 // CANCEL
+              取消
             </button>
             <button
               onClick={handleSaveCrop}
               disabled={isSaving || isAnalyzing}
-              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-[#E5FE40] to-[#A3E635] hover:brightness-110 text-black font-black uppercase tracking-wider rounded-xl text-xs shadow-[0_0_20px_rgba(229,254,64,0.35)] transition disabled:opacity-50 active:scale-95"
+              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-900/30 transition disabled:opacity-50 active:scale-95"
             >
               <Save className="w-4 h-4" />
-              {isSaving ? '正在生成封面...' : '确认并固化为 MOD 封面 // COMMIT'}
+              {isSaving ? '正在生成封面...' : '确认并保存为 MOD 封面'}
             </button>
           </div>
         </div>
