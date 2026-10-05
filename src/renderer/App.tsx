@@ -183,6 +183,8 @@ export default function App() {
               onRefresh={scanMods}
               onToggleMod={handleToggleMod}
               onSelectMod={(path) => setSelectedModPath(path)}
+              onNavigateTab={(tab) => setActiveTab(tab)}
+              activeGame={activeGame}
             />
           ))}
 

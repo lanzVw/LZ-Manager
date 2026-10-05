@@ -229,7 +229,37 @@ function setupIpc() {
     const g = configStore.getActiveGame()
     if (!g) return {}
     modEngine.setModFolderPath(g.modFolderPath)
-    return modEngine.scanMods()
+    const result = modEngine.scanMods()
+
+    // 合并游戏官方全量角色图鉴，确保尚未在本地建目录的角色也能在“全部角色”筛选中显示
+    try {
+      const roster = getCharactersForGame(g.id)
+      if (Array.isArray(roster)) {
+        for (const item of roster) {
+          if (item.id === 'all' || !item.name) continue
+          if (!result[item.name]) {
+            result[item.name] = []
+          }
+        }
+      }
+    } catch (_) {}
+
+    return result
+  })
+
+  ipcMain.handle('mods:openCharacterFolder', (_, charName: string) => {
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) return { success: false, error: '未选择游戏或未配置Mod路径' }
+    const charPath = path.join(g.modFolderPath, charName)
+    if (!fs.existsSync(charPath)) {
+      try {
+        fs.mkdirSync(charPath, { recursive: true })
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    }
+    shell.openPath(charPath)
+    return { success: true, path: charPath }
   })
 
   ipcMain.handle('characters:getAvatars', (_, gameId?: string) => {

@@ -102,9 +102,8 @@ export class ModEngine {
           console.error(`Error reading character dir: ${charPath}`, err)
         }
 
-        if (modsList.length > 0) {
-          result[charName] = modsList
-        }
+        // 始终记录角色条目（即使暂无 Mod），支持“显示全部角色/未安装角色”的筛选功能
+        result[charName] = modsList
       }
     } catch (err) {
       console.error('Error scanning mod folder root:', err)

@@ -4,6 +4,8 @@ import {
   CheckCircle2,
   XCircle,
   FolderOpen,
+  Folder,
+  Globe,
   Image as ImageIcon,
   ShieldCheck,
   RefreshCw,
@@ -13,6 +15,8 @@ import {
   Layers,
   LayoutList,
   LayoutGrid,
+  ArrowUpDown,
+  Filter,
   ChevronRight
 } from 'lucide-react'
 import { CharacterConflictReport, ModConflictSummary } from '../../core/types'
@@ -23,6 +27,8 @@ interface ModsPageProps {
   onRefresh: () => void
   onToggleMod: (charName: string, modName: string, enabled: boolean) => Promise<void>
   onSelectMod: (modFullPath: string) => void
+  onNavigateTab?: (tab: string) => void
+  activeGame?: any
 }
 
 // 角色头像/缩略图组件 (专为二游立绘优化，顶部居中、尺寸自适应、错误优雅兜底)
@@ -89,12 +95,16 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   loading,
   onRefresh,
   onToggleMod,
-  onSelectMod
+  onSelectMod,
+  onNavigateTab,
+  activeGame
 }) => {
   const [selectedChar, setSelectedChar] = useState<string>('all')
   const [searchChar, setSearchChar] = useState<string>('')
   const [searchMod, setSearchMod] = useState<string>('')
   const [sidebarMode, setSidebarMode] = useState<'list' | 'grid'>('list')
+  const [charFilter, setCharFilter] = useState<'all' | 'hasMods' | 'equipped'>('all')
+  const [charSort, setCharSort] = useState<'count' | 'name' | 'enabled'>('count')
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [conflictsMap, setConflictsMap] = useState<Record<string, CharacterConflictReport>>({})
@@ -155,14 +165,52 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         avatarPath: characterAvatars[name] || null
       }
     })
-    return list.sort((a, b) => b.total - a.total)
+    return list
   }, [modsData, characterAvatars])
 
+  const charactersWithModsCount = useMemo(() => {
+    return characters.filter((c) => c.total > 0).length
+  }, [characters])
+
+  const charactersEquippedCount = useMemo(() => {
+    return characters.filter((c) => c.enabled > 0).length
+  }, [characters])
+
   const filteredCharacters = useMemo(() => {
-    if (!searchChar) return characters
-    const q = searchChar.toLowerCase()
-    return characters.filter((c) => c.name.toLowerCase().includes(q))
-  }, [characters, searchChar])
+    let list = [...characters]
+
+    // 1. 状态筛选 (全部角色 / 仅有模组 / 仅已装备)
+    if (charFilter === 'hasMods') {
+      list = list.filter((c) => c.total > 0)
+    } else if (charFilter === 'equipped') {
+      list = list.filter((c) => c.enabled > 0)
+    }
+
+    // 2. 搜索框快速检索
+    if (searchChar) {
+      const q = searchChar.toLowerCase().trim()
+      list = list.filter((c) => c.name.toLowerCase().includes(q))
+    }
+
+    // 3. 排序策略
+    if (charSort === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
+    } else if (charSort === 'enabled') {
+      list.sort((a, b) => {
+        if (b.enabled !== a.enabled) return b.enabled - a.enabled
+        if (b.total !== a.total) return b.total - a.total
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      })
+    } else {
+      // 默认 'count': 有模组的按数量降序排前，未安装模组的排后，同数量按名称排序
+      list.sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      })
+    }
+
+    return list
+  }, [characters, searchChar, charFilter, charSort])
 
   // Active mods to display
   const displayedMods = useMemo(() => {
@@ -215,13 +263,13 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       {/* Left Sidebar: Character Categories (角色缩略图选项侧边栏) */}
       <aside className="w-72 bg-white/80 border-r border-blue-100 backdrop-blur-2xl flex flex-col shrink-0 select-none z-10 shadow-sm transition-all duration-300">
         {/* Roster Header */}
-        <div className="p-3 border-b border-blue-100/80 space-y-2.5 bg-white/50">
+        <div className="p-3 border-b border-blue-100/80 space-y-2 bg-white/50">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-800 tracking-wide flex items-center space-x-1.5">
               <Layers className="w-3.5 h-3.5 text-blue-600" />
               <span>角色分类</span>
               <span className="text-[10px] font-mono text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                {characters.length}
+                {filteredCharacters.length} / {characters.length}
               </span>
             </span>
 
@@ -263,6 +311,66 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               onChange={(e) => setSearchChar(e.target.value)}
               className="w-full bg-slate-50/90 border border-slate-200 focus:border-blue-400 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition font-sans shadow-2xs"
             />
+          </div>
+
+          {/* Filter & Sort Controls (筛选与排序条，支持“全部/未安装”角色) */}
+          <div className="flex items-center justify-between gap-1 pt-0.5">
+            {/* Display Filter: 全部 / 有Mod / 已装载 */}
+            <div className="flex items-center bg-slate-100/90 p-0.5 rounded-xl border border-slate-200/80 text-[10px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setCharFilter('all')}
+                className={`px-2 py-0.5 rounded-lg transition ${
+                  charFilter === 'all'
+                    ? 'bg-white text-blue-600 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="显示所有角色，包含未安装模组的角色"
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                onClick={() => setCharFilter('hasMods')}
+                className={`px-1.5 py-0.5 rounded-lg transition ${
+                  charFilter === 'hasMods'
+                    ? 'bg-white text-blue-600 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="仅显示已安装模组的角色"
+              >
+                有Mod ({charactersWithModsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCharFilter('equipped')}
+                className={`px-1.5 py-0.5 rounded-lg transition ${
+                  charFilter === 'equipped'
+                    ? 'bg-white text-blue-600 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="仅显示当前已装备模组的角色"
+              >
+                已装载 ({charactersEquippedCount})
+              </button>
+            </div>
+
+            {/* Sort Toggle: 数量 / 名称 / 常用 */}
+            <button
+              type="button"
+              onClick={() => {
+                if (charSort === 'count') setCharSort('name')
+                else if (charSort === 'name') setCharSort('enabled')
+                else setCharSort('count')
+              }}
+              className="flex items-center space-x-1 px-2 py-1 rounded-xl bg-slate-100/90 hover:bg-slate-200/80 border border-slate-200/80 text-[10px] font-medium text-slate-600 transition"
+              title="切换排序规则：按数量 / 按名称 / 按装载优先"
+            >
+              <ArrowUpDown className="w-3 h-3 text-blue-600" />
+              <span>
+                {charSort === 'count' ? '数量' : charSort === 'name' ? '名称' : '常用'}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -337,8 +445,20 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                         <span className={`truncate tracking-wide font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>
                           {c.name}
                         </span>
-                        <span className={`text-[10px] truncate ${isSelected ? 'text-blue-100' : hasActive ? 'text-blue-600 font-medium' : 'text-slate-400'}`}>
-                          {hasActive ? `已装载 ${c.enabled} 款` : `${c.total} 款待命中`}
+                        <span className={`text-[10px] truncate ${
+                          isSelected
+                            ? 'text-blue-100'
+                            : hasActive
+                            ? 'text-blue-600 font-medium'
+                            : c.total > 0
+                            ? 'text-slate-400'
+                            : 'text-slate-400/80 italic'
+                        }`}>
+                          {hasActive
+                            ? `已装载 ${c.enabled} 款`
+                            : c.total > 0
+                            ? `${c.total} 款待命中`
+                            : '未安装模组'}
                         </span>
                       </div>
                     </div>
@@ -349,14 +469,22 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                           ? 'bg-white/20 text-white font-bold'
                           : hasActive
                           ? 'bg-blue-50 text-blue-600 border border-blue-200/80 font-bold'
-                          : 'bg-slate-100 text-slate-500'
+                          : c.total > 0
+                          ? 'bg-slate-100 text-slate-500'
+                          : 'bg-slate-100/60 text-slate-400'
                       }`}
                     >
-                      <span className={`font-bold ${isSelected ? 'text-white' : hasActive ? 'text-blue-600' : 'text-slate-600'}`}>
-                        {c.enabled}
-                      </span>
-                      <span className="opacity-50">/</span>
-                      <span>{c.total}</span>
+                      {c.total > 0 ? (
+                        <>
+                          <span className={`font-bold ${isSelected ? 'text-white' : hasActive ? 'text-blue-600' : 'text-slate-600'}`}>
+                            {c.enabled}
+                          </span>
+                          <span className="opacity-50">/</span>
+                          <span>{c.total}</span>
+                        </>
+                      ) : (
+                        <span className="text-[9px] opacity-75 font-mono">0 / 0</span>
+                      )}
                     </div>
                   </button>
                 )
@@ -389,8 +517,10 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                         className="w-full h-full rounded-none border-0 shadow-none"
                       />
 
-                      {/* Top-Right Badge (QAQM 经典悬浮角标) */}
-                      <div className="absolute top-1 right-1 flex items-center space-x-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-slate-900/75 backdrop-blur-md text-white font-bold shadow-xs">
+                      {/* Top-Right Badge (QAQM 经典悬浮角标，未安装模组的角色也标示 0/0) */}
+                      <div className={`absolute top-1 right-1 flex items-center space-x-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full backdrop-blur-md font-bold shadow-xs ${
+                        c.total > 0 ? 'bg-slate-900/75 text-white' : 'bg-slate-900/40 text-slate-300'
+                      }`}>
                         <span className={hasActive ? 'text-amber-300' : 'text-slate-200'}>{c.enabled}</span>
                         <span className="text-slate-400">/</span>
                         <span>{c.total}</span>
@@ -490,17 +620,70 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         {/* Mod Grid Canvas */}
         <div className="flex-1 overflow-y-auto p-6 porcelain-scrollbar-light">
           {displayedMods.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3">
-              <div className="p-5 rounded-3xl bg-white border border-blue-100 text-blue-400 shadow-sm">
-                <FolderOpen className="w-12 h-12 stroke-[1.2]" />
-              </div>
-              <div className="text-center">
-                <div className="text-xs font-mono tracking-widest text-slate-500 uppercase">
-                  // EMPTY ARCHIVE //
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 space-y-4">
+              {selectedChar !== 'all' && characterAvatars[selectedChar] ? (
+                <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-blue-200/80 shadow-lg ring-4 ring-blue-500/10 bg-white">
+                  <img
+                    src={`file://${characterAvatars[selectedChar]}`}
+                    alt={selectedChar}
+                    className="w-full h-full object-cover object-top"
+                  />
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {conflictFilterOnly ? '当前角色未发现任何资源冲突' : '未检测到匹配的 Mod，可直接拖入压缩包导入'}
+              ) : (
+                <div className="p-5 rounded-3xl bg-white border border-blue-100 text-blue-500 shadow-sm">
+                  <FolderOpen className="w-12 h-12 stroke-[1.2]" />
+                </div>
+              )}
+
+              <div className="text-center max-w-md space-y-1.5">
+                <div className="text-base font-bold text-slate-800">
+                  {conflictFilterOnly
+                    ? '未发现任何资源冲突'
+                    : selectedChar === 'all'
+                    ? '未找到匹配的模组'
+                    : `【${selectedChar}】尚未安装任何模组`}
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {conflictFilterOnly
+                    ? '当前角色下的所有模组均正常运行，无文件冲突'
+                    : selectedChar === 'all'
+                    ? '全库暂无符合条件的模组，可直接拖拽 7z / zip / rar 压缩包到窗口自动导入'
+                    : `您可以直接拖拽专属 Mod 压缩包至窗口导入，或前往 Mod 市场搜索下载【${selectedChar}】的外观模组！`}
                 </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 pt-2">
+                {selectedChar !== 'all' && onNavigateTab && (
+                  <button
+                    onClick={() => onNavigateTab('gamebanana')}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition active:scale-95 cursor-pointer"
+                  >
+                    <Globe className="w-4 h-4" />
+                    <span>前往 Mod 市场查找模组</span>
+                  </button>
+                )}
+
+                {selectedChar !== 'all' && (
+                  <button
+                    onClick={() => window.lz.openCharacterFolder(selectedChar)}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
+                  >
+                    <Folder className="w-4 h-4 text-blue-600" />
+                    <span>打开角色模组目录</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    onRefresh()
+                    loadConflicts()
+                  }}
+                  className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium transition active:scale-95 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>刷新</span>
+                </button>
               </div>
             </div>
           ) : (

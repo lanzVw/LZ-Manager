@@ -35,6 +35,8 @@ const flairxApi = {
     ipcRenderer.invoke('characters:setAvatar', characterName, imagePath),
   saveCharacterAvatar: (characterName: string, dataUrl: string) =>
     ipcRenderer.invoke('characters:saveAvatarFromData', characterName, dataUrl),
+  openCharacterFolder: (characterName: string) =>
+    ipcRenderer.invoke('mods:openCharacterFolder', characterName),
 
   // Persist Bridge
   getModPersistInfo: (modFullPath: string) => ipcRenderer.invoke('persist:getInfo', modFullPath),

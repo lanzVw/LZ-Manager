@@ -40,7 +40,7 @@ export const OverlayApp: React.FC = () => {
 
       const mods = await window.lz.scanMods()
       setModsData(mods || {})
-      const charList = Object.keys(mods || {})
+      const charList = Object.keys(mods || {}).filter(k => (mods[k] || []).length > 0)
       setCharacters(charList)
 
       const presetData = await window.lz.getPresets()
