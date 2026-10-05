@@ -18,6 +18,8 @@ export interface AppConfig {
   serverUrl?: string
   enableOptionAExclusive?: boolean // 角色单选互斥
   overlayHotkey?: string // 默认 Ctrl+F
+  persistBridgeEnabled?: boolean // 保留 Mod 设定数值 (Persist Bridge)
+  persistBridgeCacheSize?: number // 最近缓存 Mod 数量 (默认 12)
 }
 
 export interface ModItem {
@@ -54,6 +56,7 @@ export interface ModDetailedInfo {
     checkTime?: string
     lastUpdated?: string
   }
+  persistInfo?: ModPersistInfo
 }
 
 export interface PresetModRef {
@@ -129,4 +132,23 @@ export interface EnvironmentStatus {
   status: 'ready' | 'missing_dll' | 'missing_game' | 'not_configured'
   message: string
 }
+
+export interface ModPersistVariable {
+  name: string
+  canonicalName: string
+  defaultValue: string
+  currentValue: string
+  allowedValues?: string[]
+  keybind?: string
+  iniFile: string
+}
+
+export interface ModPersistInfo {
+  hasPersist: boolean
+  hash: string
+  namespace: string
+  stateFileName: string
+  variables: ModPersistVariable[]
+}
+
 

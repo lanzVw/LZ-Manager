@@ -1,10 +1,15 @@
 import fs from 'fs'
 import path from 'path'
-import { ModItem } from './types'
+import { ModItem, ModDetailedInfo } from './types'
+import { PersistBridgeManager } from './persist-bridge'
 
 export class ModEngine {
   private modFolderPath: string
   private isOptionAExclusive: boolean
+  private persistBridgeManager: PersistBridgeManager | null = null
+  private envRoot: string = ''
+  private persistBridgeEnabled: boolean = true
+  private persistBridgeCacheSize: number = 12
 
   constructor(modFolderPath: string, isOptionAExclusive: boolean = true) {
     this.modFolderPath = modFolderPath
@@ -17,6 +22,29 @@ export class ModEngine {
 
   public setOptionAExclusive(val: boolean) {
     this.isOptionAExclusive = val
+  }
+
+  public setPersistBridge(manager: PersistBridgeManager, envRoot: string, enabled: boolean = true, cacheSize: number = 12) {
+    this.persistBridgeManager = manager
+    this.envRoot = envRoot
+    this.persistBridgeEnabled = enabled
+    this.persistBridgeCacheSize = cacheSize
+  }
+
+  public setPersistBridgeEnabled(enabled: boolean) {
+    this.persistBridgeEnabled = enabled
+  }
+
+  public setPersistBridgeCacheSize(size: number) {
+    this.persistBridgeCacheSize = size
+  }
+
+  public getPersistBridgeManager(): PersistBridgeManager | null {
+    return this.persistBridgeManager
+  }
+
+  public getEnvRoot(): string {
+    return this.envRoot
   }
 
   /**
@@ -107,9 +135,27 @@ export class ModEngine {
     if (!fs.existsSync(srcPath)) {
       // 检查是否已经在目标状态
       if (fs.existsSync(dstPath)) {
+        if (enable && this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
+          try {
+            this.persistBridgeManager.ensureEnvironment(this.envRoot)
+            this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, dstPath, true)
+          } catch (_) {}
+        }
         return { success: true }
       }
       return { success: false, error: `源目录不存在: ${srcPath}` }
+    }
+
+    // 正在停用 Mod：快照保留当前设定数值
+    if (!enable && this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
+      try {
+        this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, srcPath, false)
+        if (this.persistBridgeCacheSize > 0) {
+          this.persistBridgeManager.pruneCache(this.envRoot, this.persistBridgeCacheSize)
+        }
+      } catch (pErr) {
+        console.warn('Persist bridge snapshot error on disable:', pErr)
+      }
     }
 
     // 如果是开启并且单选互斥，先停用其他已启用的 Mod
@@ -123,6 +169,11 @@ export class ModEngine {
             // 将正在启用的同角色其他 Mod 更名为 DISABLED_
             const oldPath = path.join(charPath, fName)
             const newPath = path.join(charPath, `DISABLED_${fName}`)
+            if (this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
+              try {
+                this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, oldPath, false)
+              } catch (_) {}
+            }
             try {
               fs.renameSync(oldPath, newPath)
             } catch (muteErr) {
@@ -138,6 +189,17 @@ export class ModEngine {
     // 执行当前 Mod 重命名
     try {
       fs.renameSync(srcPath, dstPath)
+
+      // 启用成功后，恢复 Persist Bridge 状态与 d3dx_user.ini
+      if (enable && this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
+        try {
+          this.persistBridgeManager.ensureEnvironment(this.envRoot)
+          this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, dstPath, true)
+        } catch (pErr) {
+          console.warn('Persist bridge restore error on enable:', pErr)
+        }
+      }
+
       return { success: true }
     } catch (renameErr: any) {
       return { success: false, error: `更名失败 (文件可能被游戏占用): ${renameErr.message}` }
@@ -264,6 +326,15 @@ export class ModEngine {
       birthtime = folderStat.birthtimeMs
     } catch (_) {}
 
+    let persistInfo = undefined
+    if (this.persistBridgeManager && this.envRoot) {
+      try {
+        persistInfo = this.persistBridgeManager.getModPersistInfo(modFullPath, this.modFolderPath, this.envRoot)
+      } catch (pErr) {
+        console.warn('Failed to retrieve persist info for mod:', pErr)
+      }
+    }
+
     return {
       id: `${characterName}::${rawName}`,
       name: rawName,
@@ -285,7 +356,8 @@ export class ModEngine {
         checkTime: metadata.checkTime || new Date(mtime || Date.now()).toLocaleDateString(),
         lastUpdated: metadata.lastUpdated || new Date(mtime || Date.now()).toLocaleDateString(),
         ...metadata
-      }
+      },
+      persistInfo
     }
   }
 

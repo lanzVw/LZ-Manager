@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 const flairxApi = {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
+  updateAppConfig: (patch: any) => ipcRenderer.invoke('config:updateApp', patch),
   setActiveGame: (gameId: string) => ipcRenderer.invoke('config:setActiveGame', gameId),
   updateGameConfig: (gameId: string, patch: any) => ipcRenderer.invoke('config:updateGame', gameId, patch),
 
@@ -27,6 +28,14 @@ const flairxApi = {
   saveIni: (iniPath: string, content: string) => ipcRenderer.invoke('mods:saveIni', iniPath, content),
   inspectArchive: (archivePath: string) => ipcRenderer.invoke('mods:inspectArchive', archivePath),
   importArchive: (params: any) => ipcRenderer.invoke('mods:importArchive', params),
+
+  // Persist Bridge
+  getModPersistInfo: (modFullPath: string) => ipcRenderer.invoke('persist:getInfo', modFullPath),
+  updateModVariable: (modFullPath: string, varName: string, value: string) =>
+    ipcRenderer.invoke('persist:updateVariable', modFullPath, varName, value),
+  resetModVariables: (modFullPath: string) =>
+    ipcRenderer.invoke('persist:resetVariables', modFullPath),
+  clearPersistCache: () => ipcRenderer.invoke('persist:clearCache'),
 
   // Conflicts
   detectConflicts: (characterName?: string) =>

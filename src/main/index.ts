@@ -1,11 +1,13 @@
 import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import { ConfigStore } from '../core/config-store'
 import { ModEngine } from '../core/mod-engine'
 import { PresetEngine } from '../core/preset-engine'
 import { GameLauncher } from '../core/game-launcher'
 import { getCharactersForGame } from '../core/characters-data'
 import { searchMods, getModDetails, installMod } from '../core/gamebanana-service'
+import { PersistBridgeManager } from '../core/persist-bridge'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -26,12 +28,39 @@ if (app) {
   }
 }
 
+// 计算指定游戏的 3DMigoto / XXMI 运行环境根目录
+function getEnvRootForGame(game: any): string {
+  if (!game) return ''
+  if (game.modFolderPath) {
+    const parent = path.dirname(game.modFolderPath)
+    if (fs.existsSync(path.join(parent, 'd3dx.ini')) || fs.existsSync(path.join(parent, 'qaqm'))) {
+      return parent
+    }
+    if (fs.existsSync(path.join(game.modFolderPath, 'd3dx.ini'))) {
+      return game.modFolderPath
+    }
+    return parent
+  }
+  if (game.modLoaderPath) {
+    return path.dirname(game.modLoaderPath)
+  }
+  return ''
+}
+
 // 核心引擎初始化
 const configStore = new ConfigStore()
 const activeGame = configStore.getActiveGame()
+const persistBridgeManager = new PersistBridgeManager()
 const modEngine = new ModEngine(
   activeGame ? activeGame.modFolderPath : '',
   configStore.getConfig().enableOptionAExclusive ?? true
+)
+const initialEnvRoot = getEnvRootForGame(activeGame)
+modEngine.setPersistBridge(
+  persistBridgeManager,
+  initialEnvRoot,
+  configStore.getConfig().persistBridgeEnabled ?? true,
+  configStore.getConfig().persistBridgeCacheSize ?? 12
 )
 const presetEngine = new PresetEngine(configStore, modEngine)
 
@@ -99,11 +128,31 @@ function registerHotkeys() {
 function setupIpc() {
   // Config
   ipcMain.handle('config:get', () => configStore.getConfig())
+  ipcMain.handle('config:updateApp', (_, patch: any) => {
+    configStore.updateAppConfig(patch)
+    if (patch.persistBridgeEnabled !== undefined) {
+      modEngine.setPersistBridgeEnabled(patch.persistBridgeEnabled)
+    }
+    if (patch.persistBridgeCacheSize !== undefined) {
+      modEngine.setPersistBridgeCacheSize(patch.persistBridgeCacheSize)
+    }
+    if (patch.enableOptionAExclusive !== undefined) {
+      modEngine.setOptionAExclusive(patch.enableOptionAExclusive)
+    }
+    return { success: true, config: configStore.getConfig() }
+  })
   ipcMain.handle('config:setActiveGame', (_, gameId: string) => {
     configStore.setActiveGame(gameId)
     const g = configStore.getActiveGame()
     if (g) {
+      const envRoot = getEnvRootForGame(g)
       modEngine.setModFolderPath(g.modFolderPath)
+      modEngine.setPersistBridge(
+        persistBridgeManager,
+        envRoot,
+        configStore.getConfig().persistBridgeEnabled ?? true,
+        configStore.getConfig().persistBridgeCacheSize ?? 12
+      )
       conflictDetector.setModFolderPath(g.modFolderPath)
     }
     return { success: true }
@@ -112,10 +161,56 @@ function setupIpc() {
     configStore.updateGameConfig(gameId, patch)
     const g = configStore.getActiveGame()
     if (g && g.id === gameId) {
+      const envRoot = getEnvRootForGame(g)
       modEngine.setModFolderPath(g.modFolderPath)
+      modEngine.setPersistBridge(
+        persistBridgeManager,
+        envRoot,
+        configStore.getConfig().persistBridgeEnabled ?? true,
+        configStore.getConfig().persistBridgeCacheSize ?? 12
+      )
       conflictDetector.setModFolderPath(g.modFolderPath)
     }
     return { success: true }
+  })
+
+  // Persist Bridge (Mod 设定数值记忆与保留)
+  ipcMain.handle('persist:getInfo', (_, modFullPath: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { hasPersist: false, hash: '', namespace: '', stateFileName: '', variables: [] }
+    const envRoot = getEnvRootForGame(g)
+    return persistBridgeManager.getModPersistInfo(modFullPath, g.modFolderPath, envRoot)
+  })
+
+  ipcMain.handle('persist:updateVariable', async (_, modFullPath: string, varName: string, value: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择游戏' }
+    const envRoot = getEnvRootForGame(g)
+    const res = persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value)
+    if (res.success) {
+      // 触发 F10 热刷新让游戏内即时生效
+      gameLauncher.triggerReloadF10().catch(() => {})
+    }
+    return res
+  })
+
+  ipcMain.handle('persist:resetVariables', async (_, modFullPath: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, resetCount: 0, error: '未选择游戏' }
+    const envRoot = getEnvRootForGame(g)
+    const res = persistBridgeManager.resetModVariables(envRoot, g.modFolderPath, modFullPath)
+    if (res.success) {
+      // 触发 F10 热刷新让游戏内即时生效
+      gameLauncher.triggerReloadF10().catch(() => {})
+    }
+    return res
+  })
+
+  ipcMain.handle('persist:clearCache', () => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, deletedCount: 0, error: '未选择游戏' }
+    const envRoot = getEnvRootForGame(g)
+    return persistBridgeManager.clearCache(envRoot)
   })
 
   // Mods
@@ -374,5 +469,6 @@ export {
   PresetEngine,
   GameLauncher,
   ConflictDetector,
-  EnvironmentDeployer
+  EnvironmentDeployer,
+  PersistBridgeManager
 }

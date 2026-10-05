@@ -56,6 +56,11 @@ export class ConfigStore {
     }
   }
 
+  public updateAppConfig(patch: Partial<AppConfig>) {
+    this.config = { ...this.config, ...patch }
+    this.saveConfig()
+  }
+
   public saveConfig() {
     try {
       fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf8')
@@ -91,7 +96,9 @@ export class ConfigStore {
           characterUsage: data.characterUsage || {},
           serverUrl: data.serverUrl || 'https://qaqm.top',
           enableOptionAExclusive: data.enableOptionAExclusive ?? true,
-          overlayHotkey: data.overlayHotkey || 'Ctrl+F'
+          overlayHotkey: data.overlayHotkey || 'Ctrl+F',
+          persistBridgeEnabled: data.persistBridgeEnabled ?? true,
+          persistBridgeCacheSize: typeof data.persistBridgeCacheSize === 'number' ? data.persistBridgeCacheSize : 12
         }
       }
     } catch (err) {
@@ -104,7 +111,9 @@ export class ConfigStore {
       characterUsage: {},
       serverUrl: 'https://qaqm.top',
       enableOptionAExclusive: true,
-      overlayHotkey: 'Ctrl+F'
+      overlayHotkey: 'Ctrl+F',
+      persistBridgeEnabled: true,
+      persistBridgeCacheSize: 12
     }
   }
 

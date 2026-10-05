@@ -19,9 +19,14 @@ import {
   Tag,
   Crop as CropIcon,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  Sliders,
+  RotateCcw,
+  ToggleLeft,
+  ToggleRight,
+  Zap
 } from 'lucide-react'
-import { ModDetailedInfo, ModConflictSummary } from '../../core/types'
+import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
 
 interface ModDetailPageProps {
@@ -55,6 +60,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   const [conflictSummary, setConflictSummary] = useState<ModConflictSummary | null>(null)
   const [resolvingConflict, setResolvingConflict] = useState<boolean>(false)
 
+  // Mod Persist Bridge Variables State
+  const [persistInfo, setPersistInfo] = useState<ModPersistInfo | null>(null)
+  const [updatingVar, setUpdatingVar] = useState<string | null>(null)
+  const [resettingVars, setResettingVars] = useState<boolean>(false)
+  const [persistToast, setPersistToast] = useState<string | null>(null)
+
   // 加载 Mod 详情
   const loadDetails = async () => {
     setLoading(true)
@@ -65,6 +76,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         setAuthor(data.metadata?.author || '')
         setVersion(data.metadata?.version || 'Version 1.0')
         setDescription(data.metadata?.description || '')
+        setPersistInfo(data.persistInfo || null)
 
         // 默认选中第一个 ini 文件
         if (data.iniFiles && data.iniFiles.length > 0) {
@@ -80,6 +92,68 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       console.error('Failed to load mod details:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 切换/循环修改 Mod 变量数值
+  const handleUpdateVariable = async (v: ModPersistVariable, targetVal?: string) => {
+    if (!details) return
+    const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
+    let nextVal = targetVal
+    if (nextVal === undefined) {
+      const currIdx = allowed.indexOf(v.currentValue)
+      nextVal = currIdx >= 0 ? allowed[(currIdx + 1) % allowed.length] : allowed[0]
+    }
+
+    setUpdatingVar(v.name)
+    // 乐观更新状态
+    setPersistInfo((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        variables: prev.variables.map((item) =>
+          item.name === v.name ? { ...item, currentValue: nextVal! } : item
+        )
+      }
+    })
+
+    try {
+      const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal)
+      if (res && res.success) {
+        setPersistToast(`已设定 $${v.name} = ${nextVal} (已触发 F10 热刷新)`)
+        setTimeout(() => setPersistToast(null), 3000)
+      } else {
+        setPersistToast(`修改失败: ${res?.error || '未知错误'}`)
+        setTimeout(() => setPersistToast(null), 3000)
+      }
+    } catch (err: any) {
+      console.error('Failed to update mod variable:', err)
+    } finally {
+      setUpdatingVar(null)
+    }
+  }
+
+  // 重置该 Mod 全部设定数值为默认值
+  const handleResetVariables = async () => {
+    if (!details || !persistInfo) return
+    setResettingVars(true)
+    try {
+      const res = await window.lz.resetModVariables(details.fullPath)
+      if (res && res.success) {
+        setPersistInfo((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            variables: prev.variables.map((item) => ({ ...item, currentValue: item.defaultValue }))
+          }
+        })
+        setPersistToast(`已成功将 ${res.resetCount} 项设定数值重置为默认值！`)
+        setTimeout(() => setPersistToast(null), 3500)
+      }
+    } catch (err: any) {
+      console.error('Failed to reset mod variables:', err)
+    } finally {
+      setResettingVars(false)
     }
   }
 
@@ -501,6 +575,127 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             </div>
           )}
         </div>
+
+        {/* 2.5 Mod 设定数值记忆与调节 (Persist Bridge) */}
+        {persistInfo && persistInfo.hasPersist && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Sliders className="w-4 h-4 text-cyan-400" />
+                <h2 className="text-xs font-bold text-slate-200 tracking-wider uppercase flex items-center space-x-2">
+                  <span>Mod 设定数值记忆与调节 (Persist Bridge)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-950/80 text-cyan-400 border border-cyan-800/60 font-mono">
+                    {persistInfo.variables.length} 项参数已记忆
+                  </span>
+                </h2>
+              </div>
+
+              <button
+                onClick={handleResetVariables}
+                disabled={resettingVars}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 transition disabled:opacity-50 active:scale-95"
+                title="将此 Mod 的所有服装与开关数值重置为默认值"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${resettingVars ? 'animate-spin' : ''}`} />
+                <span>重置为默认值</span>
+              </button>
+            </div>
+
+            {persistToast && (
+              <div className="p-3 rounded-xl bg-cyan-950/50 border border-cyan-800/80 text-xs text-cyan-200 flex items-center space-x-2 animate-in fade-in duration-200 shadow-lg shadow-cyan-950/40">
+                <Zap className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>{persistToast}</span>
+              </div>
+            )}
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {persistInfo.variables.map((v) => {
+                const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
+                const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
+                const isOn = v.currentValue === '1'
+                const isUpdating = updatingVar === v.name
+
+                return (
+                  <div
+                    key={v.name}
+                    className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/90 hover:border-slate-700 transition flex flex-col justify-between space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-mono font-bold text-slate-100 tracking-wide">
+                            ${v.name}
+                          </span>
+                          {v.keybind && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-950/70 text-blue-300 border border-blue-800/50">
+                              {v.keybind}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                          来自 {v.iniFile} · 默认值: {v.defaultValue}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[11px] text-slate-400 font-medium">当前值:</span>
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-cyan-900/40">
+                          {v.currentValue}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Interactive Switch or Segmented Cycle */}
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
+                      <span className="text-[11px] text-slate-400">切换 / 调节:</span>
+
+                      {isBinary ? (
+                        <button
+                          onClick={() => handleUpdateVariable(v, isOn ? '0' : '1')}
+                          disabled={isUpdating}
+                          className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                            isOn
+                              ? 'bg-cyan-600/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-600/30'
+                              : 'bg-slate-800/60 text-slate-400 border border-slate-700/50 hover:bg-slate-800'
+                          } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
+                        >
+                          {isOn ? (
+                            <>
+                              <ToggleRight className="w-4 h-4 text-cyan-400" />
+                              <span>开启 (1)</span>
+                            </>
+                          ) : (
+                            <>
+                              <ToggleLeft className="w-4 h-4 text-slate-400" />
+                              <span>关闭 (0)</span>
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <div className="flex items-center space-x-1">
+                          {allowed.map((val) => (
+                            <button
+                              key={val}
+                              onClick={() => handleUpdateVariable(v, val)}
+                              disabled={isUpdating}
+                              className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition ${
+                                v.currentValue === val
+                                  ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/30'
+                                  : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800 hover:bg-slate-800'
+                              } ${isUpdating ? 'opacity-50' : ''}`}
+                            >
+                              {val}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* 3. Details Section ("详情") */}
         <div className="space-y-4">

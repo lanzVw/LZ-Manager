@@ -204,6 +204,11 @@ export default function App() {
           <SettingsPage
             activeGame={activeGame}
             onSaveGameConfig={handleSaveGameConfig}
+            config={config}
+            onUpdateAppConfig={async (patch) => {
+              await window.lz.updateAppConfig(patch)
+              await loadConfig()
+            }}
           />
         )}
       </div>
