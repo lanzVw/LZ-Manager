@@ -60,6 +60,14 @@ export const OverlayApp: React.FC = () => {
     return saved ? parseFloat(saved) : 0.92
   })
   const [isPinned, setIsPinned] = useState<boolean>(true)
+  const [onlyShowInGame, setOnlyShowInGame] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('lz-overlay-only-in-game')
+      return saved !== null ? saved === 'true' : true
+    } catch {
+      return true
+    }
+  })
 
   // QAQ 核心模式与过滤状态
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -94,6 +102,16 @@ export const OverlayApp: React.FC = () => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(null), 2000)
   }
+
+  // 监听主进程发送过来的悬浮窗 Toast 提示
+  useEffect(() => {
+    const remove = window.lz.onShowToast?.((msg: string) => {
+      showToast(msg)
+    })
+    return () => {
+      remove?.()
+    }
+  }, [])
 
   // 1. 初始化数据加载
   const loadData = useCallback(async () => {
@@ -172,13 +190,26 @@ export const OverlayApp: React.FC = () => {
     showToast('已恢复窗口默认大小 (100%)')
   }
 
-  // 组件挂载时自动同步上次保存的窗口缩放尺寸
+  // 切换“仅在游戏界面显示”
+  const handleToggleOnlyShowInGame = async () => {
+    const next = !onlyShowInGame
+    setOnlyShowInGame(next)
+    localStorage.setItem('lz-overlay-only-in-game', next.toString())
+    await window.lz.setOverlayOnlyInGame?.(next)
+    showToast(next ? '已开启：仅在游戏前台显示' : '已关闭：可在任何窗口呼出')
+  }
+
+  // 组件挂载时自动同步上次保存的窗口缩放尺寸和仅游戏显示配置
   useEffect(() => {
     const saved = localStorage.getItem('lz-overlay-window-scale') || localStorage.getItem('lz-overlay-scale')
     const s = saved ? parseFloat(saved) : 1.0
     if (s && s !== 1.0) {
       window.lz.setOverlayScale?.(s)
     }
+
+    const savedOnlyInGame = localStorage.getItem('lz-overlay-only-in-game')
+    const onlyInGameVal = savedOnlyInGame !== null ? savedOnlyInGame === 'true' : true
+    window.lz.setOverlayOnlyInGame?.(onlyInGameVal)
   }, [])
 
   // 背景透明度滑块
@@ -1346,6 +1377,19 @@ export const OverlayApp: React.FC = () => {
                   type="button"
                   onClick={() => setExclusiveMode(!exclusiveMode)}
                   className={`qaq-switch ${exclusiveMode ? 'active' : ''}`}
+                />
+              </div>
+
+              {/* 仅在游戏界面显示 (智能跟随) */}
+              <div className="flex items-center justify-between p-2.5 rounded-[8px] bg-surface-2/60 border border-border/60">
+                <div>
+                  <div className="font-bold text-text">仅在游戏界面显示</div>
+                  <div className="text-[10px] text-text-muted">切出游戏时自动隐藏，切回游戏自动恢复</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleOnlyShowInGame}
+                  className={`qaq-switch ${onlyShowInGame ? 'active' : ''}`}
                 />
               </div>
 

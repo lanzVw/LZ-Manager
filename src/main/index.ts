@@ -84,6 +84,7 @@ import { ImportEngine } from '../core/import-engine'
 import { ConflictDetector } from '../core/conflict-detector'
 import { EnvironmentDeployer } from '../core/environment-deployer'
 import { TrayManager } from './tray-manager'
+import { GameFocusService } from './game-focus-service'
 
 const binariesDir = (app && app.isPackaged)
   ? path.join(process.resourcesPath, 'binaries')
@@ -98,6 +99,9 @@ const preloadPath = path.join(__dirname, '../preload/index.cjs')
 const isDev = process.env.NODE_ENV === 'development'
 const overlayManager = new OverlayManager(preloadPath, isDev)
 const controllerService = new ControllerService(binariesDir)
+const gameFocusService = new GameFocusService(binariesDir)
+gameFocusService.setActiveGame(activeGame)
+overlayManager.setGameFocusService(gameFocusService)
 
 function getAppIcon() {
   const icoPath = (app && app.isPackaged)
@@ -187,6 +191,7 @@ function setupIpc() {
     configStore.setActiveGame(gameId)
     const g = configStore.getActiveGame()
     if (g) {
+      gameFocusService.setActiveGame(g)
       const envRoot = getEnvRootForGame(g)
       modEngine.setModFolderPath(g.modFolderPath)
       modEngine.setPersistBridge(
@@ -203,6 +208,7 @@ function setupIpc() {
     configStore.updateGameConfig(gameId, patch)
     const g = configStore.getActiveGame()
     if (g && g.id === gameId) {
+      gameFocusService.setActiveGame(g)
       const envRoot = getEnvRootForGame(g)
       modEngine.setModFolderPath(g.modFolderPath)
       modEngine.setPersistBridge(
@@ -636,6 +642,13 @@ function setupIpc() {
   ipcMain.handle('overlay:show', () => overlayManager.show())
   ipcMain.handle('overlay:setScale', (_, scale: number) => overlayManager.setScale(scale))
   ipcMain.handle('overlay:getScale', () => overlayManager.getScale())
+  ipcMain.handle('overlay:setOnlyInGame', (_, enabled: boolean) => {
+    overlayManager.setOnlyShowInGame(enabled)
+    return { success: true }
+  })
+  ipcMain.handle('overlay:getOnlyInGame', () => {
+    return overlayManager.getOnlyShowInGame()
+  })
 
   // Window Controls
   ipcMain.handle('window:minimize', () => mainWindow?.minimize())
@@ -656,6 +669,9 @@ if (app) {
     createMainWindow()
     overlayManager.createOverlayWindow()
     registerHotkeys()
+
+    // 启动前台游戏窗口智能跟随服务
+    gameFocusService.startWatch()
 
     // 初始化系统托盘常驻
     if (mainWindow) {
@@ -690,6 +706,7 @@ if (app) {
     trayManager?.setQuitting(true)
     trayManager?.destroy()
     controllerService.stop()
+    gameFocusService.stopWatch()
     globalShortcut.unregisterAll()
   })
 

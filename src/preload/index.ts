@@ -104,6 +104,13 @@ const flairxApi = {
   showOverlay: () => ipcRenderer.invoke('overlay:show'),
   setOverlayScale: (scale: number) => ipcRenderer.invoke('overlay:setScale', scale),
   getOverlayScale: () => ipcRenderer.invoke('overlay:getScale'),
+  setOverlayOnlyInGame: (enabled: boolean) => ipcRenderer.invoke('overlay:setOnlyInGame', enabled),
+  getOverlayOnlyInGame: () => ipcRenderer.invoke('overlay:getOnlyInGame'),
+  onShowToast: (callback: (msg: string) => void) => {
+    const listener = (_: any, msg: string) => callback(msg)
+    ipcRenderer.on('overlay:toast', listener)
+    return () => ipcRenderer.removeListener('overlay:toast', listener)
+  },
 
   // Window & System Controls
   minimize: () => ipcRenderer.invoke('window:minimize'),
