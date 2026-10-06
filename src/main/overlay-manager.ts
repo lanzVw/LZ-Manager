@@ -20,15 +20,16 @@ export class OverlayManager {
       return this.window
     }
 
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
-    const overlayWidth = 440
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()) || screen.getPrimaryDisplay()
+    const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.bounds
+    const overlayWidth = Math.max(420, Math.round(screenWidth * 0.25))
+    const overlayHeight = Math.max(480, Math.round(screenHeight * 0.5))
 
     this.window = new BrowserWindow({
       width: overlayWidth,
-      height: screenHeight,
-      x: screenWidth - overlayWidth,
-      y: 0,
+      height: overlayHeight,
+      x: displayX + screenWidth - overlayWidth,
+      y: displayY,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
@@ -71,15 +72,16 @@ export class OverlayManager {
       if (this.window.isVisible()) {
         this.window.hide()
       } else {
-        // 重新同步到屏幕最右侧
-        const primaryDisplay = screen.getPrimaryDisplay()
-        const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
-        const overlayWidth = 440
+        // 重新同步到屏幕右上角（宽25%，高50%）
+        const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()) || screen.getPrimaryDisplay()
+        const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.bounds
+        const overlayWidth = Math.max(420, Math.round(screenWidth * 0.25))
+        const overlayHeight = Math.max(480, Math.round(screenHeight * 0.5))
         this.window.setBounds({
-          x: screenWidth - overlayWidth,
-          y: 0,
+          x: displayX + screenWidth - overlayWidth,
+          y: displayY,
           width: overlayWidth,
-          height: screenHeight
+          height: overlayHeight
         })
         this.window.setAlwaysOnTop(true, 'screen-saver')
         this.window.show()
