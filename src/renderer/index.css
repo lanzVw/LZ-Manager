@@ -243,5 +243,30 @@ body.overlay-mode,
 body.overlay-mode #root {
   background: transparent !important;
   background-color: transparent !important;
+  height: 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* 优雅平滑的悬浮窗自定义滚动条 */
+.overlay-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.25) transparent;
+}
+.overlay-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.overlay-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.overlay-scroll::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+  border-radius: 4px;
+}
+.overlay-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
 }
 

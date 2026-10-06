@@ -27,7 +27,9 @@ import {
   Filter,
   Check,
   Minus,
-  Plus
+  Plus,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from '../components/Logo'
@@ -329,6 +331,14 @@ export const OverlayApp: React.FC = () => {
   }
 
 
+  // 当上下键或手柄聚焦选中 Mod 改变时，确保其平滑滚动进入视野
+  useEffect(() => {
+    const el = document.getElementById(`mod-card-${focusedModIndex}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [focusedModIndex])
+
   // 快捷键监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -346,6 +356,10 @@ export const OverlayApp: React.FC = () => {
         setFocusedModIndex((prev) => Math.max(0, prev - 1))
       } else if (e.key === 'ArrowDown') {
         setFocusedModIndex((prev) => Math.min(currentMods.length - 1, prev + 1))
+      } else if (e.key === 'PageDown') {
+        modListContainerRef.current?.scrollBy({ top: 320, behavior: 'smooth' })
+      } else if (e.key === 'PageUp') {
+        modListContainerRef.current?.scrollBy({ top: -320, behavior: 'smooth' })
       } else if (e.key === 'ArrowLeft') {
         setSelectedCharIndex((prev) => (prev > 0 ? prev - 1 : displayCharacters.length - 1))
         setFocusedModIndex(0)
@@ -442,14 +456,14 @@ export const OverlayApp: React.FC = () => {
 
   return (
     <div
-      className="w-full h-full p-2 flex flex-col select-none antialiased overflow-hidden font-sans text-text relative bg-transparent"
+      className="w-full h-full p-2 flex flex-col select-none antialiased overflow-hidden font-sans text-text relative bg-transparent box-border"
       style={{
         zoom: uiScale
       }}
     >
       {/* 悬浮窗面板卡片主体 (QAQ overlay-panel) */}
       <div
-        className="w-full h-full flex flex-col rounded-[16px] border border-white/60 dark:border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.2)] overflow-hidden relative"
+        className="w-full h-full min-h-0 flex flex-col rounded-[16px] border border-white/60 dark:border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.2)] overflow-hidden relative box-border"
         style={{
           backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 100)}%, transparent)`,
           backdropFilter: `blur(${Math.max(4, Math.round(opacity * 28))}px)`,
@@ -759,13 +773,33 @@ export const OverlayApp: React.FC = () => {
             >
               <span>{viewMode === 'grid' ? '画廊' : '列表'}</span>
             </button>
+
+            {/* 🔼 / 🔽 上下翻页快捷按钮 */}
+            <div className="flex items-center space-x-0.5 border-l border-border/50 pl-1">
+              <button
+                type="button"
+                onClick={() => modListContainerRef.current?.scrollBy({ top: -300, behavior: 'smooth' })}
+                className="p-1 rounded text-text-muted hover:text-primary hover:bg-surface-2 transition-colors cursor-pointer"
+                title="向上翻页 (PageUp / 鼠标滚轮向上)"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => modListContainerRef.current?.scrollBy({ top: 300, behavior: 'smooth' })}
+                className="p-1 rounded text-text-muted hover:text-primary hover:bg-surface-2 transition-colors cursor-pointer"
+                title="向下翻页 (PageDown / 鼠标滚轮向下)"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* 4. 主内容流：自适应画廊网格 / 单列列表 */}
         <div
           ref={modListContainerRef}
-          className="flex-1 overflow-y-auto p-2.5"
+          className="flex-1 min-h-0 overflow-y-auto p-2.5 overscroll-contain overlay-scroll"
         >
           {currentMods.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-text-muted space-y-2">
@@ -773,8 +807,8 @@ export const OverlayApp: React.FC = () => {
               <p className="text-xs">【{currentChar || '无'}】暂无符合条件的 Mod</p>
             </div>
           ) : viewMode === 'grid' ? (
-            /* 自适应画廊卡片 (4:3 封面 + 右下角悬浮笔标 + 底栏 Mod 名与 iOS Switch) */
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2.5">
+            /* 严格一排显示 3 个 (grid-cols-3) 4:3 封面 + 右下角悬浮笔标 + 底栏 Mod 名与 iOS Switch */
+            <div className="grid grid-cols-3 gap-2">
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
                 const isMarked = !!markedMods[mod.fullPath]
@@ -800,19 +834,19 @@ export const OverlayApp: React.FC = () => {
                           loading="lazy"
                         />
                       ) : (
-                        <ImageIcon className="w-8 h-8 text-text-muted opacity-35" />
+                        <ImageIcon className="w-7 h-7 text-text-muted opacity-35" />
                       )}
 
                       {/* 标记徽标 (左上角) */}
                       {isMarked && (
-                        <div className="absolute top-1.5 left-1.5 p-1 rounded-full bg-amber-500 text-white shadow-xs">
+                        <div className="absolute top-1 left-1 p-0.5 rounded-full bg-amber-500 text-white shadow-xs">
                           <Bookmark className="w-2.5 h-2.5 fill-current" />
                         </div>
                       )}
 
                       {/* INI 标识 (右上角) */}
                       {mod.hasIni && (
-                        <span className="absolute top-1.5 right-1.5 px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-black/60 text-white backdrop-blur-xs">
+                        <span className="absolute top-1 right-1 px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-black/60 text-white backdrop-blur-xs">
                           INI
                         </span>
                       )}
@@ -824,17 +858,17 @@ export const OverlayApp: React.FC = () => {
                           e.stopPropagation()
                           handleOpenDetail(mod)
                         }}
-                        className="absolute right-1.5 bottom-1.5 w-6 h-6 rounded-full bg-surface/90 hover:bg-primary text-text-muted hover:text-white border border-border/60 flex items-center justify-center shadow-md transition-all cursor-pointer opacity-80 group-hover:opacity-100 hover:scale-110"
+                        className="absolute right-1 bottom-1 w-5 h-5 rounded-full bg-surface/90 hover:bg-primary text-text-muted hover:text-white border border-border/60 flex items-center justify-center shadow-md transition-all cursor-pointer opacity-80 group-hover:opacity-100 hover:scale-110"
                         title="查看 Mod 详情与快捷键"
                       >
-                        <Edit3 className="w-3 h-3" />
+                        <Edit3 className="w-2.5 h-2.5" />
                       </button>
                     </div>
 
                     {/* 卡片底栏 (QAQ mod-gallery-footer: Mod 名字 + iOS Switch) */}
-                    <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 bg-surface/95 border-t border-border/40">
+                    <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-surface/95 border-t border-border/40">
                       <h4
-                        className={`text-[11px] font-bold truncate flex-1 leading-snug transition-colors ${
+                        className={`text-[10px] font-bold truncate flex-1 leading-snug transition-colors ${
                           mod.enabled ? 'text-primary' : 'text-text'
                         }`}
                         title={mod.name}
@@ -848,7 +882,7 @@ export const OverlayApp: React.FC = () => {
                           e.stopPropagation()
                           handleToggleMod(mod)
                         }}
-                        className={`qaq-switch ${mod.enabled ? 'active' : ''}`}
+                        className={`qaq-switch scale-90 origin-right ${mod.enabled ? 'active' : ''}`}
                         title={mod.enabled ? '点击禁用' : '点击装配'}
                       />
                     </div>
@@ -1012,7 +1046,7 @@ export const OverlayApp: React.FC = () => {
             </div>
 
             {/* Body: 预览大图 + 状态 + 标记此 Mod + 快捷键表格 + 部件调节 + 底部大按钮 */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 overlay-scroll">
               {/* 预览大图 (QAQ detail-preview-img) */}
               <div className="relative aspect-[16/9] rounded-[10px] overflow-hidden bg-surface-2/60 border border-border/60 flex items-center justify-center">
                 {activeDetailMod.coverPath ? (
@@ -1207,7 +1241,7 @@ export const OverlayApp: React.FC = () => {
             </div>
 
             {/* 3 列角色头像气泡网格 (QAQ bubble-grid) */}
-            <div className="flex-1 overflow-y-auto p-3 grid grid-cols-3 gap-2.5">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-3 gap-2.5 overlay-scroll">
               {characters
                 .filter((name) => !charSearchQuery || name.toLowerCase().includes(charSearchQuery.toLowerCase()))
                 .map((name) => {
@@ -1272,7 +1306,7 @@ export const OverlayApp: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-xs overlay-scroll">
               {/* 背景透明度调节 */}
               <div className="space-y-1.5">
                 <div className="font-bold text-text">背景不透明度</div>
