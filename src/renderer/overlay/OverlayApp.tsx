@@ -50,10 +50,10 @@ export const OverlayApp: React.FC = () => {
   const [reloading, setReloading] = useState<boolean>(false)
   const [gamepadConnected, setGamepadConnected] = useState<boolean>(false)
 
-  // 视口与外观设置
-  const [uiScale, setUiScale] = useState<number>(() => {
-    const saved = localStorage.getItem('lz-overlay-scale')
-    return saved ? parseFloat(saved) : 1
+  // 视口与外观设置 (整个悬浮窗窗口缩放比例，范围 60% ~ 150%)
+  const [windowScale, setWindowScale] = useState<number>(() => {
+    const saved = localStorage.getItem('lz-overlay-window-scale') || localStorage.getItem('lz-overlay-scale')
+    return saved ? parseFloat(saved) : 1.0
   })
   const [opacity, setOpacity] = useState<number>(() => {
     const saved = localStorage.getItem('lz-overlay-opacity')
@@ -156,17 +156,30 @@ export const OverlayApp: React.FC = () => {
     return list
   }, [currentChar, modsData, statusFilter, filterFavoritesOnly, isReverseOrder, markedMods])
 
-  // 缩放步进调节 (A- / 100% / A+)
-  const handleScaleChange = (delta: number) => {
-    const next = Math.max(0.85, Math.min(1.3, Math.round((uiScale + delta) * 100) / 100))
-    setUiScale(next)
-    localStorage.setItem('lz-overlay-scale', next.toString())
+  // 整个悬浮窗窗口大小缩放调节 (A- / 100% / A+)
+  const handleScaleChange = async (delta: number) => {
+    const next = Math.max(0.6, Math.min(1.5, Math.round((windowScale + delta) * 10) / 10))
+    setWindowScale(next)
+    localStorage.setItem('lz-overlay-window-scale', next.toString())
+    await window.lz.setOverlayScale?.(next)
+    showToast(`窗口大小: ${Math.round(next * 100)}%`)
   }
 
-  const handleResetScale = () => {
-    setUiScale(1)
-    localStorage.setItem('lz-overlay-scale', '1')
+  const handleResetScale = async () => {
+    setWindowScale(1.0)
+    localStorage.setItem('lz-overlay-window-scale', '1.0')
+    await window.lz.setOverlayScale?.(1.0)
+    showToast('已恢复窗口默认大小 (100%)')
   }
+
+  // 组件挂载时自动同步上次保存的窗口缩放尺寸
+  useEffect(() => {
+    const saved = localStorage.getItem('lz-overlay-window-scale') || localStorage.getItem('lz-overlay-scale')
+    const s = saved ? parseFloat(saved) : 1.0
+    if (s && s !== 1.0) {
+      window.lz.setOverlayScale?.(s)
+    }
+  }, [])
 
   // 背景透明度滑块
   const handleOpacityChange = (val: number) => {
@@ -457,9 +470,6 @@ export const OverlayApp: React.FC = () => {
   return (
     <div
       className="w-full h-full p-2 flex flex-col select-none antialiased overflow-hidden font-sans text-text relative bg-transparent box-border"
-      style={{
-        zoom: uiScale
-      }}
     >
       {/* 悬浮窗面板卡片主体 (QAQ overlay-panel) */}
       <div
@@ -495,13 +505,13 @@ export const OverlayApp: React.FC = () => {
 
           {/* 右侧操作按钮组 */}
           <div className="flex items-center space-x-1 no-drag">
-            {/* UI 缩放 (A- / 100% / A+) */}
+            {/* 窗口大小缩放 (A- / 100% / A+) */}
             <div className="flex items-center bg-surface-2/80 rounded-md border border-border/80 p-0.5 text-[10px]">
               <button
                 type="button"
-                onClick={() => handleScaleChange(-0.15)}
+                onClick={() => handleScaleChange(-0.1)}
                 className="px-1.5 py-0.5 rounded text-text-muted hover:text-text hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
-                title="缩小界面 (A-)"
+                title="缩小窗口大小 (A-)"
               >
                 A-
               </button>
@@ -509,15 +519,15 @@ export const OverlayApp: React.FC = () => {
                 type="button"
                 onClick={handleResetScale}
                 className="px-1.5 py-0.5 rounded text-primary hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
-                title="重置缩放 (100%)"
+                title="重置窗口大小 (100%)"
               >
-                {Math.round(uiScale * 100)}%
+                {Math.round(windowScale * 100)}%
               </button>
               <button
                 type="button"
-                onClick={() => handleScaleChange(0.15)}
+                onClick={() => handleScaleChange(0.1)}
                 className="px-1.5 py-0.5 rounded text-text-muted hover:text-text hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
-                title="放大界面 (A+)"
+                title="放大窗口大小 (A+)"
               >
                 A+
               </button>

@@ -1,12 +1,19 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
+
+// 强制为 Windows 任务栏注册专属 AppUserModelId，彻底解除与默认 electron.exe 图标的关联
+if (process.platform === 'win32' && app) {
+  app.setAppUserModelId('com.lzmanager.desktop')
+}
+
 import { ConfigStore } from '../core/config-store'
 import { ModEngine } from '../core/mod-engine'
 import { PresetEngine } from '../core/preset-engine'
 import { GameLauncher } from '../core/game-launcher'
-import { getCharactersForGame, normalizeCharacterName } from '../core/characters-data'
+import { getCharactersForGame, normalizeCharacterName, detectCharacterForMod } from '../core/characters-data'
 import { searchMods, getModDetails, installMod } from '../core/gamebanana-service'
+import { translateModDetails } from '../core/translate-service'
 import { PersistBridgeManager } from '../core/persist-bridge'
 
 let mainWindow: BrowserWindow | null = null
@@ -92,13 +99,33 @@ const isDev = process.env.NODE_ENV === 'development'
 const overlayManager = new OverlayManager(preloadPath, isDev)
 const controllerService = new ControllerService(binariesDir)
 
+function getAppIcon() {
+  const icoPath = (app && app.isPackaged)
+    ? path.join(process.resourcesPath, 'icons/icon.ico')
+    : path.join(__dirname, '../../resources/icons/icon.ico')
+  const pngPath = (app && app.isPackaged)
+    ? path.join(process.resourcesPath, 'icons/icon.png')
+    : path.join(__dirname, '../../resources/icons/icon.png')
+
+  if (fs.existsSync(icoPath)) {
+    return nativeImage.createFromPath(icoPath)
+  }
+  if (fs.existsSync(pngPath)) {
+    return nativeImage.createFromPath(pngPath)
+  }
+  return undefined
+}
+
 function createMainWindow() {
+  const appIcon = getAppIcon()
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 1024,
     minHeight: 700,
     frame: false,
+    icon: appIcon,
     backgroundColor: '#030712',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
@@ -106,6 +133,10 @@ function createMainWindow() {
       webSecurity: false // 允许加载本地 Mod 封面图片 file:///
     }
   })
+
+  if (appIcon) {
+    mainWindow.setIcon(appIcon)
+  }
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     console.error('[LZ Main] mainWindow failed to load:', errorCode, errorDescription)
@@ -462,13 +493,28 @@ function setupIpc() {
     return getModDetails(params)
   })
 
+  ipcMain.handle('gamebanana:detectCharacter', (_, modInfo: any, gameId?: string) => {
+    const g = configStore.getActiveGame()
+    const targetGame = gameId || g?.id
+    return detectCharacterForMod(modInfo, targetGame)
+  })
+
   ipcMain.handle('gamebanana:install', async (event, params: any) => {
     const g = configStore.getActiveGame()
+    let resolvedChar = params.characterName
+    // 智能识别：若未指定角色或为通用/all，尝试深度识别
+    if ((!resolvedChar || resolvedChar === 'all' || resolvedChar === '通用') && g) {
+      const detected = detectCharacterForMod(params, g.id)
+      if (detected) resolvedChar = detected
+    }
+    if (resolvedChar && resolvedChar !== 'all') {
+      resolvedChar = normalizeCharacterName(resolvedChar, g?.id)
+    }
+
     let targetParentDir = params.targetParentDir
     if (!targetParentDir && g && g.modFolderPath) {
-      if (params.characterName) {
-        const canonicalChar = normalizeCharacterName(params.characterName, g.id)
-        targetParentDir = path.join(g.modFolderPath, canonicalChar)
+      if (resolvedChar && resolvedChar !== 'all') {
+        targetParentDir = path.join(g.modFolderPath, resolvedChar)
       } else {
         targetParentDir = g.modFolderPath
       }
@@ -480,8 +526,23 @@ function setupIpc() {
         targetParentDir = path.join(g.modFolderPath, ...parts)
       }
     }
+    const previewUrl =
+      params.previewImageUrl ||
+      params.previewImage ||
+      (Array.isArray(params.previewImages) ? params.previewImages[0] : '') ||
+      ''
+
+    const finalSourceUrl =
+      params.sourceUrl ||
+      params.profileUrl ||
+      (params.modId ? `https://gamebanana.com/mods/${params.modId}` : '')
+
     return installMod({
       ...params,
+      characterName: resolvedChar || params.characterName,
+      sourceUrl: finalSourceUrl,
+      profileUrl: finalSourceUrl,
+      previewImageUrl: previewUrl,
       targetParentDir: targetParentDir || (g ? g.modFolderPath : ''),
       onProgress: (p: any) => {
         event.sender.send('gamebanana:installProgress', p)
@@ -489,10 +550,92 @@ function setupIpc() {
     })
   })
 
+  // 外观分区 (Appearance Sections)
+  ipcMain.handle('appearance:getSections', (_, characterName: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return []
+    modEngine.setModFolderPath(g.modFolderPath)
+    const custom = configStore.getCharacterSections(g.id, characterName)
+    return modEngine.getCharacterAppearanceSections(characterName, g.id, custom)
+  })
+
+  ipcMain.handle('appearance:createSection', (_, characterName: string, name: string, coverUrl?: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择游戏' }
+    const trimmed = String(name || '').trim()
+    if (!trimmed) return { success: false, error: '分区名称不能为空' }
+    const custom = configStore.getCharacterSections(g.id, characterName)
+    if (custom.some((s: any) => s.name.toLowerCase() === trimmed.toLowerCase()) || trimmed === '原角色') {
+      return { success: false, error: '同名外观分区已存在' }
+    }
+    const sectionId = `custom:${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+    const newSection = {
+      id: sectionId,
+      sectionId,
+      name: trimmed,
+      nameZh: trimmed,
+      nameEn: '',
+      kind: 'custom' as const,
+      official: false,
+      coverUrl: coverUrl || null,
+      createdAt: new Date().toISOString()
+    }
+    const next = [...custom, newSection]
+    configStore.setCharacterSections(g.id, characterName, next)
+    return { success: true, section: newSection }
+  })
+
+  ipcMain.handle('appearance:updateSection', (_, characterName: string, sectionId: string, name: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择游戏' }
+    const trimmed = String(name || '').trim()
+    if (!trimmed) return { success: false, error: '分区名称不能为空' }
+    const custom = configStore.getCharacterSections(g.id, characterName)
+    const idx = custom.findIndex((s: any) => s.sectionId === sectionId)
+    if (idx === -1) return { success: false, error: '分区不存在' }
+    custom[idx].name = trimmed
+    custom[idx].nameZh = trimmed
+    custom[idx].updatedAt = new Date().toISOString()
+    configStore.setCharacterSections(g.id, characterName, custom)
+    return { success: true }
+  })
+
+  ipcMain.handle('appearance:deleteSection', (_, characterName: string, sectionId: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择游戏' }
+    const custom = configStore.getCharacterSections(g.id, characterName)
+    const next = custom.filter((s: any) => s.sectionId !== sectionId)
+    configStore.setCharacterSections(g.id, characterName, next)
+    modEngine.setModFolderPath(g.modFolderPath)
+    modEngine.resetModsFromDeletedSection(characterName, sectionId)
+    return { success: true }
+  })
+
+  ipcMain.handle('appearance:setModSection', (_, modFullPath: string, sectionId: string) => {
+    const ok = modEngine.setModAppearanceSection(modFullPath, sectionId)
+    return { success: ok }
+  })
+
+  // 外部链接跳转 (系统默认浏览器)
+  ipcMain.handle('app:openExternal', async (_, url: string) => {
+    if (url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+      await shell.openExternal(url)
+      return { success: true }
+    }
+    return { success: false, error: '无效的外部链接' }
+  })
+
+  // 模组翻译服务 (Mod Details Translation)
+  ipcMain.handle('translate:text', async (_, params: { title?: string; description?: string; text?: string }) => {
+    return translateModDetails(params)
+  })
+
   // Overlay Controls
   ipcMain.handle('overlay:toggle', () => overlayManager.toggleOverlay())
   ipcMain.handle('overlay:hide', () => overlayManager.hide())
   ipcMain.handle('overlay:show', () => overlayManager.show())
+  ipcMain.handle('overlay:setScale', (_, scale: number) => overlayManager.setScale(scale))
+  ipcMain.handle('overlay:getScale', () => overlayManager.getScale())
 
   // Window Controls
   ipcMain.handle('window:minimize', () => mainWindow?.minimize())

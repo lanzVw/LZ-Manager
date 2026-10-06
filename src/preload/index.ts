@@ -81,16 +81,36 @@ const flairxApi = {
     ipcRenderer.on('gamebanana:installProgress', handler)
     return () => ipcRenderer.removeListener('gamebanana:installProgress', handler)
   },
+  detectGameBananaCharacter: (modInfo: any, gameId?: string) =>
+    ipcRenderer.invoke('gamebanana:detectCharacter', modInfo, gameId),
+  translateText: (params: { title?: string; description?: string; text?: string }) =>
+    ipcRenderer.invoke('translate:text', params),
+
+  // Appearance Sections
+  getAppearanceSections: (characterName: string) =>
+    ipcRenderer.invoke('appearance:getSections', characterName),
+  createAppearanceSection: (characterName: string, name: string, coverUrl?: string) =>
+    ipcRenderer.invoke('appearance:createSection', characterName, name, coverUrl),
+  updateAppearanceSection: (characterName: string, sectionId: string, name: string) =>
+    ipcRenderer.invoke('appearance:updateSection', characterName, sectionId, name),
+  deleteAppearanceSection: (characterName: string, sectionId: string) =>
+    ipcRenderer.invoke('appearance:deleteSection', characterName, sectionId),
+  setModAppearanceSection: (modFullPath: string, sectionId: string) =>
+    ipcRenderer.invoke('appearance:setModSection', modFullPath, sectionId),
 
   // Overlay
   toggleOverlay: () => ipcRenderer.invoke('overlay:toggle'),
   hideOverlay: () => ipcRenderer.invoke('overlay:hide'),
   showOverlay: () => ipcRenderer.invoke('overlay:show'),
+  setOverlayScale: (scale: number) => ipcRenderer.invoke('overlay:setScale', scale),
+  getOverlayScale: () => ipcRenderer.invoke('overlay:getScale'),
 
-  // Window Controls
+  // Window & System Controls
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),
-  close: () => ipcRenderer.invoke('window:close')
+  close: () => ipcRenderer.invoke('window:close'),
+  openExternalUrl: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+  openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url)
 }
 
 contextBridge.exposeInMainWorld('lz', flairxApi)

@@ -6,6 +6,8 @@ export class OverlayManager {
   private preloadPath: string
   private isDevelopment: boolean
 
+  private currentScale: number = 1.0
+
   constructor(preloadPath: string, isDevelopment: boolean) {
     this.preloadPath = preloadPath
     this.isDevelopment = isDevelopment
@@ -15,6 +17,42 @@ export class OverlayManager {
     return this.window
   }
 
+  public getScale(): number {
+    return this.currentScale
+  }
+
+  public setScale(scale: number) {
+    const validScale = Math.max(0.6, Math.min(1.5, Math.round(scale * 100) / 100))
+    this.currentScale = validScale
+
+    if (this.window && !this.window.isDestroyed()) {
+      const bounds = this.window.getBounds()
+      const display = screen.getDisplayMatching(bounds) || screen.getPrimaryDisplay()
+      const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.bounds
+
+      const baseWidth = Math.max(540, Math.round(screenWidth * 0.3))
+      const baseHeight = Math.round(screenHeight * 0.75)
+
+      const newWidth = Math.round(baseWidth * this.currentScale)
+      const newHeight = Math.round(baseHeight * this.currentScale)
+
+      // 缩放窗口时保持右侧和顶部贴靠
+      const rightEdge = bounds.x + bounds.width
+      const isRightDocked = Math.abs(rightEdge - (displayX + screenWidth)) < 30
+      const newX = isRightDocked
+        ? displayX + screenWidth - newWidth
+        : Math.min(displayX + screenWidth - newWidth, Math.max(displayX, rightEdge - newWidth))
+      const newY = Math.min(displayY + screenHeight - newHeight, Math.max(displayY, bounds.y))
+
+      this.window.setBounds({
+        x: newX,
+        y: newY,
+        width: newWidth,
+        height: newHeight
+      })
+    }
+  }
+
   public createOverlayWindow(): BrowserWindow {
     if (this.window && !this.window.isDestroyed()) {
       return this.window
@@ -22,8 +60,10 @@ export class OverlayManager {
 
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()) || screen.getPrimaryDisplay()
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.bounds
-    const overlayWidth = Math.max(540, Math.round(screenWidth * 0.3))
-    const overlayHeight = Math.round(screenHeight * 0.75)
+    const baseWidth = Math.max(540, Math.round(screenWidth * 0.3))
+    const baseHeight = Math.round(screenHeight * 0.75)
+    const overlayWidth = Math.round(baseWidth * this.currentScale)
+    const overlayHeight = Math.round(baseHeight * this.currentScale)
 
     this.window = new BrowserWindow({
       width: overlayWidth,
@@ -72,11 +112,13 @@ export class OverlayManager {
       if (this.window.isVisible()) {
         this.window.hide()
       } else {
-        // 重新同步到屏幕右上角（宽30%，高75%）
+        // 重新同步到屏幕右上角（按当前窗口缩放比例）
         const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()) || screen.getPrimaryDisplay()
         const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.bounds
-        const overlayWidth = Math.max(540, Math.round(screenWidth * 0.3))
-        const overlayHeight = Math.round(screenHeight * 0.75)
+        const baseWidth = Math.max(540, Math.round(screenWidth * 0.3))
+        const baseHeight = Math.round(screenHeight * 0.75)
+        const overlayWidth = Math.round(baseWidth * this.currentScale)
+        const overlayHeight = Math.round(baseHeight * this.currentScale)
         this.window.setBounds({
           x: displayX + screenWidth - overlayWidth,
           y: displayY,
