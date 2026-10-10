@@ -1,8 +1,9 @@
 import fs from 'fs'
 import path from 'path'
-import { ModItem, ModDetailedInfo } from './types'
+import { ModItem, ModDetailedInfo, AppearanceSection } from './types'
 import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
+import { readTextAuto, writeTextWithEncoding } from './text-encoding'
 
 export class ModEngine {
   private modFolderPath: string
@@ -49,9 +50,42 @@ export class ModEngine {
   }
 
   /**
-   * 扫描 Mod 根目录，返回按角色分组的所有 Mod 数据
+   * 路径守卫：解析目标路径并断言其位于当前 Mod 根目录之内。
+   * 返回规范化后的绝对路径；越界/等于根目录本身/未配置根目录时返回 null。
+   * 所有接受外部路径参数的文件操作（读/写/删/复制）都必须先经过这里，
+   * 否则被注入的渲染进程可借 IPC 读写删用户盘上任意文件。
    */
-  public scanMods(): Record<string, ModItem[]> {
+  private resolveInsideModRoot(targetPath: string): string | null {
+    try {
+      if (!this.modFolderPath) return null
+      const root = path.resolve(this.modFolderPath)
+      const resolved = path.resolve(String(targetPath || ''))
+      const rel = path.relative(root, resolved)
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+      return resolved
+    } catch (_) {
+      return null
+    }
+  }
+
+  /** 字段级消毒：禁止路径分隔符与控制字符，确保只作为单级目录/文件名使用 */
+  private sanitizeSegment(raw: string): string {
+    return String(raw || '')
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+      .trim()
+  }
+
+  /** 让出事件循环，避免大库扫描期间 IPC/窗口消息全部冻结 */
+  private yieldToLoop(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve))
+  }
+
+  /**
+   * 扫描 Mod 根目录，返回按角色分组的所有 Mod 数据
+   * 注：异步但内部为分块同步 IO——每扫完一个角色目录让出一次事件循环，
+   * 大库（数千 Mod）时主进程不再被单次扫描卡死
+   */
+  public async scanMods(): Promise<Record<string, ModItem[]>> {
     const result: Record<string, ModItem[]> = {}
     if (!this.modFolderPath || !fs.existsSync(this.modFolderPath)) {
       return result
@@ -64,6 +98,7 @@ export class ModEngine {
         const charName = charDirent.name
         // 忽略隐藏或系统文件夹
         if (charName.startsWith('.') || charName === 'System Volume Information') continue
+        await this.yieldToLoop()
 
         const charPath = path.join(this.modFolderPath, charName)
         const modsList: ModItem[] = []
@@ -76,7 +111,12 @@ export class ModEngine {
             if (folderName.startsWith('.')) continue
 
             const isEnabled = !folderName.startsWith('DISABLED_')
-            const rawName = isEnabled ? folderName : folderName.substring('DISABLED_'.length)
+            // 循环剥离历史半失败可能留下的 DISABLED_DISABLED_ 双前缀
+            let rawName = folderName
+            while (rawName.startsWith('DISABLED_')) {
+              rawName = rawName.substring('DISABLED_'.length)
+            }
+            if (!rawName) rawName = folderName
             const fullModPath = path.join(charPath, folderName)
 
             // 查找预览封面
@@ -84,6 +124,34 @@ export class ModEngine {
             let mtime = 0
             try {
               mtime = fs.statSync(fullModPath).mtimeMs
+            } catch (_) {}
+
+            let appearanceSectionId = 'base'
+            let modBroken = false
+            let brokenReason: string | undefined = undefined
+
+            try {
+              const metaPath = path.join(fullModPath, 'mod.json')
+              if (fs.existsSync(metaPath)) {
+                const metaData = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+                if (metaData?.appearanceSectionId) {
+                  appearanceSectionId = metaData.appearanceSectionId
+                }
+                if (metaData?.modBroken) {
+                  modBroken = true
+                  brokenReason = metaData.brokenReason || ''
+                }
+              }
+            } catch (_) {}
+
+            try {
+              const tagsPath = path.join(fullModPath, 'tags.json')
+              if (fs.existsSync(tagsPath)) {
+                const tagsData = JSON.parse(fs.readFileSync(tagsPath, 'utf8'))
+                if (tagsData?.qaqm?.appearanceSectionId) {
+                  appearanceSectionId = tagsData.qaqm.appearanceSectionId
+                }
+              }
             } catch (_) {}
 
             modsList.push({
@@ -96,7 +164,10 @@ export class ModEngine {
               previewImages,
               fullPath: fullModPath,
               hasIni,
-              mtime
+              mtime,
+              appearanceSectionId,
+              modBroken,
+              brokenReason
             })
           }
         } catch (err) {
@@ -132,16 +203,23 @@ export class ModEngine {
       'avatar.png',
       'avatar.webp',
       'avatar.jpg',
+      'portrait.webp',
+      'portrait.png',
+      '_portrait.webp',
+      '_portrait.png',
       'gbicon.png',
       'icon.png'
     ]
 
-    // QAQM 系统全局资源池路径候选
+    // QAQM 系统全局资源池路径候选（不再硬编码开发机盘符路径）
     const qaqmCandidates = [
       path.resolve(process.cwd(), '../QAQManagerV4/resources/images'),
       path.resolve(__dirname, '../../../QAQManagerV4/resources/images'),
       path.resolve(__dirname, '../../QAQManagerV4/resources/images'),
-      'F:/XXMI/QAQMAN/QAQManagerV4/resources/images',
+      path.resolve(process.cwd(), 'resources/images'),
+      path.resolve(process.cwd(), 'LZ Manager/resources/images'),
+      path.resolve(__dirname, '../../resources/images'),
+      path.resolve(__dirname, '../../../resources/images'),
       path.join(process.resourcesPath || '', 'images')
     ]
     let foundQaqmBase = ''
@@ -280,13 +358,18 @@ export class ModEngine {
    * 将指定图片设为角色缩略图/封面
    */
   public async setCharacterAvatar(characterName: string, sourceImagePath: string): Promise<{ success: boolean; avatarPath?: string; error?: string }> {
-    const charPath = path.join(this.modFolderPath, characterName)
-    if (!fs.existsSync(charPath)) {
-      return { success: false, error: `角色目录不存在: ${charPath}` }
+    const safeCharName = this.sanitizeSegment(characterName)
+    const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
+    const safeSource = this.resolveInsideModRoot(sourceImagePath)
+    if (!charPath || !fs.existsSync(charPath)) {
+      return { success: false, error: `角色目录不存在: ${charPath || characterName}` }
+    }
+    if (!safeSource) {
+      return { success: false, error: '非法图片路径：超出模组目录范围' }
     }
     const targetFile = path.join(charPath, '_cover.png')
     try {
-      fs.copyFileSync(sourceImagePath, targetFile)
+      fs.copyFileSync(safeSource, targetFile)
       return { success: true, avatarPath: targetFile }
     } catch (err: any) {
       return { success: false, error: err.message }
@@ -297,9 +380,10 @@ export class ModEngine {
    * 从 Data URL 保存角色缩略图/封面
    */
   public async saveCharacterAvatarFromData(characterName: string, dataUrl: string): Promise<{ success: boolean; avatarPath?: string; error?: string }> {
-    const charPath = path.join(this.modFolderPath, characterName)
-    if (!fs.existsSync(charPath)) {
-      return { success: false, error: `角色目录不存在: ${charPath}` }
+    const safeCharName = this.sanitizeSegment(characterName)
+    const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
+    if (!charPath || !fs.existsSync(charPath)) {
+      return { success: false, error: `角色目录不存在: ${charPath || characterName}` }
     }
     const targetFile = path.join(charPath, '_cover.png')
     try {
@@ -317,9 +401,11 @@ export class ModEngine {
    * 如果开启角色单选互斥 (Option A) 且当前操作为启用，则自动将同角色的其他 Mod 全部置为停用
    */
   public async toggleMod(characterName: string, modRawName: string, enable: boolean): Promise<{ success: boolean; error?: string }> {
-    const charPath = path.join(this.modFolderPath, characterName)
-    if (!fs.existsSync(charPath)) {
-      return { success: false, error: `角色目录不存在: ${charPath}` }
+    // characterName 仅允许作为单级目录名使用（防路径穿越）
+    const safeCharName = this.sanitizeSegment(characterName)
+    const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
+    if (!charPath || !fs.existsSync(charPath)) {
+      return { success: false, error: `角色目录不存在: ${charPath || characterName}` }
     }
 
     const enabledFolderName = modRawName
@@ -345,10 +431,18 @@ export class ModEngine {
       return { success: false, error: `源目录不存在: ${srcPath}` }
     }
 
-    // 正在停用 Mod：快照保留当前设定数值
+    // 先执行当前 Mod 重命名：失败（如目录被游戏占用）时立即返回、不触碰同角色其他 Mod，
+    // 避免"其他 Mod 已被禁用而目标未启用"的半失败状态（此前会导致该 Mod 永久无法切换）
+    try {
+      fs.renameSync(srcPath, dstPath)
+    } catch (renameErr: any) {
+      return { success: false, error: `更名失败 (文件可能被游戏占用): ${renameErr.message}` }
+    }
+
+    // 停用路径：目标已停用后快照保留当前设定数值
     if (!enable && this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
       try {
-        this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, srcPath, false)
+        this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, dstPath, false)
         if (this.persistBridgeCacheSize > 0) {
           this.persistBridgeManager.pruneCache(this.envRoot, this.persistBridgeCacheSize)
         }
@@ -357,7 +451,17 @@ export class ModEngine {
       }
     }
 
-    // 如果是开启并且单选互斥，先停用其他已启用的 Mod
+    // 启用成功后，恢复 Persist Bridge 状态与 d3dx_user.ini
+    if (enable && this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
+      try {
+        this.persistBridgeManager.ensureEnvironment(this.envRoot)
+        this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, dstPath, true)
+      } catch (pErr) {
+        console.warn('Persist bridge restore error on enable:', pErr)
+      }
+    }
+
+    // 启用且单选互斥：在目标已成功启用之后再停用其他 Mod（部分失败仅告警，不回滚已完成的启用）
     if (enable && this.isOptionAExclusive) {
       try {
         const entries = fs.readdirSync(charPath, { withFileTypes: true })
@@ -365,9 +469,13 @@ export class ModEngine {
           if (!entry.isDirectory()) continue
           const fName = entry.name
           if (!fName.startsWith('DISABLED_') && fName !== enabledFolderName && fName !== disabledFolderName) {
-            // 将正在启用的同角色其他 Mod 更名为 DISABLED_
             const oldPath = path.join(charPath, fName)
             const newPath = path.join(charPath, `DISABLED_${fName}`)
+            // 目标 DISABLED_ 名已存在（历史残留）时跳过，避免 rename 失败或互相覆盖
+            if (fs.existsSync(newPath)) {
+              console.warn(`Skip disabling conflicting mod ${fName}: target already exists`)
+              continue
+            }
             if (this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
               try {
                 this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, oldPath, false)
@@ -385,36 +493,90 @@ export class ModEngine {
       }
     }
 
-    // 执行当前 Mod 重命名
-    try {
-      fs.renameSync(srcPath, dstPath)
-
-      // 启用成功后，恢复 Persist Bridge 状态与 d3dx_user.ini
-      if (enable && this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
-        try {
-          this.persistBridgeManager.ensureEnvironment(this.envRoot)
-          this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, dstPath, true)
-        } catch (pErr) {
-          console.warn('Persist bridge restore error on enable:', pErr)
-        }
-      }
-
-      return { success: true }
-    } catch (renameErr: any) {
-      return { success: false, error: `更名失败 (文件可能被游戏占用): ${renameErr.message}` }
-    }
+    return { success: true }
   }
 
   /**
    * 批量应用预设 (批量启用/停用指定 Mod)
    */
-  public async applyPresetMods(targetMods: { characterName: string; modName: string; enabled: boolean }[]): Promise<{ success: boolean; applied: number }> {
+  public async applyPresetMods(targetMods: { characterName: string; modName: string; enabled: boolean }[]): Promise<{ success: boolean; applied: number; failed: Array<{ characterName: string; modName: string; error?: string }> }> {
     let count = 0
+    const failed: Array<{ characterName: string; modName: string; error?: string }> = []
     for (const item of targetMods) {
       const res = await this.toggleMod(item.characterName, item.modName, item.enabled)
-      if (res.success) count++
+      if (res.success) {
+        count++
+      } else {
+        failed.push({ characterName: item.characterName, modName: item.modName, error: res.error })
+      }
     }
-    return { success: true, applied: count }
+    // 部分失败必须如实上报，不能恒报 success（否则预设会被虚假地标记为已生效）
+    return { success: failed.length === 0, applied: count, failed }
+  }
+
+  /**
+   * 将指定 Mod 文件夹完整移动到另一个角色目录下
+   */
+  public async moveModToCharacter(
+    modFullPath: string,
+    targetCharacterName: string
+  ): Promise<{ success: boolean; newPath?: string; error?: string }> {
+    if (!modFullPath || !fs.existsSync(modFullPath)) {
+      return { success: false, error: '原模组目录不存在' }
+    }
+
+    const cleanCharName = targetCharacterName.trim().replace(/[\\/:*?"<>|]/g, '')
+    if (!cleanCharName) {
+      return { success: false, error: '目标角色名称无效' }
+    }
+
+    if (!this.modFolderPath || !fs.existsSync(this.modFolderPath)) {
+      return { success: false, error: '模组根目录未配置或不存在' }
+    }
+
+    const modFolderName = path.basename(modFullPath)
+    const currentCharDir = path.dirname(modFullPath)
+    const currentCharName = path.basename(currentCharDir)
+
+    if (currentCharName.toLowerCase() === cleanCharName.toLowerCase()) {
+      return { success: true, newPath: modFullPath }
+    }
+
+    const targetCharDir = path.join(this.modFolderPath, cleanCharName)
+    try {
+      if (!fs.existsSync(targetCharDir)) {
+        fs.mkdirSync(targetCharDir, { recursive: true })
+      }
+    } catch (dirErr: any) {
+      return { success: false, error: `创建目标角色目录失败: ${dirErr.message}` }
+    }
+
+    let targetModDir = path.join(targetCharDir, modFolderName)
+    // 若目标目录已存在同名文件夹，生成避让名称
+    if (fs.existsSync(targetModDir)) {
+      let counter = 1
+      let uniqueName = `${modFolderName}_${counter}`
+      while (fs.existsSync(path.join(targetCharDir, uniqueName))) {
+        counter++
+        uniqueName = `${modFolderName}_${counter}`
+      }
+      targetModDir = path.join(targetCharDir, uniqueName)
+    }
+
+    try {
+      fs.renameSync(modFullPath, targetModDir)
+
+      // 同步 PersistBridge 状态
+      if (this.persistBridgeEnabled && this.persistBridgeManager && this.envRoot) {
+        try {
+          this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, targetModDir, true)
+        } catch (_) {}
+      }
+
+      return { success: true, newPath: targetModDir }
+    } catch (moveErr: any) {
+      return { success: false, error: `移动文件失败 (可能被游戏或其他进程占用): ${moveErr.message}` }
+    }
   }
 
   private inspectModFolder(folderPath: string): { coverPath: string | null; previewImages: string[]; hasIni: boolean } {
@@ -431,25 +593,79 @@ export class ModEngine {
             hasIni = true
           }
           if (lower.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/)) {
-            const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap')
+            const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap') || lower.includes('materialmap')
             if (!isTexture) {
               const abs = path.join(folderPath, f.name)
               previewImages.push(abs)
-              if (!coverPath) {
-                if (lower.includes('preview') || lower.includes('cover') || lower.includes('thumb')) {
-                  coverPath = abs
-                }
-              }
             }
           }
         }
       }
+
+      // Priority ranking for cover selection:
+      const priorityPatterns = [
+        /^_cover\.(png|jpg|jpeg|webp)$/i,
+        /^cover\.(png|jpg|jpeg|webp)$/i,
+        /^preview\.(png|jpg|jpeg|webp)$/i,
+        /^preview[-_]?0?1\.(png|jpg|jpeg|webp)$/i,
+        /^thumb\.(png|jpg|jpeg|webp)$/i,
+        /^preview[-_]/i,
+        /cover/i,
+        /preview/i,
+        /thumb/i
+      ]
+
+      for (const pattern of priorityPatterns) {
+        const found = previewImages.find((p) => pattern.test(path.basename(p)))
+        if (found) {
+          coverPath = found
+          break
+        }
+      }
+
       if (!coverPath && previewImages.length > 0) {
         coverPath = previewImages[0]
       }
     } catch (_) {}
 
     return { coverPath, previewImages, hasIni }
+  }
+
+  private formatTimestamp(val?: string | number | Date | null): string {
+    if (!val) return ''
+    let d: Date
+    if (val instanceof Date) {
+      d = val
+    } else if (typeof val === 'number') {
+      d = val < 10000000000 ? new Date(val * 1000) : new Date(val)
+    } else if (typeof val === 'string') {
+      const trimmed = val.trim()
+      if (!trimmed) return ''
+      if (/^\d{10,13}$/.test(trimmed)) {
+        const num = Number(trimmed)
+        d = num < 10000000000 ? new Date(num * 1000) : new Date(num)
+      } else {
+        const normalized = trimmed.replace(/(\.\d{3})\d+Z?$/i, '$1Z')
+        d = new Date(normalized)
+        if (isNaN(d.getTime())) {
+          d = new Date(trimmed)
+        }
+      }
+    } else {
+      return ''
+    }
+
+    if (isNaN(d.getTime())) return String(val)
+
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const Y = d.getFullYear()
+    const M = pad(d.getMonth() + 1)
+    const D = pad(d.getDate())
+    const h = pad(d.getHours())
+    const m = pad(d.getMinutes())
+    const s = pad(d.getSeconds())
+
+    return `${Y}-${M}-${D} ${h}:${m}:${s}`
   }
 
   /**
@@ -487,13 +703,9 @@ export class ModEngine {
                 iniFiles.push({ name: entry.name, fullPath: full, size: stat.size })
               }
               if (lower.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/)) {
-                const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap')
+                const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap') || lower.includes('materialmap')
                 if (!isTexture) {
-                  const isCover = lower.includes('preview') || lower.includes('cover') || lower.includes('thumb')
-                  images.push({ path: full, name: entry.name, isCover })
-                  if (isCover && !coverPath) {
-                    coverPath = full
-                  }
+                  images.push({ path: full, name: entry.name, isCover: false })
                 }
               }
             } catch (_) {}
@@ -504,9 +716,32 @@ export class ModEngine {
 
     scanDir(modFullPath)
 
+    const priorityPatterns = [
+      /^_cover\.(png|jpg|jpeg|webp)$/i,
+      /^cover\.(png|jpg|jpeg|webp)$/i,
+      /^preview\.(png|jpg|jpeg|webp)$/i,
+      /^preview[-_]?0?1\.(png|jpg|jpeg|webp)$/i,
+      /^thumb\.(png|jpg|jpeg|webp)$/i,
+      /^preview[-_]/i,
+      /cover/i,
+      /preview/i,
+      /thumb/i
+    ]
+
+    for (const pattern of priorityPatterns) {
+      const found = images.find((img) => pattern.test(img.name))
+      if (found) {
+        coverPath = found.path
+        break
+      }
+    }
+
     if (!coverPath && images.length > 0) {
       coverPath = images[0].path
-      images[0].isCover = true
+    }
+
+    for (const img of images) {
+      img.isCover = img.path === coverPath
     }
 
     let metadata: any = {}
@@ -534,6 +769,34 @@ export class ModEngine {
       }
     }
 
+    let sourceUrl = metadata.sourceUrl || metadata.url || metadata.profileUrl || metadata.gamebananaUrl || ''
+    let modId = metadata.modId || null
+
+    if (!sourceUrl) {
+      const gbMatch = folderName.match(/gamebanana[_-](\d+)/i)
+      if (gbMatch) {
+        modId = parseInt(gbMatch[1], 10)
+        sourceUrl = `https://gamebanana.com/mods/${modId}`
+      }
+    }
+
+    let appearanceSectionId = 'base'
+    try {
+      const tagsPath = path.join(modFullPath, 'tags.json')
+      if (fs.existsSync(tagsPath)) {
+        const tagsData = JSON.parse(fs.readFileSync(tagsPath, 'utf8'))
+        if (tagsData?.qaqm?.appearanceSectionId) {
+          appearanceSectionId = tagsData.qaqm.appearanceSectionId
+        }
+      }
+      if (appearanceSectionId === 'base' && metadata?.appearanceSectionId) {
+        appearanceSectionId = metadata.appearanceSectionId
+      }
+    } catch (_) {}
+
+    const resolvedCheckTime = this.formatTimestamp(metadata.checkTime || metadata.dateChecked || metadata.createdAt || mtime || Date.now())
+    const resolvedLastUpdated = this.formatTimestamp(mtime || metadata.lastUpdated || metadata.dateUpdated || metadata.updatedAt || Date.now())
+
     return {
       id: `${characterName}::${rawName}`,
       name: rawName,
@@ -548,13 +811,22 @@ export class ModEngine {
       fileCount,
       mtime,
       birthtime,
+      appearanceSectionId,
       metadata: {
+        ...metadata,
         author: metadata.author || '',
         version: metadata.version || 'Version 1.0',
         description: metadata.description || '',
-        checkTime: metadata.checkTime || new Date(mtime || Date.now()).toLocaleDateString(),
-        lastUpdated: metadata.lastUpdated || new Date(mtime || Date.now()).toLocaleDateString(),
-        ...metadata
+        checkTime: resolvedCheckTime,
+        lastUpdated: resolvedLastUpdated,
+        dateChecked: resolvedCheckTime,
+        dateUpdated: resolvedLastUpdated,
+        sourceUrl: sourceUrl || '',
+        url: sourceUrl || metadata.url || '',
+        gamebananaUrl: sourceUrl || metadata.gamebananaUrl || '',
+        modId: modId || undefined,
+        source: metadata.source || (sourceUrl?.includes('gamebanana.com') ? 'GameBanana' : ''),
+        appearanceSectionId
       },
       persistInfo
     }
@@ -573,8 +845,21 @@ export class ModEngine {
           current = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
         } catch (_) {}
       }
-      const merged = { ...current, ...metadata, updatedAt: new Date().toISOString() }
+      const finalSourceUrl = metadata.sourceUrl !== undefined ? metadata.sourceUrl : (current.sourceUrl || current.url || '')
+      const merged = {
+        ...current,
+        ...metadata,
+        sourceUrl: finalSourceUrl,
+        url: finalSourceUrl,
+        updatedAt: new Date().toISOString()
+      }
       fs.writeFileSync(metaPath, JSON.stringify(merged, null, 2), 'utf8')
+
+      // 若修改了外观分区，同步写回 tags.json 保持与 QAQ 100% 互通
+      if (metadata.appearanceSectionId) {
+        this.setModAppearanceSection(modFullPath, metadata.appearanceSectionId)
+      }
+
       return true
     } catch (err) {
       console.error('Failed to save mod.json:', err)
@@ -583,15 +868,317 @@ export class ModEngine {
   }
 
   /**
+   * 设置 Mod 的失效/损坏状态 (modBroken)，并同步记录原因与 tags.json
+   */
+  public setModBrokenStatus(modFullPath: string, isBroken: boolean, reason?: string): boolean {
+    if (!fs.existsSync(modFullPath)) return false
+    try {
+      const metaPath = path.join(modFullPath, 'mod.json')
+      let meta: any = {}
+      if (fs.existsSync(metaPath)) {
+        try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) } catch (_) {}
+      }
+      meta.modBroken = isBroken
+      if (isBroken) {
+        meta.brokenReason = reason || meta.brokenReason || ''
+        meta.brokenDate = new Date().toISOString()
+      } else {
+        delete meta.brokenReason
+        delete meta.brokenDate
+      }
+      meta.updatedAt = new Date().toISOString()
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8')
+
+      // 同步更新 tags.json 中的 broken 标签
+      const tagsPath = path.join(modFullPath, 'tags.json')
+      let tagsObj: any = {}
+      if (fs.existsSync(tagsPath)) {
+        try { tagsObj = JSON.parse(fs.readFileSync(tagsPath, 'utf8')) } catch (_) {}
+      }
+      let tagsList: any[] = Array.isArray(tagsObj.tags) ? tagsObj.tags : []
+      if (isBroken) {
+        if (!tagsList.some((t: any) => t.id === 'broken')) {
+          tagsList.push({ id: 'broken', name: '已失效', color: '#ef4444' })
+        }
+      } else {
+        tagsList = tagsList.filter((t: any) => t.id !== 'broken')
+      }
+      tagsObj.tags = tagsList
+      fs.writeFileSync(tagsPath, JSON.stringify(tagsObj, null, 2), 'utf8')
+
+      return true
+    } catch (err) {
+      console.error('Failed to set mod broken status:', err)
+      return false
+    }
+  }
+
+  private skinCatalogCache: Map<string, { catalog: any; catalogDir: string }> = new Map()
+
+  /**
+   * 从 catalog.json 加载指定角色的官方时装分区定义
+   */
+  public getOfficialAppearanceSections(
+    characterName: string,
+    gameId: string = 'zzz'
+  ): AppearanceSection[] {
+    if (!characterName) return []
+
+    const scopeId = gameId || 'zzz'
+    let cached = this.skinCatalogCache.get(scopeId)
+    if (!cached) {
+      const candidates = [
+        path.resolve(process.cwd(), 'resources/games', scopeId, 'character-skins/catalog.json'),
+        path.resolve(process.cwd(), 'LZ Manager/resources/games', scopeId, 'character-skins/catalog.json'),
+        path.resolve(__dirname, '../../resources/games', scopeId, 'character-skins/catalog.json'),
+        path.resolve(__dirname, '../../../resources/games', scopeId, 'character-skins/catalog.json'),
+        path.resolve(__dirname, '../resources/games', scopeId, 'character-skins/catalog.json'),
+        path.join(process.resourcesPath || '', 'games', scopeId, 'character-skins/catalog.json')
+      ]
+
+      for (const cand of candidates) {
+        if (fs.existsSync(cand)) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(cand, 'utf-8'))
+            cached = { catalog: parsed, catalogDir: path.dirname(cand) }
+            this.skinCatalogCache.set(scopeId, cached)
+            break
+          } catch (err) {
+            console.error(`Failed to parse skin catalog from ${cand}:`, err)
+          }
+        }
+      }
+    }
+
+    if (!cached || !cached.catalog || !Array.isArray(cached.catalog.characters)) {
+      return []
+    }
+
+    const { catalog, catalogDir } = cached
+    const normTarget = normalizeCharacterName(characterName, scopeId).toLowerCase()
+    const rawTarget = characterName.trim().toLowerCase()
+
+    const charFound = catalog.characters.find((c: any) => {
+      const cNorm = normalizeCharacterName(c.nameZh || '', scopeId).toLowerCase()
+      const cZh = String(c.nameZh || '').trim().toLowerCase()
+      const cEn = String(c.nameEn || '').trim().toLowerCase()
+      const aliases = (Array.isArray(c.aliases) ? c.aliases : []).map((a: string) => String(a || '').trim().toLowerCase())
+
+      return (
+        cNorm === normTarget ||
+        cZh === rawTarget ||
+        cZh === normTarget ||
+        cEn === rawTarget ||
+        aliases.includes(rawTarget) ||
+        aliases.includes(normTarget)
+      )
+    })
+
+    if (!charFound || !Array.isArray(charFound.skins)) {
+      return []
+    }
+
+    return charFound.skins.map((s: any) => {
+      let coverUrl: string | null = null
+      if (s.image) {
+        const fullImg = path.isAbsolute(s.image) ? s.image : path.join(catalogDir, s.image)
+        if (fs.existsSync(fullImg)) {
+          coverUrl = fullImg.replace(/\\/g, '/')
+        }
+      }
+
+      return {
+        id: s.id,
+        sectionId: s.sectionId || `skin:${s.id}`,
+        name: s.nameZh || s.nameEn || s.id,
+        nameZh: s.nameZh || '',
+        nameEn: s.nameEn || '',
+        kind: 'skin' as const,
+        official: true,
+        coverUrl
+      }
+    })
+  }
+
+  /**
+   * 获取指定角色的完整外观分区列表 (原角色 + 官方时装 + 自定义分区) 以及各分区的 Mod 数量统计
+   */
+  public async getCharacterAppearanceSections(
+    characterName: string,
+    gameId?: string,
+    customSections: AppearanceSection[] = []
+  ): Promise<AppearanceSection[]> {
+    const charPath = path.join(this.modFolderPath, characterName)
+    let mods: ModItem[] = []
+    if (fs.existsSync(charPath)) {
+      const all = await this.scanMods()
+      mods = all[characterName] || []
+    }
+
+    // 1. 默认基础分区：原角色 (优先解析角色立绘或头像作为封面)
+    let baseCoverUrl: string | null = null
+    const portraitExts = [
+      'portrait.webp',
+      'portrait.png',
+      '_portrait.webp',
+      '_portrait.png',
+      '_cover.webp',
+      '_cover.png',
+      '_cover.jpg',
+      'cover.png',
+      'cover.webp',
+      'avatar.png'
+    ]
+    if (fs.existsSync(charPath)) {
+      for (const ext of portraitExts) {
+        const p = path.join(charPath, ext)
+        if (fs.existsSync(p)) {
+          baseCoverUrl = p.replace(/\\/g, '/')
+          break
+        }
+      }
+    }
+    if (!baseCoverUrl) {
+      const charAvatars = this.getCharacterAvatars(gameId || 'zzz')
+      if (charAvatars[characterName]) {
+        baseCoverUrl = charAvatars[characterName].replace(/\\/g, '/')
+      }
+    }
+
+    const baseSection: AppearanceSection = {
+      id: 'base',
+      sectionId: 'base',
+      name: '原角色',
+      nameZh: '原角色',
+      nameEn: 'Original',
+      kind: 'base',
+      official: true,
+      coverUrl: baseCoverUrl,
+      totalCount: mods.filter(m => !m.appearanceSectionId || m.appearanceSectionId === 'base').length,
+      enabledCount: mods.filter(m => (!m.appearanceSectionId || m.appearanceSectionId === 'base') && m.enabled).length
+    }
+
+    // 2. 官方时装分区 (从 catalog.json 或 initialized config 读取)
+    const officialSkins = this.getOfficialAppearanceSections(characterName, gameId || 'zzz')
+    const officialSecIds = new Set(officialSkins.map(s => s.sectionId))
+
+    // 补全可能直接存在于 customSections 中的官方时装项（如从 configStore 传来的官方项）
+    for (const c of customSections) {
+      if ((c.kind === 'skin' || c.official) && !officialSecIds.has(c.sectionId)) {
+        officialSkins.push(c)
+        officialSecIds.add(c.sectionId)
+      }
+    }
+
+    const officialMapped: AppearanceSection[] = officialSkins.map(s => {
+      // 若已有 coverUrl 则优先保留，否则查已有配置
+      const existingCfg = customSections.find(c => c.sectionId === s.sectionId)
+      const finalCoverUrl = s.coverUrl || existingCfg?.coverUrl || null
+
+      return {
+        ...s,
+        kind: 'skin' as const,
+        official: true,
+        coverUrl: finalCoverUrl,
+        totalCount: mods.filter(m => m.appearanceSectionId === s.sectionId).length,
+        enabledCount: mods.filter(m => m.appearanceSectionId === s.sectionId && m.enabled).length
+      }
+    })
+
+    // 3. 用户自定义外观分区 (排除与官方 sectionId 重合的项)
+    const customFiltered = customSections.filter(s => !officialSecIds.has(s.sectionId) && s.kind !== 'skin' && !s.official)
+    const customMapped: AppearanceSection[] = customFiltered.map(s => ({
+      ...s,
+      kind: 'custom' as const,
+      official: false,
+      totalCount: mods.filter(m => m.appearanceSectionId === s.sectionId).length,
+      enabledCount: mods.filter(m => m.appearanceSectionId === s.sectionId && m.enabled).length
+    }))
+
+    return [baseSection, ...officialMapped, ...customMapped]
+  }
+
+  /**
+   * 变更/移动某个 Mod 的外观分区
+   * 同时写回 mod.json 和 tags.json 确保 100% 兼容 QAQManager
+   */
+  public setModAppearanceSection(modFullPath: string, sectionId: string): boolean {
+    if (!fs.existsSync(modFullPath)) return false
+    try {
+      // 1. 写回 mod.json
+      const metaPath = path.join(modFullPath, 'mod.json')
+      let meta: any = {}
+      if (fs.existsSync(metaPath)) {
+        try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) } catch (_) {}
+      }
+      meta.appearanceSectionId = sectionId
+      meta.updatedAt = new Date().toISOString()
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8')
+
+      // 2. 写回 tags.json (QAQ 格式)
+      const tagsPath = path.join(modFullPath, 'tags.json')
+      let tagsObj: any = {}
+      if (fs.existsSync(tagsPath)) {
+        try { tagsObj = JSON.parse(fs.readFileSync(tagsPath, 'utf8')) } catch (_) {}
+      }
+      if (!tagsObj.qaqm) tagsObj.qaqm = {}
+      tagsObj.qaqm.appearanceSectionId = sectionId
+      tagsObj.qaqm.appearanceAssignedAt = new Date().toISOString()
+      tagsObj.qaqm.classificationSource = 'user'
+      fs.writeFileSync(tagsPath, JSON.stringify(tagsObj, null, 2), 'utf8')
+
+      return true
+    } catch (err) {
+      console.error('Failed to set mod appearance section:', err)
+      return false
+    }
+  }
+
+  /**
+   * 当删除某个自定义分区时，自动将该分区下的所有 Mod 优雅回退到 'base' (原角色)
+   */
+  public resetModsFromDeletedSection(characterName: string, sectionId: string) {
+    const charPath = path.join(this.modFolderPath, characterName)
+    if (!fs.existsSync(charPath)) return
+    try {
+      const dirs = fs.readdirSync(charPath, { withFileTypes: true })
+      for (const d of dirs) {
+        if (!d.isDirectory()) continue
+        const full = path.join(charPath, d.name)
+        const tagsPath = path.join(full, 'tags.json')
+        const metaPath = path.join(full, 'mod.json')
+        let matched = false
+        if (fs.existsSync(tagsPath)) {
+          try {
+            const t = JSON.parse(fs.readFileSync(tagsPath, 'utf8'))
+            if (t?.qaqm?.appearanceSectionId === sectionId) matched = true
+          } catch (_) {}
+        }
+        if (!matched && fs.existsSync(metaPath)) {
+          try {
+            const m = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+            if (m?.appearanceSectionId === sectionId) matched = true
+          } catch (_) {}
+        }
+        if (matched) {
+          this.setModAppearanceSection(full, 'base')
+        }
+      }
+    } catch (_) {}
+  }
+
+  /**
    * 设置指定图片为封面
    */
   public setAsCoverImage(modFullPath: string, imagePath: string): boolean {
-    if (!fs.existsSync(modFullPath) || !fs.existsSync(imagePath)) return false
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    const safeSource = this.resolveInsideModRoot(imagePath)
+    if (!safeModDir || !safeSource || !fs.existsSync(safeModDir) || !fs.existsSync(safeSource)) return false
     try {
-      const ext = path.extname(imagePath)
-      const targetPath = path.join(modFullPath, `preview${ext}`)
-      if (imagePath !== targetPath) {
-        fs.copyFileSync(imagePath, targetPath)
+      const ext = path.extname(safeSource)
+      const targetPath = path.join(safeModDir, `preview${ext}`)
+      if (safeSource !== targetPath) {
+        fs.copyFileSync(safeSource, targetPath)
       }
       return true
     } catch (err) {
@@ -604,9 +1191,10 @@ export class ModEngine {
    * 删除图片
    */
   public deleteModImage(imagePath: string): boolean {
-    if (!fs.existsSync(imagePath)) return false
+    const safePath = this.resolveInsideModRoot(imagePath)
+    if (!safePath || !fs.existsSync(safePath)) return false
     try {
-      fs.unlinkSync(imagePath)
+      fs.unlinkSync(safePath)
       return true
     } catch (err) {
       console.error('Failed to delete image:', err)
@@ -618,9 +1206,13 @@ export class ModEngine {
    * 读取 INI 文件文本
    */
   public readIniFile(iniPath: string): string {
-    if (!fs.existsSync(iniPath)) return ''
+    const safePath = this.resolveInsideModRoot(iniPath)
+    // 限定只能读取 Mod 目录内的 .ini 文件（防任意文件读）
+    if (!safePath || path.extname(safePath).toLowerCase() !== '.ini') return ''
+    if (!fs.existsSync(safePath)) return ''
     try {
-      return fs.readFileSync(iniPath, 'utf8')
+      // 自动探测编码（GBK/UTF-16LE 常见），避免中文注释解码成乱码
+      return readTextAuto(safePath).content
     } catch (_) {
       return ''
     }
@@ -630,8 +1222,14 @@ export class ModEngine {
    * 写入 INI 文件文本
    */
   public saveIniFile(iniPath: string, content: string): boolean {
+    const safePath = this.resolveInsideModRoot(iniPath)
+    // 限定只能写 Mod 目录内的 .ini 文件（防任意路径写），并限制内容大小
+    if (!safePath || path.extname(safePath).toLowerCase() !== '.ini') return false
+    if (typeof content !== 'string' || content.length > 10 * 1024 * 1024) return false
     try {
-      fs.writeFileSync(iniPath, content, 'utf8')
+      // 保持原文件编码回写（GBK/UTF-16 文件被 utf8 覆盖会永久乱码）
+      const { encoding } = fs.existsSync(safePath) ? readTextAuto(safePath) : { encoding: 'utf8' as const }
+      writeTextWithEncoding(safePath, content, encoding)
       return true
     } catch (err) {
       console.error('Failed to save ini file:', err)
@@ -643,17 +1241,22 @@ export class ModEngine {
    * 保存 Base64 裁剪图片为 Mod 封面 (带自动版本备份)
    */
   public saveCoverFromDataUrl(modFullPath: string, dataUrl: string): { success: boolean; coverPath?: string; error?: string } {
-    if (!fs.existsSync(modFullPath)) {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) {
       return { success: false, error: 'Mod 目录不存在' }
     }
 
     try {
       const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/)
-      const base64Data = matches ? matches[2] : dataUrl
+      // 校验 dataUrl 确实是图片，防止写入损坏的 preview.png
+      if (!matches || !matches[1].startsWith('image/')) {
+        return { success: false, error: '无效的图片数据' }
+      }
+      const base64Data = matches[2]
       const buffer = Buffer.from(base64Data, 'base64')
 
-      const previewPngPath = path.join(modFullPath, 'preview.png')
-      const backupPath = path.join(modFullPath, 'preview.png.lz_bak')
+      const previewPngPath = path.join(safeModDir, 'preview.png')
+      const backupPath = path.join(safeModDir, 'preview.png.lz_bak')
 
       // 如果当前已存在封面图片，则创建安全回滚备份
       if (fs.existsSync(previewPngPath)) {
@@ -676,17 +1279,19 @@ export class ModEngine {
    * 检查是否存在封面备份
    */
   public hasCoverBackup(modFullPath: string): boolean {
-    if (!fs.existsSync(modFullPath)) return false
-    return fs.existsSync(path.join(modFullPath, 'preview.png.lz_bak'))
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) return false
+    return fs.existsSync(path.join(safeModDir, 'preview.png.lz_bak'))
   }
 
   /**
    * 恢复上一个版本的封面备份
    */
   public rollbackCover(modFullPath: string): { success: boolean; error?: string } {
-    if (!fs.existsSync(modFullPath)) return { success: false, error: 'Mod 目录不存在' }
-    const backupPath = path.join(modFullPath, 'preview.png.lz_bak')
-    const previewPngPath = path.join(modFullPath, 'preview.png')
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) return { success: false, error: 'Mod 目录不存在' }
+    const backupPath = path.join(safeModDir, 'preview.png.lz_bak')
+    const previewPngPath = path.join(safeModDir, 'preview.png')
 
     if (!fs.existsSync(backupPath)) {
       return { success: false, error: '未找到封面备份文件' }

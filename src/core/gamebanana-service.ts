@@ -6,9 +6,12 @@ const os = require("os");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
+const { Readable, Transform } = require("stream");
+const { pipeline } = require("stream/promises");
 
 const execFileAsync = promisify(execFile);
 import { getCharactersForGame, normalizeCharacterName } from "./characters-data";
+import { autoTranslateModConfig } from "./mod-translator";
 
 /**
  * P0 Verified Exact GameBanana Game ID Mappings
@@ -99,7 +102,7 @@ function resolveGameBananaGameId(gameInput) {
  * @param {string} [customPath]
  * @returns {string}
  */
-function resolve7zaPath(customPath) {
+function resolve7zaPath(customPath = null) {
   if (customPath && fs.existsSync(customPath)) {
     return customPath;
   }
@@ -117,10 +120,11 @@ function resolve7zaPath(customPath) {
       return cand;
     }
   }
-  return candidates[0];
+  // 找不到时必须返回 null 让调用方明确报错，而不是返回一个肯定不存在的路径
+  return null;
 }
 
-function resolveUnrarPath(customPath) {
+function resolveUnrarPath(customPath = null) {
   if (customPath && fs.existsSync(customPath)) {
     return customPath;
   }
@@ -151,7 +155,7 @@ function sleep(ms) {
  * @param {number} timeoutMs
  * @returns {Promise<Response>}
  */
-async function fetchWithRetry(url, options = {}, maxRetries = 3, timeoutMs = 15000) {
+async function fetchWithRetry(url, options: any = {}, maxRetries = 3, timeoutMs = 15000) {
   const mergedHeaders = Object.assign(
     {
       "User-Agent": DEFAULT_USER_AGENT,
@@ -160,7 +164,7 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3, timeoutMs = 150
     options.headers || {}
   );
 
-  let lastError = null;
+  let lastError: any = null;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -174,23 +178,37 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3, timeoutMs = 150
       clearTimeout(timer);
 
       if (!response.ok) {
-        // Retry on server errors or rate limiting
-        if ((response.status >= 500 || response.status === 429) && attempt < maxRetries) {
-          await sleep(500 * attempt);
+        const httpError: any = new Error(`HTTP ${response.status} ${response.statusText} (${url})`);
+        httpError.status = response.status;
+        // 4xx（除 429 限流）是请求本身的问题，重试只会无意义地重复打 API、加剧限速
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          throw httpError;
+        }
+        // 服务端错误或限流：可重试，429 优先遵循 Retry-After
+        if (attempt < maxRetries) {
+          const retryAfter = parseInt(response.headers.get("retry-after") || "0", 10);
+          const waitMs = retryAfter > 0 ? Math.min(retryAfter * 1000, 30000) : 500 * attempt;
+          await sleep(waitMs);
           continue;
         }
-        throw new Error(`HTTP ${response.status} ${response.statusText} (${url})`);
+        throw httpError;
       }
       return response;
     } catch (err) {
       clearTimeout(timer);
       lastError = err;
+      // 明确不可重试的 4xx：立即抛出，不再 sleep 重试
+      if (err && typeof err.status === "number" && err.status >= 400 && err.status < 500 && err.status !== 429) {
+        throw err;
+      }
       if (attempt < maxRetries) {
         await sleep(500 * attempt);
       }
     }
   }
-  throw new Error(`请求 GameBanana API 失败 (已重试 ${maxRetries} 次): ${lastError?.message || lastError}`);
+  const finalError: any = new Error(`请求 GameBanana API 失败 (已重试 ${maxRetries} 次): ${lastError?.message || lastError}`);
+  if (lastError && typeof lastError.status === "number") finalError.status = lastError.status;
+  throw finalError;
 }
 
 /**
@@ -286,7 +304,10 @@ function normalizeModRecord(raw) {
       profileUrl: raw._aSubmitter?._sProfileUrl || ""
     },
     images,
-    previewImage: images[0]?.medUrl || images[0]?.url || "",
+    previewImage: images[0]?.medUrl || images[0]?.thumbUrl || images[0]?.url || "",
+    previewImages: images.map((img: any) => img.medUrl || img.url || img.thumbUrl || "").filter(Boolean),
+    author: raw._aSubmitter?._sName || "未知作者",
+    likesCount: raw._nLikeCount || 0,
     stats: {
       likes: raw._nLikeCount || 0,
       views: raw._nViewCount || 0,
@@ -358,18 +379,20 @@ async function getGameCategories(gameId) {
  * @param {number|string} [params.characterGbCatId] - GameBanana Category ID (e.g. 30579)
  * @returns {Promise<{ total: number, page: number, perPage: number, records: Array }>}
  */
-async function searchMods({
-  gameId,
-  query = "",
-  page = 1,
-  perPage = 20,
-  sort = "default",
-  categoryId = null,
-  characterId = "all",
-  characterName = null,
-  characterCnName = null,
-  characterGbCatId = null
-} = {}) {
+async function searchMods(rawParams: any = {}) {
+  // 参数归一化：渲染层历史上传的是 searchQuery（GameBananaPage），直接解构 query 会导致
+  // 关键词被静默丢弃、搜索框完全失效，这里统一兼容两种字段名
+  const p = (rawParams || {}) as any;
+  const gameId = p.gameId;
+  const query = p.query ?? p.searchQuery ?? p.keyword ?? "";
+  const page = p.page ?? 1;
+  const perPage = p.perPage ?? 20;
+  const sort = p.sort ?? "default";
+  const categoryId = p.categoryId ?? null;
+  const characterId = p.characterId ?? "all";
+  const characterName = p.characterName ?? null;
+  const characterCnName = p.characterCnName ?? null;
+  const characterGbCatId = p.characterGbCatId ?? null;
   const gbGameId = resolveGameBananaGameId(gameId);
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const perPageNum = Math.min(100, Math.max(1, parseInt(perPage, 10) || 20));
@@ -577,11 +600,13 @@ async function searchMods({
  * @param {number|string} params.modId
  * @returns {Promise<object>}
  */
-async function getModDetails({ gameId, modId } = {}) {
-  const cleanModId = parseInt(modId, 10);
+async function getModDetails(params: any = {}) {
+  const rawId = params.modId || params.itemId || params.id || (typeof params === 'number' ? params : (typeof params === 'string' ? params : 0));
+  const cleanModId = parseInt(rawId, 10);
   if (!cleanModId || Number.isNaN(cleanModId)) {
-    throw new Error(`无效的 Mod ID: ${modId}`);
+    throw new Error(`无效的 Mod ID: ${JSON.stringify(params)}`);
   }
+  const gameId = params.gameId;
 
   const profileUrl = `${API_BASE_URL}/Mod/${cleanModId}/ProfilePage`;
   const profileRes = await fetchWithRetry(profileUrl, {}, 3, 15000);
@@ -613,6 +638,9 @@ async function getModDetails({ gameId, modId } = {}) {
     description: f._sDescription || "",
     isArchived: !!f._bIsArchived
   }));
+
+  // 按发布时间降序排序（最新发布的排在第一位）
+  files.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
 
   const rawImages = p._aPreviewMedia?._aImages || [];
   const images = rawImages.map((img) => {
@@ -673,7 +701,12 @@ async function getModDetails({ gameId, modId } = {}) {
       downloads: p._nDownloadCount || 0
     },
     images,
-    previewImage: images[0]?.medUrl || images[0]?.url || "",
+    previewImage: images[0]?.medUrl || images[0]?.thumbUrl || images[0]?.url || "",
+    previewImages: images.map((img: any) => img.medUrl || img.url || img.thumbUrl || "").filter(Boolean),
+    author: p._aSubmitter?._sName || "未知作者",
+    likesCount: p._nLikeCount || 0,
+    version: p._sVersion || "",
+    changelog: p._aChangeLog || null,
     files
   };
 }
@@ -757,11 +790,57 @@ function verifyArchiveMagic(filePath) {
  */
 function verifyMd5Checksum(filePath, expectedMd5) {
   if (!expectedMd5) return true;
-  const hash = crypto.createHash("md5");
-  const data = fs.readFileSync(filePath);
-  hash.update(data);
-  const actual = hash.digest("hex").toLowerCase();
-  return actual === String(expectedMd5).trim().toLowerCase();
+  // 流式计算，避免数百 MB 压缩包整读进内存并阻塞事件循环
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("md5");
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => {
+      const actual = hash.digest("hex").toLowerCase();
+      resolve(actual === String(expectedMd5).trim().toLowerCase());
+    });
+    stream.on("error", reject);
+  }).catch((err) => {
+    console.warn("MD5 stream verify failed:", err);
+    return false;
+  });
+}
+
+/**
+ * 递归检查目录内是否存在符号链接 / 硬链接式跳转（junction）。
+ * RAR 预检无法完全覆盖链接条目，解压后在文件系统层面兜底：
+ * 发现任何链接立即拒绝安装，防止恶意压缩包把内容写到 Mod 目录之外。
+ */
+export function assertNoLinksInDir(dir) {
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      let isLink = entry.isSymbolicLink();
+      if (!isLink) {
+        // junction 在部分 Node 版本不表现为 symlink，用 readlink 探测兜底
+        try {
+          fs.readlinkSync(full);
+          isLink = true;
+        } catch (_) {
+          /* 非链接 */
+        }
+      }
+      if (isLink) {
+        throw new Error(`压缩包内包含符号链接/联接点条目，已拒绝安装: ${path.relative(dir, full)}`);
+      }
+      if (entry.isDirectory()) {
+        stack.push(full);
+      }
+    }
+  }
 }
 
 /**
@@ -873,7 +952,7 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
       relPath.includes("../") ||
       relPath.includes("..\\")
     ) {
-      const err = new Error(`[安全拦截] 压缩包内包含非法路径穿越条目: "${relPath}"`);
+      const err: any = new Error(`[安全拦截] 压缩包内包含非法路径穿越条目: "${relPath}"`);
       err.code = "SECURITY_PATH_TRAVERSAL";
       err.entry = entry;
       throw err;
@@ -886,7 +965,7 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
       /^[a-zA-Z]:/.test(relPath) ||
       /^\\\\/.test(relPath)
     ) {
-      const err = new Error(`[安全拦截] 压缩包内包含绝对路径条目: "${relPath}"`);
+      const err: any = new Error(`[安全拦截] 压缩包内包含绝对路径条目: "${relPath}"`);
       err.code = "SECURITY_ABSOLUTE_PATH";
       err.entry = entry;
       throw err;
@@ -894,7 +973,7 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
 
     // 3. Alternate Data Streams (ADS) colon check
     if (relPath.includes(":")) {
-      const err = new Error(`[安全拦截] 压缩包内包含冒号 (可能包含 Windows ADS 伪装或特殊流): "${relPath}"`);
+      const err: any = new Error(`[安全拦截] 压缩包内包含冒号 (可能包含 Windows ADS 伪装或特殊流): "${relPath}"`);
       err.code = "SECURITY_ADS_COLON";
       err.entry = entry;
       throw err;
@@ -902,7 +981,7 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
 
     // 4. Null byte and illegal control characters check
     if (/[\x00-\x1F]/.test(relPath)) {
-      const err = new Error(`[安全拦截] 压缩包内包含控制字符或空字节: "${relPath}"`);
+      const err: any = new Error(`[安全拦截] 压缩包内包含控制字符或空字节: "${relPath}"`);
       err.code = "SECURITY_CONTROL_CHAR";
       err.entry = entry;
       throw err;
@@ -911,7 +990,7 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
     // 5. Path normalization sandbox escape check
     const normalized = path.normalize(relPath);
     if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
-      const err = new Error(`[安全拦截] 路径规范化检测逃逸沙箱: "${relPath}"`);
+      const err: any = new Error(`[安全拦截] 路径规范化检测逃逸沙箱: "${relPath}"`);
       err.code = "SECURITY_SANDBOX_ESCAPE";
       err.entry = entry;
       throw err;
@@ -928,7 +1007,7 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
       (entry.Characteristics && entry.Characteristics.toLowerCase().includes("symlink"));
 
     if (isSymlinkAttr) {
-      const err = new Error(`[安全拦截] 压缩包内包含被禁用的符号链接或硬链接条目: "${relPath}"`);
+      const err: any = new Error(`[安全拦截] 压缩包内包含被禁用的符号链接或硬链接条目: "${relPath}"`);
       err.code = "SECURITY_LINK_FORBIDDEN";
       err.entry = entry;
       throw err;
@@ -986,50 +1065,53 @@ async function downloadFile({
   let lastReportTime = Date.now();
   let lastReportBytes = 0;
 
-  const fileStream = fs.createWriteStream(partPath);
-  const reader = response.body.getReader();
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      downloadedBytes += value.length;
-      fileStream.write(value);
+  // 使用 stream pipeline：统一处理背压（慢盘快网不再堆积内存）、
+  // 写流 error（磁盘满/权限，此前为 unhandled error 会击穿主进程）与资源清理
+  const progressCounter = new Transform({
+    transform(chunk, _enc, cb) {
+      downloadedBytes += chunk.length;
 
       const now = Date.now();
-      if (now - lastReportTime >= 200 || downloadedBytes === totalBytes) {
+      if (now - lastReportTime >= 200 || (totalBytes > 0 && downloadedBytes === totalBytes)) {
         const timeDiff = (now - lastReportTime) / 1000;
         const bytesDiff = downloadedBytes - lastReportBytes;
         const speed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
         const percent = totalBytes > 0 ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) : 0;
 
         if (typeof onProgress === "function") {
-          onProgress({
-            downloaded: downloadedBytes,
-            total: totalBytes,
-            percent,
-            speed
-          });
+          try {
+            onProgress({
+              downloaded: downloadedBytes,
+              total: totalBytes,
+              percent,
+              speed
+            });
+          } catch (_) {}
         }
 
         lastReportTime = now;
         lastReportBytes = downloadedBytes;
       }
+
+      cb(null, chunk);
     }
+  });
+
+  try {
+    if (!response.body) {
+      throw new Error("响应体为空，无法下载");
+    }
+    await pipeline(
+      Readable.fromWeb(response.body),
+      progressCounter,
+      fs.createWriteStream(partPath)
+    );
   } catch (err) {
-    fileStream.destroy();
     if (fs.existsSync(partPath)) {
       try { fs.unlinkSync(partPath); } catch {}
     }
     throw new Error(`流式下载中断: ${err.message}`);
   }
-
-  fileStream.end();
-  await new Promise((resolve, reject) => {
-    fileStream.on("finish", resolve);
-    fileStream.on("error", reject);
-  });
 
   // Verify Magic Bytes
   const magicCheck = verifyArchiveMagic(partPath);
@@ -1037,19 +1119,19 @@ async function downloadFile({
     if (fs.existsSync(partPath)) {
       try { fs.unlinkSync(partPath); } catch {}
     }
-    const err = new Error(`下载文件格式校验失败: ${magicCheck.error}`);
+    const err: any = new Error(`下载文件格式校验失败: ${magicCheck.error}`);
     err.code = "INVALID_ARCHIVE_MAGIC";
     throw err;
   }
 
   // Verify MD5 if provided
   if (expectedMd5) {
-    const md5Ok = verifyMd5Checksum(partPath, expectedMd5);
+    const md5Ok = await verifyMd5Checksum(partPath, expectedMd5);
     if (!md5Ok) {
       if (fs.existsSync(partPath)) {
         try { fs.unlinkSync(partPath); } catch {}
       }
-      const err = new Error(`文件 MD5 完整性校验未通过 (预期: ${expectedMd5})`);
+      const err: any = new Error(`文件 MD5 完整性校验未通过 (预期: ${expectedMd5})`);
       err.code = "MD5_MISMATCH";
       throw err;
     }
@@ -1183,16 +1265,23 @@ function sanitizeFileName(name) {
  * @param {function} [params.onProgress] - Download/install progress callback
  * @returns {Promise<object>}
  */
-async function installMod({
-  downloadUrl,
-  targetParentDir,
-  modName = "Mod",
-  fileName = "",
-  expectedMd5,
-  previewImageUrl,
-  sevenZipPath,
-  onProgress
-} = {}) {
+async function installMod(rawParams: any = {}) {
+  const {
+    downloadUrl,
+    targetParentDir,
+    modName = "Mod",
+    fileName = "",
+    expectedMd5,
+    previewImageUrl,
+    sevenZipPath,
+    onProgress,
+    sourceUrl,
+    profileUrl,
+    modId,
+    author,
+    version,
+    description
+  } = rawParams || {};
   if (!downloadUrl) throw new Error("下载链接不能为空");
   if (!targetParentDir) throw new Error("目标安装目录不能为空");
 
@@ -1266,6 +1355,8 @@ async function installMod({
 
     // 4. Identify Mod Root Directory
     const modRoot = identifyModRoot(stagingDir);
+    // 文件系统级链接兜底检查（RAR 预检覆盖不到的 symlink/junction 在此拦截）
+    assertNoLinksInDir(stagingDir);
 
     // 5. Zero-overwrite installation named `DISABLED_<SafeName>`
     const safeModName = sanitizeFileName(modName);
@@ -1302,9 +1393,53 @@ async function installMod({
       }
     }
 
+    // 7. Write/merge mod metadata (mod.json) including sourceUrl and market information
+    try {
+      const metaPath = path.join(targetModDir, "mod.json");
+      let existingMeta: any = {};
+      if (fs.existsSync(metaPath)) {
+        try {
+          existingMeta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        } catch (_) {}
+      }
+      const finalSourceUrl = sourceUrl || profileUrl || (modId ? `https://gamebanana.com/mods/${modId}` : "");
+      const nowStr = new Date().toLocaleDateString();
+      const updatedMeta = {
+        name: modName || existingMeta.name || path.basename(targetModDir),
+        author: author || existingMeta.author || "GameBanana",
+        version: version || existingMeta.version || "Version 1.0",
+        description: description || existingMeta.description || "",
+        ...existingMeta,
+        sourceUrl: finalSourceUrl || existingMeta.sourceUrl || existingMeta.url || "",
+        url: finalSourceUrl || existingMeta.url || existingMeta.sourceUrl || "",
+        gamebananaUrl: finalSourceUrl || existingMeta.gamebananaUrl || "",
+        source: "GameBanana",
+        modId: modId ? parseInt(modId, 10) : (existingMeta.modId || null),
+        dateChecked: existingMeta.dateChecked || nowStr,
+        dateUpdated: existingMeta.dateUpdated || nowStr,
+        checkTime: existingMeta.checkTime || nowStr,
+        lastUpdated: existingMeta.lastUpdated || nowStr,
+        updatedAt: new Date().toISOString()
+      };
+      if (author) updatedMeta.author = author;
+      if (finalSourceUrl) {
+        updatedMeta.sourceUrl = finalSourceUrl;
+        updatedMeta.url = finalSourceUrl;
+        updatedMeta.gamebananaUrl = finalSourceUrl;
+      }
+      fs.writeFileSync(metaPath, JSON.stringify(updatedMeta, null, 2), "utf8");
+    } catch (metaErr: any) {
+      console.warn("[GameBananaService] 写入 mod.json 元数据失败:", metaErr.message);
+    }
+
     if (typeof onProgress === "function") {
       onProgress({ stage: "completed", message: "安装完成！", percent: 100 });
     }
+
+    // 自动分析并翻译配置说明与按键，写入 mod.json
+    autoTranslateModConfig(targetModDir).catch((e: any) => {
+      console.warn("[GameBananaService] 自动翻译 Mod 配置说明失败:", e?.message);
+    });
 
     return {
       success: true,
@@ -1327,10 +1462,133 @@ async function installMod({
 }
 
 /**
+ * GameBanana 更新结果缓存 (30分钟过期)
+ */
+const updateCache = new Map<number, { data: any; expireAt: number }>()
+
+function evaluateUpdate(details: any, localDate?: any, localVersion?: string) {
+  const remoteDate = details.dateModified || details.dateUpdated || details.dateAdded || 0
+  const remoteVersion = details.version || details.files?.[0]?.fileName || ''
+
+  // 提取最新更新日志摘要
+  let changelog = ''
+  if (Array.isArray(details.changelog) && details.changelog.length > 0) {
+    const latestCl = details.changelog[0]
+    changelog = typeof latestCl === 'string' ? latestCl : (latestCl._sText || latestCl.text || '')
+  } else if (details.description) {
+    changelog = details.description.slice(0, 150)
+  }
+
+  // 计算本地时间戳 (秒)
+  let localSec = 0
+  if (typeof localDate === 'number') {
+    localSec = localDate > 1e11 ? Math.floor(localDate / 1000) : localDate
+  } else if (typeof localDate === 'string' && localDate) {
+    const parsed = Date.parse(localDate)
+    if (!isNaN(parsed)) localSec = Math.floor(parsed / 1000)
+  }
+
+  let hasUpdate = false
+  // 判定规则 1：远程修改时间比本地记录晚 1 小时 (3600秒) 以上
+  if (remoteDate && localSec && remoteDate > localSec + 3600) {
+    hasUpdate = true
+  }
+
+  // 判定规则 2：版本号字符串不同
+  if (!hasUpdate && remoteVersion && localVersion) {
+    const cleanRemote = String(remoteVersion).replace(/^[vV]/, '').replace(/版$/, '').trim()
+    const cleanLocal = String(localVersion).replace(/^[vV]/, '').replace(/版$/, '').trim()
+    if (cleanRemote && cleanLocal && cleanRemote !== cleanLocal) {
+      hasUpdate = true
+    }
+  }
+
+  return {
+    hasUpdate,
+    checked: true,
+    modId: details.id,
+    remoteVersion: remoteVersion || '最新版本',
+    remoteDate: remoteDate ? remoteDate * 1000 : 0,
+    remoteName: details.name,
+    changelog,
+    latestFile: details.files?.[0] || null,
+    downloadUrl: details.files?.[0]?.downloadUrl || null
+  }
+}
+
+/**
+ * 检查单个 Mod 在 GameBanana 上的更新情况
+ */
+async function checkModUpdate({
+  modId,
+  localDate,
+  localVersion
+}: {
+  modId: number
+  localDate?: number | string
+  localVersion?: string
+}) {
+  if (!modId) return { hasUpdate: false, checked: false, error: "缺少 modId" }
+
+  const now = Date.now()
+  const cached = updateCache.get(modId)
+  if (cached && cached.expireAt > now) {
+    return evaluateUpdate(cached.data, localDate, localVersion)
+  }
+
+  try {
+    const details = await getModDetails({ modId })
+    if (!details) return { hasUpdate: false, checked: false, error: "未获取到 Mod 详情" }
+    updateCache.set(modId, { data: details, expireAt: now + 30 * 60 * 1000 })
+    return evaluateUpdate(details, localDate, localVersion)
+  } catch (err: any) {
+    console.warn(`[GameBananaService] 检查 Mod ${modId} 更新失败:`, err.message)
+    // 失败必须与"无更新"区分开：此前断网会被误报为全部最新
+    return { hasUpdate: false, checked: false, error: err.message }
+  }
+}
+
+/**
+ * 批量并发检查多个 Mod 的更新状态 (带并发限流)
+ */
+async function checkAllModsUpdates(
+  mods: Array<{ fullPath: string; modId: number; lastUpdated?: any; version?: string }>
+) {
+  const results: Record<string, any> = {}
+  const concurrency = 4
+  const queue = [...mods]
+
+  const workers = Array(concurrency)
+    .fill(null)
+    .map(async () => {
+      while (queue.length > 0) {
+        const item = queue.shift()
+        if (!item || !item.modId) continue
+        try {
+          const res = await checkModUpdate({
+            modId: item.modId,
+            localDate: item.lastUpdated,
+            localVersion: item.version
+          })
+          results[item.fullPath] = res
+        } catch (err: any) {
+          results[item.fullPath] = { hasUpdate: false, checked: false, error: err?.message || "检查失败" }
+        }
+      }
+    })
+
+  await Promise.all(workers)
+  return results
+}
+
+/**
  * Unified GameBanana Service Class
  */
 class GameBananaService {
-  constructor(options = {}) {
+  public sevenZipPath: string;
+  public gameIdMap: Record<string, number>;
+
+  constructor(options: any = {}) {
     this.sevenZipPath = options.sevenZipPath || DEFAULT_7ZA_PATH;
     this.gameIdMap = GAME_ID_MAP;
   }
@@ -1365,6 +1623,14 @@ class GameBananaService {
       sevenZipPath: params.sevenZipPath || this.sevenZipPath
     });
   }
+
+  async checkModUpdate(params) {
+    return checkModUpdate(params);
+  }
+
+  async checkAllModsUpdates(mods) {
+    return checkAllModsUpdates(mods);
+  }
 }
 
 export {
@@ -1386,5 +1652,7 @@ export {
   downloadFile,
   identifyModRoot,
   installMod,
+  checkModUpdate,
+  checkAllModsUpdates,
   GameBananaService
 }

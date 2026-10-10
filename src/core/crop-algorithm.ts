@@ -286,18 +286,44 @@ export function calculateSmartCrop(
     const boxH = Math.max(16, Math.round(baseH * s))
     const stepX = Math.max(2, Math.floor((dstW - boxW) / 16))
     const stepY = Math.max(2, Math.floor((dstH - boxH) / 16))
+    const maxX = dstW - boxW
+    const maxY = dstH - boxH
 
-    for (let y = 0; y <= dstH - boxH; y += stepY) {
-      for (let x = 0; x <= dstW - boxW; x += stepX) {
-        const score = integral.queryAverage(x, y, x + boxW - 1, y + boxH - 1)
-        if (score > bestScore) {
-          bestScore = score
-          bestX = x
-          bestY = y
-          bestBoxW = boxW
-          bestBoxH = boxH
-        }
+    // 评分逻辑（主循环与贴边补扫共用）
+    const scoreAt = (x: number, y: number): void => {
+      const score = integral.queryAverage(x, y, x + boxW - 1, y + boxH - 1)
+      if (score > bestScore) {
+        bestScore = score
+        bestX = x
+        bestY = y
+        bestBoxW = boxW
+        bestBoxH = boxH
       }
+    }
+
+    for (let y = 0; y <= maxY; y += stepY) {
+      for (let x = 0; x <= maxX; x += stepX) {
+        scoreAt(x, y)
+      }
+    }
+
+    // 贴边补扫：步进对齐使起点只落在步长整数倍上，右/下边界（y = dstH-boxH 一行、
+    // x = dstW-boxW 一列）可能永远评不到；仅当主循环最大起点未到达贴边值时各补扫一行/一列
+    const needEdgeY = maxY > 0 && maxY % stepY !== 0
+    const needEdgeX = maxX > 0 && maxX % stepX !== 0
+    if (needEdgeY) {
+      for (let x = 0; x <= maxX; x += stepX) {
+        scoreAt(x, maxY)
+      }
+    }
+    if (needEdgeX) {
+      for (let y = 0; y <= maxY; y += stepY) {
+        scoreAt(maxX, y)
+      }
+    }
+    // 双向都未对齐时，右下角起点两轮补扫均覆盖不到，单独补评一次
+    if (needEdgeY && needEdgeX) {
+      scoreAt(maxX, maxY)
     }
   }
 

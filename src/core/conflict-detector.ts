@@ -55,11 +55,29 @@ export class ConflictDetector {
     if (!fs.existsSync(iniPath)) return items
 
     try {
-      const content = fs.readFileSync(iniPath, 'utf8')
+      const buffer = fs.readFileSync(iniPath)
+      let content: string
+      if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+        // UTF-16LE BOM：3DMigoto 社区 Mod 常见编码，按 UTF-8 读会全篇乱码导致漏检
+        content = new TextDecoder('utf-16le').decode(buffer.subarray(2))
+      } else if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+        content = buffer.subarray(3).toString('utf8')
+      } else {
+        // 无 BOM 但奇数位 0x00 字节占比高：极可能是无 BOM 的 UTF-16LE
+        let zeroCount = 0
+        const sampleLen = Math.min(buffer.length, 4096)
+        for (let i = 1; i < sampleLen; i += 2) {
+          if (buffer[i] === 0) zeroCount++
+        }
+        if (sampleLen > 0 && zeroCount / Math.floor(sampleLen / 2) > 0.3) {
+          content = new TextDecoder('utf-16le').decode(buffer)
+        } else {
+          content = buffer.toString('utf8')
+        }
+      }
       const lines = content.split(/\r?\n/)
 
       let currentSection = ''
-      let isOverrideSection = false
 
       for (const line of lines) {
         const trimmed = line.trim()
@@ -71,12 +89,6 @@ export class ConflictDetector {
         const secMatch = trimmed.match(/^\[([^\]]+)\]/)
         if (secMatch) {
           currentSection = secMatch[1].trim()
-          const lower = currentSection.toLowerCase()
-          isOverrideSection =
-            lower.startsWith('textureoverride') ||
-            lower.startsWith('shaderoverride') ||
-            lower.startsWith('resource') ||
-            lower.startsWith('commandlist')
           continue
         }
 
@@ -85,23 +97,30 @@ export class ConflictDetector {
         if (kvMatch) {
           const key = kvMatch[1].toLowerCase()
           const rawVal = kvMatch[2].split(/[;#]/)[0].trim() // 去除注释
+          const stripHexPrefix = (s: string) => s.replace(/^0x/i, '')
 
-          // 1. hash = 12345678
-          if (key === 'hash' && /^[0-9a-fA-F]{6,16}$/.test(rawVal)) {
-            const hashVal = rawVal.toLowerCase()
-            const type = currentSection.toLowerCase().startsWith('shaderoverride') ? 'shader' : 'texture'
-            items.push({
-              hash: hashVal,
-              type,
-              section: currentSection || 'global',
-              iniFile: path.basename(iniPath),
-              modName
-            })
+          // 1. hash = 12345678（兼容 0x 前缀与 ShaderOverride 常见的逗号分隔多值 hash = a, b, c）
+          if (key === 'hash') {
+            const tokens = rawVal
+              .split(',')
+              .map((s) => stripHexPrefix(s.trim()))
+              .filter((s) => /^[0-9a-fA-F]{6,16}$/.test(s))
+            for (const token of tokens) {
+              const type = currentSection.toLowerCase().startsWith('shaderoverride') ? 'shader' : 'texture'
+              items.push({
+                hash: token.toLowerCase(),
+                type,
+                section: currentSection || 'global',
+                iniFile: path.basename(iniPath),
+                modName
+              })
+            }
           }
           // 2. ib = 12345678 (Index Buffer)
-          else if (key === 'ib' && /^[0-9a-fA-F]{6,16}$/.test(rawVal)) {
+          else if (key === 'ib' && /^[0-9a-fA-F]{6,16}$/.test(stripHexPrefix(rawVal.split(',')[0].trim()))) {
+            const token = stripHexPrefix(rawVal.split(',')[0].trim()).toLowerCase()
             items.push({
-              hash: `ib:${rawVal.toLowerCase()}`,
+              hash: `ib:${token}`,
               type: 'index_buffer',
               section: currentSection || 'global',
               iniFile: path.basename(iniPath),
@@ -109,9 +128,10 @@ export class ConflictDetector {
             })
           }
           // 3. vb = 12345678 (Vertex Buffer)
-          else if (key === 'vb' && /^[0-9a-fA-F]{6,16}$/.test(rawVal)) {
+          else if (key === 'vb' && /^[0-9a-fA-F]{6,16}$/.test(stripHexPrefix(rawVal.split(',')[0].trim()))) {
+            const token = stripHexPrefix(rawVal.split(',')[0].trim()).toLowerCase()
             items.push({
-              hash: `vb:${rawVal.toLowerCase()}`,
+              hash: `vb:${token}`,
               type: 'vertex_buffer',
               section: currentSection || 'global',
               iniFile: path.basename(iniPath),
@@ -148,8 +168,10 @@ export class ConflictDetector {
 
   /**
    * 针对指定角色目录下的所有已启用 Mod 进行冲突检测
+   * 注：异步分块——每处理完一个 Mod 目录让出一次事件循环，
+   * 大库（数千 ini）时主进程不再被单次检测卡死
    */
-  public detectCharacterConflicts(characterName: string): CharacterConflictReport {
+  public async detectCharacterConflicts(characterName: string): Promise<CharacterConflictReport> {
     const charPath = path.join(this.modFolderPath, characterName)
     const report: CharacterConflictReport = {
       characterName,
@@ -187,6 +209,7 @@ export class ConflictDetector {
     const hashIndex: Map<string, ParsedHashItem[]> = new Map()
 
     for (const modName of enabledModNames) {
+      await this.yieldToLoop()
       const modDir = path.join(charPath, modName)
       const iniFiles = this.findIniFiles(modDir)
       const allItems: ParsedHashItem[] = []
@@ -271,7 +294,7 @@ export class ConflictDetector {
   /**
    * 扫描全游戏所有角色的冲突报告
    */
-  public detectAllConflicts(): Record<string, CharacterConflictReport> {
+  public async detectAllConflicts(): Promise<Record<string, CharacterConflictReport>> {
     const allReports: Record<string, CharacterConflictReport> = {}
     if (!this.modFolderPath || !fs.existsSync(this.modFolderPath)) {
       return allReports
@@ -281,7 +304,7 @@ export class ConflictDetector {
       const charDirs = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
       for (const c of charDirs) {
         if (c.isDirectory() && !c.name.startsWith('.') && c.name !== 'System Volume Information') {
-          const rep = this.detectCharacterConflicts(c.name)
+          const rep = await this.detectCharacterConflicts(c.name)
           if (rep.totalEnabledMods > 0) {
             allReports[c.name] = rep
           }
@@ -292,5 +315,10 @@ export class ConflictDetector {
     }
 
     return allReports
+  }
+
+  /** 让出事件循环，避免大库检测期间 IPC/窗口消息全部冻结 */
+  private yieldToLoop(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve))
   }
 }

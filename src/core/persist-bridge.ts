@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { translateTerm } from './mod-translator'
+import { readTextAuto, writeTextWithEncoding } from './text-encoding'
 
 export interface ModPersistVariable {
   name: string
@@ -10,6 +12,8 @@ export interface ModPersistVariable {
   allowedValues?: string[]
   keybind?: string
   iniFile: string
+  alias?: string
+  valueLabels?: Record<string, string>
 }
 
 export interface ModPersistInfo {
@@ -29,39 +33,12 @@ export interface PersistBridgeDescriptor {
 
 export class PersistBridgeManager {
   private configStorePath: string
-  private persistStateFile: string
-  private persistState: { scopes: Record<string, Record<string, any>> } = { scopes: {} }
 
   constructor() {
     const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library/Application Support') : '')
     this.configStorePath = path.join(appData, 'QAQManager')
-    this.persistStateFile = path.join(this.configStorePath, 'mod-persist-state.json')
-    this.loadState()
-  }
-
-  private loadState() {
-    try {
-      if (fs.existsSync(this.persistStateFile)) {
-        const raw = fs.readFileSync(this.persistStateFile, 'utf8')
-        if (raw.trim()) {
-          this.persistState = JSON.parse(raw)
-          if (!this.persistState.scopes) this.persistState.scopes = {}
-        }
-      }
-    } catch (_) {
-      this.persistState = { scopes: {} }
-    }
-  }
-
-  private saveState() {
-    try {
-      if (!fs.existsSync(this.configStorePath)) {
-        fs.mkdirSync(this.configStorePath, { recursive: true })
-      }
-      fs.writeFileSync(this.persistStateFile, JSON.stringify(this.persistState, null, 2), 'utf8')
-    } catch (err) {
-      console.error('Failed to save mod-persist-state.json:', err)
-    }
+    // 注：mod-persist-state.json 机制此前是完整死代码（读取后从未使用、saveState 从未被调用），
+    // 已移除；Mod 数值的持久化完全依赖 qaqm/cache 下的 state 文件与 d3dx_user.ini
   }
 
   /**
@@ -142,6 +119,12 @@ export class PersistBridgeManager {
         fs.writeFileSync(includerPath, defaultIncluder, 'utf8')
       }
 
+      // qaqm_includer.ini 引用的 keypress 文件必须存在，否则 3DMigoto 报 include 缺失
+      const keypressPath = path.join(qaqmDir, 'qaqm_keypress.ini')
+      if (!fs.existsSync(keypressPath)) {
+        fs.writeFileSync(keypressPath, '', 'utf8')
+      }
+
       const activeIniPath = path.join(qaqmDir, 'qaqm_persist_active.ini')
       if (!fs.existsSync(activeIniPath)) {
         fs.writeFileSync(activeIniPath, '', 'utf8')
@@ -150,14 +133,16 @@ export class PersistBridgeManager {
       // 检查 d3dx.ini 是否已包含 qaqm_includer.ini
       const d3dxPath = path.join(envRoot, 'd3dx.ini')
       if (fs.existsSync(d3dxPath)) {
-        let content = fs.readFileSync(d3dxPath, 'utf8')
-        if (!content.toLowerCase().includes('qaqm_includer.ini')) {
+        // d3dx.ini 是用户核心自定义文件，常见 GBK 编码——按原编码读改写，utf8 覆盖会永久乱码
+        const { content: original, encoding } = readTextAuto(d3dxPath)
+        if (!original.toLowerCase().includes('qaqm_includer.ini')) {
+          let content = original
           if (/\[Include\]/i.test(content)) {
             content = content.replace(/\[Include\]/i, '[Include]\ninclude = qaqm\\qaqm_includer.ini')
           } else {
             content = content.trim() + '\n\n[Include]\ninclude = qaqm\\qaqm_includer.ini\n'
           }
-          fs.writeFileSync(d3dxPath, content, 'utf8')
+          writeTextWithEncoding(d3dxPath, content, encoding)
         }
       }
 
@@ -258,12 +243,19 @@ export class PersistBridgeManager {
 
       const tempPath = `${d3dxUserPath}.tmp`
       fs.writeFileSync(tempPath, lines.join('\n') + '\n', 'utf8')
-      if (fs.existsSync(d3dxUserPath)) {
-        try { fs.unlinkSync(d3dxUserPath) } catch (_) {}
+      // Windows 下 rename 自带 REPLACE_EXISTING 语义，可直接原子替换已存在目标。
+      // 切勿先 unlink 再 rename：游戏运行中 3DMigoto 可能正占用原文件，
+      // unlink 成功而 rename 失败会导致全部 persist 变量一次性丢失。
+      try {
+        fs.renameSync(tempPath, d3dxUserPath)
+      } catch (renameErr) {
+        // 保留 .tmp 供恢复，并把错误抛给调用方（由 IPC 返回失败，而不是静默丢失数据）
+        console.error('Failed to rename d3dx_user.ini (原文件未动，.tmp 已保留):', renameErr)
+        throw renameErr
       }
-      fs.renameSync(tempPath, d3dxUserPath)
     } catch (err) {
       console.error('Failed to write d3dx_user.ini:', err)
+      throw err
     }
   }
 
@@ -309,7 +301,18 @@ export class PersistBridgeManager {
       try {
         const content = fs.readFileSync(iniPath, 'utf8')
         const lines = content.split(/\r?\n/)
-        const desc = this.buildDescriptor(modsRoot, iniPath)
+        let desc = this.buildDescriptor(modsRoot, iniPath)
+        // 智能检测 INI 内是否已嵌入 QAQManager 生成的专属 Hash 与 Bridge 命名空间
+        const embeddedHashM = content.match(/qaqm_state_([a-f0-9]{12})\.ini/i) || content.match(/Bridge_([a-f0-9]{12})/i)
+        if (embeddedHashM) {
+          const eh = embeddedHashM[1].toLowerCase()
+          desc = {
+            hash: eh,
+            canonicalRelativePath: desc.canonicalRelativePath,
+            stateFileName: `qaqm_state_${eh}.ini`,
+            namespace: `QAQM\\Persist\\Bridge_${eh}`
+          }
+        }
 
         // 提取按键与选项信息 [KeySwap...] 或 [Key...]
         const keySwapMap: Record<string, { keybind?: string; allowedValues?: string[] }> = {}
@@ -325,11 +328,12 @@ export class PersistBridgeManager {
             continue
           }
           const lowerSec = currentSection.toLowerCase()
-          if (lowerSec.includes('key') || lowerSec.includes('swap')) {
+          if (lowerSec.includes('key') || lowerSec.includes('swap') || lowerSec.includes('toggle')) {
             const keyM = trimmed.match(/^key\s*=\s*(.+)$/i)
             if (keyM) currentKey = keyM[1].trim()
 
-            const varCycleM = trimmed.match(/^\$([a-zA-Z0-9_]+)\s*=\s*([0-9,\s]+)$/)
+            // 匹配标准变量 $var = 0, 1 或桥接变量 $\QAQM\Persist\Bridge_...\var = 0, 1
+            const varCycleM = trimmed.match(/^\$(?:[a-zA-Z0-9_\\.]*\\)?([a-zA-Z0-9_]+)\s*=\s*([0-9a-zA-Z_,\s\-]+)$/)
             if (varCycleM) {
               const vName = varCycleM[1].toLowerCase()
               const vals = varCycleM[2].split(',').map((s) => s.trim()).filter(Boolean)
@@ -338,8 +342,25 @@ export class PersistBridgeManager {
           }
         }
 
+        // 准备全局持久化声明行（若原 INI 已经过 QAQ 桥接转换，则备选读取 state 文件或备份文件）
+        let persistLines = [...lines]
+        const stateFilePath = path.join(envRoot, 'qaqm', 'cache', desc.stateFileName)
+        if (fs.existsSync(stateFilePath)) {
+          try {
+            const sLines = fs.readFileSync(stateFilePath, 'utf8').split(/\r?\n/)
+            persistLines.push(...sLines)
+          } catch (_) {}
+        }
+        const bakFilePath = `${iniPath}.qaqm-persistbak`
+        if (fs.existsSync(bakFilePath)) {
+          try {
+            const bLines = fs.readFileSync(bakFilePath, 'utf8').split(/\r?\n/)
+            persistLines.push(...bLines)
+          } catch (_) {}
+        }
+
         // 提取 global persist 变量声明
-        for (const line of lines) {
+        for (const line of persistLines) {
           const persistM = line.match(/^\s*global\s+persist\s+\$([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/i)
           if (!persistM) continue
 
@@ -359,7 +380,6 @@ export class PersistBridgeManager {
             currentValue = constantsMap.get(bridgeKey)!.value
           } else {
             // 2. 尝试从 qaqm_state_<hash>.ini 读取
-            const stateFilePath = path.join(envRoot, 'qaqm', 'cache', desc.stateFileName)
             if (fs.existsSync(stateFilePath)) {
               try {
                 const stateRaw = fs.readFileSync(stateFilePath, 'utf8')
@@ -398,6 +418,26 @@ export class PersistBridgeManager {
     }
 
     result.hasPersist = result.variables.length > 0
+
+    // 智能注入中文别名与预设选项标签
+    let modMeta: any = {}
+    try {
+      const metaPath = path.join(modFullPath, 'mod.json')
+      if (fs.existsSync(metaPath)) {
+        modMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+      }
+    } catch (_) {}
+
+    const vAliases = modMeta.variableAliases || {}
+    const vLabels = modMeta.valueLabels || {}
+
+    for (const v of result.variables) {
+      v.alias = vAliases[v.name] || vAliases[v.canonicalName] || translateTerm(v.name)
+      if (vLabels[v.name] || vLabels[v.canonicalName]) {
+        v.valueLabels = vLabels[v.name] || vLabels[v.canonicalName]
+      }
+    }
+
     return result
   }
 

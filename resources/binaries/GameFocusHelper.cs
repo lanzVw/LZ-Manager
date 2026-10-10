@@ -65,6 +65,10 @@ public class GameFocusHelper {
     }
 
     public static void Main(string[] args) {
+        // stdout 重定向时默认按 ANSI/OEM 代码页写出，中文窗口标题（GBK）进入
+        // Node 端按 UTF-8 解析必然乱码导致"智能跟随"匹配失败，必须显式切 UTF-8
+        try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch {}
+
         bool watch = args.Length > 0 && (args[0] == "--watch" || args[0] == "-w");
 
         if (!watch) {

@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { GameConfig, EnvironmentStatus } from './types'
+import { readTextAuto, writeTextWithEncoding } from './text-encoding'
 
 export class EnvironmentDeployer {
   /**
@@ -128,8 +129,21 @@ export class EnvironmentDeployer {
           const src = path.join(status.xxmiRuntimePath, file)
           const dst = path.join(gameDir, file)
           if (fs.existsSync(src)) {
+            // d3dx.ini 是用户核心自定义文件（按键/画质/变量定义），覆盖前必须留备份
+            if (file === 'd3dx.ini' && fs.existsSync(dst)) {
+              const bakPath = `${dst}.qaqm-bak-${new Date().toISOString().replace(/[:.]/g, '-')}`
+              try {
+                fs.copyFileSync(dst, bakPath)
+                deployedFiles.push(`${file} (原文件已备份为 ${path.basename(bakPath)})`)
+              } catch (bakErr) {
+                console.error('Failed to backup existing d3dx.ini, skip overwriting:', bakErr)
+                continue
+              }
+            }
             fs.copyFileSync(src, dst)
-            deployedFiles.push(file)
+            if (!deployedFiles.some(f => f.startsWith(`${file} `)) && !deployedFiles.includes(file)) {
+              deployedFiles.push(file)
+            }
           }
         }
       }
@@ -140,15 +154,19 @@ export class EnvironmentDeployer {
         deployedFiles.push('Mods 目录')
       }
 
-      // 3. 检查并修正 d3dx.ini 中的 target
+      // 3. 检查并修正 d3dx.ini 中的 target（按原编码读改写，避免 GBK 注释被 utf8 覆盖乱码；
+      //    替换串中的 $ 序列需转义，防止被 String.replace 当作替换模式解释）
       const d3dxIniPath = path.join(gameDir, 'd3dx.ini')
       if (fs.existsSync(d3dxIniPath)) {
-        let iniContent = fs.readFileSync(d3dxIniPath, 'utf8')
+        const { content: iniOriginal, encoding } = readTextAuto(d3dxIniPath)
         const targetExe = path.basename(game.gamePath)
-        // 修正 target = ...
-        if (!iniContent.includes(`target = ${targetExe}`)) {
-          iniContent = iniContent.replace(/^(\s*target\s*=\s*).*$/m, `$1${targetExe}`)
-          fs.writeFileSync(d3dxIniPath, iniContent, 'utf8')
+        if (!iniOriginal.includes(`target = ${targetExe}`)) {
+          let iniContent = iniOriginal.replace(/^(\s*target\s*=\s*).*$/m, (_m, p1: string) => `${p1}${targetExe}`)
+          // 存在 d3dx.ini 但没有 target 行时补写一行
+          if (!/^(\s*target\s*=)/m.test(iniOriginal)) {
+            iniContent = iniContent.trim() + `\n\ntarget = ${targetExe}\n`
+          }
+          writeTextWithEncoding(d3dxIniPath, iniContent, encoding)
           deployedFiles.push('d3dx.ini target 配置修正')
         }
       }

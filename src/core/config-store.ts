@@ -43,6 +43,11 @@ export class ConfigStore {
     return game || (this.config.games.length > 0 ? this.config.games[0] : null)
   }
 
+  public getGameById(gameId: string): GameConfig | null {
+    if (!gameId) return null
+    return this.config.games.find(g => g.id === gameId) || null
+  }
+
   public setActiveGame(gameId: string) {
     this.config.activeGameId = gameId
     this.saveConfig()
@@ -61,9 +66,45 @@ export class ConfigStore {
     this.saveConfig()
   }
 
+  public getCharacterSections(gameId: string, charName: string): any[] {
+    const raw = (this.config as any).characterSectionsByGame || {}
+    const gameStore = raw[gameId] || {}
+    return gameStore[charName] || []
+  }
+
+  public setCharacterSections(gameId: string, charName: string, sections: any[]) {
+    if (!(this.config as any).characterSectionsByGame) {
+      (this.config as any).characterSectionsByGame = {}
+    }
+    if (!(this.config as any).characterSectionsByGame[gameId]) {
+      (this.config as any).characterSectionsByGame[gameId] = {}
+    }
+    (this.config as any).characterSectionsByGame[gameId][charName] = sections
+    this.saveConfig()
+  }
+
+  /**
+   * 原子化写 JSON：写临时文件 → 备份当前文件(.bak) → rename 替换。
+   * 避免"写一半被杀/磁盘满"产生截断损坏；rename 失败时原文件仍在。
+   */
+  private atomicWriteJson(filePath: string, data: string) {
+    const tmpPath = `${filePath}.tmp`
+    fs.writeFileSync(tmpPath, data, 'utf8')
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.copyFileSync(filePath, `${filePath}.bak`)
+      }
+      fs.renameSync(tmpPath, filePath)
+    } catch (err) {
+      // rename 失败时保留 tmp 与 .bak，不覆盖原文件，并把错误抛给调用方
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+      throw err
+    }
+  }
+
   public saveConfig() {
     try {
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf8')
+      this.atomicWriteJson(this.configPath, JSON.stringify(this.config, null, 2))
     } catch (err) {
       console.error('Failed to save config.json:', err)
     }
@@ -71,34 +112,66 @@ export class ConfigStore {
 
   public savePresets() {
     try {
-      fs.writeFileSync(this.presetsPath, JSON.stringify(this.presets, null, 2), 'utf8')
+      this.atomicWriteJson(this.presetsPath, JSON.stringify(this.presets, null, 2))
     } catch (err) {
       console.error('Failed to save presets.json:', err)
     }
   }
 
+  /** 解析失败时优先尝试 .bak 备份；全部失败则把坏文件改名 .broken 留证后走默认 */
+  private readJsonWithRecovery(filePath: string): any | null {
+    const candidates = [filePath, `${filePath}.bak`]
+    for (const candidate of candidates) {
+      try {
+        if (!fs.existsSync(candidate)) continue
+        const data = JSON.parse(fs.readFileSync(candidate, 'utf8'))
+        if (data && typeof data === 'object') {
+          if (candidate !== filePath) {
+            console.warn(`[config-store] ${filePath} 损坏，已从备份 ${candidate} 恢复`)
+          }
+          return data
+        }
+      } catch (err) {
+        console.error(`[config-store] Failed to parse ${candidate}:`, err)
+      }
+    }
+    try {
+      if (fs.existsSync(filePath)) {
+        const broken = `${filePath}.broken-${Date.now()}`
+        fs.renameSync(filePath, broken)
+        console.warn(`[config-store] ${filePath} 无法解析，已重命名为 ${broken}`)
+      }
+    } catch (err) {
+      console.error('[config-store] Failed to quarantine broken file:', err)
+    }
+    return null
+  }
+
   private loadConfig(): AppConfig {
     try {
       if (fs.existsSync(this.configPath)) {
-        const raw = fs.readFileSync(this.configPath, 'utf8')
-        const data = JSON.parse(raw)
-        
-        let games: GameConfig[] = Array.isArray(data.games) ? data.games : []
-        if (games.length === 0) {
-          games = this.getDefaultGames(data)
-        }
+        const data = this.readJsonWithRecovery(this.configPath)
+        if (!data) {
+          console.error('Error reading config.json, fallback to defaults')
+        } else {
+          let games: GameConfig[] = Array.isArray(data.games) ? data.games : []
+          if (games.length === 0) {
+            games = this.getDefaultGames(data)
+          }
 
-        const activeGameId = data.activeGameId || (games.length > 0 ? games[0].id : 'zzz')
+          const activeGameId = data.activeGameId || (games.length > 0 ? games[0].id : 'zzz')
 
-        return {
-          activeGameId,
-          games,
-          characterUsage: data.characterUsage || {},
-          serverUrl: data.serverUrl || 'https://qaqm.top',
-          enableOptionAExclusive: data.enableOptionAExclusive ?? true,
-          overlayHotkey: data.overlayHotkey || 'Ctrl+F',
-          persistBridgeEnabled: data.persistBridgeEnabled ?? true,
-          persistBridgeCacheSize: typeof data.persistBridgeCacheSize === 'number' ? data.persistBridgeCacheSize : 12
+          return {
+            activeGameId,
+            games,
+            characterUsage: data.characterUsage || {},
+            serverUrl: data.serverUrl || 'https://qaqm.top',
+            enableOptionAExclusive: data.enableOptionAExclusive ?? true,
+            overlayHotkey: data.overlayHotkey || 'Ctrl+F',
+            persistBridgeEnabled: data.persistBridgeEnabled ?? true,
+            persistBridgeCacheSize: typeof data.persistBridgeCacheSize === 'number' ? data.persistBridgeCacheSize : 12,
+            closeAction: data.closeAction || 'quit'
+          }
         }
       }
     } catch (err) {
@@ -113,15 +186,21 @@ export class ConfigStore {
       enableOptionAExclusive: true,
       overlayHotkey: 'Ctrl+F',
       persistBridgeEnabled: true,
-      persistBridgeCacheSize: 12
+      persistBridgeCacheSize: 12,
+      closeAction: 'quit'
     }
   }
 
   private loadPresets(): PresetsData {
     try {
       if (fs.existsSync(this.presetsPath)) {
-        const raw = fs.readFileSync(this.presetsPath, 'utf8')
-        return JSON.parse(raw)
+        const data = this.readJsonWithRecovery(this.presetsPath)
+        // 校验形状：可解析但结构不对的内容会打穿 presetsByGame 访问
+        if (data && typeof data === 'object' && !Array.isArray(data) && data.presetsByGame && typeof data.presetsByGame === 'object' && !Array.isArray(data.presetsByGame)) {
+          return data as PresetsData
+        }
+        console.warn('[config-store] presets.json 结构异常，已重置为空预设')
+        return { presetsByGame: {} }
       }
     } catch (err) {
       console.error('Error reading presets.json:', err)

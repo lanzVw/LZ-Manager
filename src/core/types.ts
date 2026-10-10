@@ -8,6 +8,8 @@ export interface GameConfig {
   modLoaderPath: string
   dx12LauncherPath?: string
   launchMode?: string
+  supportedLaunchModes?: string[]
+  launchArgs?: string
   characters?: string[]
 }
 
@@ -20,6 +22,30 @@ export interface AppConfig {
   overlayHotkey?: string // 默认 Ctrl+F
   persistBridgeEnabled?: boolean // 保留 Mod 设定数值 (Persist Bridge)
   persistBridgeCacheSize?: number // 最近缓存 Mod 数量 (默认 12)
+  closeAction?: 'quit' | 'minimize_to_tray' // 点击右上角关闭按钮行为: 'quit' (彻底退出) | 'minimize_to_tray' (最小化到托盘)
+}
+
+export interface AppearanceSection {
+  id: string // "base" 或 "custom:uuid"
+  sectionId: string
+  name: string
+  nameZh?: string
+  nameEn?: string
+  kind: 'base' | 'custom' | 'skin'
+  official: boolean
+  coverUrl?: string | null
+  totalCount?: number
+  enabledCount?: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ModUpdateInfo {
+  hasUpdate: boolean
+  remoteVersion?: string
+  remoteDate?: number
+  changelog?: string
+  downloadUrl?: string
 }
 
 export interface ModItem {
@@ -33,6 +59,11 @@ export interface ModItem {
   fullPath: string
   hasIni: boolean
   mtime: number
+  appearanceSectionId?: string
+  modBroken?: boolean
+  brokenReason?: string
+  hasUpdate?: boolean
+  updateInfo?: ModUpdateInfo
 }
 
 export interface ModDetailedInfo {
@@ -49,12 +80,23 @@ export interface ModDetailedInfo {
   fileCount: number
   mtime: number
   birthtime: number
+  appearanceSectionId?: string
   metadata: {
     author?: string
     version?: string
     description?: string
     checkTime?: string
     lastUpdated?: string
+    sourceUrl?: string
+    gamebananaUrl?: string
+    url?: string
+    modId?: number
+    source?: string
+    appearanceSectionId?: string
+    modBroken?: boolean
+    brokenReason?: string
+    brokenDate?: string
+    [key: string]: any
   }
   persistInfo?: ModPersistInfo
 }
@@ -141,6 +183,8 @@ export interface ModPersistVariable {
   allowedValues?: string[]
   keybind?: string
   iniFile: string
+  alias?: string
+  valueLabels?: Record<string, string>
 }
 
 export interface ModPersistInfo {

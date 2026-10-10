@@ -1586,6 +1586,27 @@ const CHARACTERS_BY_GAME = {
       "enName": "Bangboo",
       "gbCatId": 30702,
       "pinyin": "bb"
+    },
+    {
+      "id": "panyinhu",
+      "name": "潘引壶",
+      "enName": "Pan Yinhu",
+      "gbCatId": 44809,
+      "pinyin": "pyh"
+    },
+    {
+      "id": "nangongyu",
+      "name": "南宫羽",
+      "enName": "Nangong Yu",
+      "gbCatId": 44810,
+      "pinyin": "ngy"
+    },
+    {
+      "id": "sigrid",
+      "name": "希格丽德",
+      "enName": "Sigrid de L'Azur",
+      "gbCatId": null,
+      "pinyin": "xgld"
     }
   ],
   "20357": [
@@ -2277,7 +2298,16 @@ const CN_NAME_ALIASES = {
   "普洱克拉": "波可娜",
   "Pulchra": "波可娜",
   "苏娜": "千夏",
-  "Sunna": "千夏"
+  "Sunna": "千夏",
+  "大潘": "潘引壶",
+  "Da Pan": "潘引壶",
+  "Pan Yinhu": "潘引壶",
+  "南宫羽": "南宫羽",
+  "Nangong Yu": "南宫羽",
+  "希格丽德": "希格丽德",
+  "Sigrid": "希格丽德",
+  "Sigrid de L'Azur": "希格丽德",
+  "希格丽德·德·拉苏尔": "希格丽德"
 };
 
 function resolveGameId(val) {
@@ -2296,7 +2326,7 @@ function getCharactersForGame(gameId) {
 /**
  * 将任意角色名称（包含 GameBanana 翻译、非正式译名、带括号别名等）严格统一为国服官方标准角色名
  */
-function normalizeCharacterName(rawName, gameId) {
+function normalizeCharacterName(rawName, gameId = null) {
   if (!rawName || typeof rawName !== 'string') return '';
   const trimmed = rawName.trim();
   if (!trimmed) return '';
@@ -2319,10 +2349,74 @@ function normalizeCharacterName(rawName, gameId) {
   return trimmed;
 }
 
+/**
+ * 智能根据 GameBanana 模组详情自动识别推断所属官方角色
+ * @param {object} modInfo - GameBanana 模组对象
+ * @param {string|number} [gameId] - 游戏 ID
+ * @returns {string|null} 匹配到的官方标准角色名，未匹配返回 null
+ */
+function detectCharacterForMod(modInfo: any, gameId?: string | number): string | null {
+  if (!modInfo) return null;
+  const chars = getCharactersForGame(gameId);
+  if (!chars || chars.length === 0) return null;
+
+  // 1. 根据 GameBanana Category ID 精准匹配
+  const subCatId = modInfo.subCategory?.id ? parseInt(modInfo.subCategory.id, 10) : null;
+  const rootCatId = modInfo.rootCategory?.id ? parseInt(modInfo.rootCategory.id, 10) : null;
+  const catId = modInfo.categoryId ? parseInt(modInfo.categoryId, 10) : null;
+  const targetGbCatIds = [subCatId, rootCatId, catId].filter((id) => id && !isNaN(id));
+
+  for (const tid of targetGbCatIds) {
+    const match = chars.find((c: any) => c.gbCatId && parseInt(c.gbCatId, 10) === tid);
+    if (match && match.name && match.id !== 'all') {
+      return normalizeCharacterName(match.name, gameId);
+    }
+  }
+
+  // 2. 根据 SubCategory / RootCategory / Category 名称匹配
+  const catNames = [
+    modInfo.subCategory?.name,
+    modInfo.rootCategory?.name,
+    typeof modInfo.category === 'object' ? modInfo.category?.name : modInfo.category,
+    modInfo.categoryName
+  ].filter(Boolean).map((s: string) => String(s).trim());
+
+  for (const cName of catNames) {
+    const norm = normalizeCharacterName(cName, gameId);
+    const charFound = chars.find(
+      (c: any) =>
+        c.id !== 'all' &&
+        (c.name.toLowerCase() === norm.toLowerCase() ||
+         (c.enName && c.enName.toLowerCase() === cName.toLowerCase()))
+    );
+    if (charFound) return normalizeCharacterName(charFound.name, gameId);
+  }
+
+  // 3. 从 Mod 标题名称中进行全角色分词匹配 (长词优先)
+  const modTitle = String(modInfo.name || '').toLowerCase();
+  const sortedChars = [...chars.filter((c: any) => c.id !== 'all')].sort((a: any, b: any) => {
+    const lenA = Math.max(a.name?.length || 0, a.enName?.length || 0);
+    const lenB = Math.max(b.name?.length || 0, b.enName?.length || 0);
+    return lenB - lenA;
+  });
+
+  for (const c of sortedChars) {
+    if (c.name && c.name.length >= 2 && modTitle.includes(c.name.toLowerCase())) {
+      return normalizeCharacterName(c.name, gameId);
+    }
+    if (c.enName && c.enName.length >= 3 && modTitle.includes(c.enName.toLowerCase())) {
+      return normalizeCharacterName(c.name, gameId);
+    }
+  }
+
+  return null;
+}
+
 export {
   CHARACTERS_BY_GAME,
   getCharactersForGame,
   resolveGameId,
   normalizeCharacterName,
+  detectCharacterForMod,
   CN_NAME_ALIASES
 };

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "gameId": "zzz",
-  "generatedAt": "2026-07-13T17:14:54Z",
+  "generatedAt": "2026-10-06T08:11:40.271963+00:00",
   "source": {
     "name": "Zenless Zone Zero Wiki",
     "url": "https://zenless-zone-zero.fandom.com/wiki/Agent_Outfit",
@@ -12,8 +12,8 @@
       "Category:Commission Reward Outfits"
     ]
   },
-  "outfitCount": 22,
-  "characterCount": 18,
+  "outfitCount": 29,
+  "characterCount": 21,
   "characters": [
     {
       "nameZh": "男主",
@@ -101,6 +101,10 @@
           "sourceImageWidth": 812,
           "sourceImageHeight": 2057
         }
+      ],
+      "aliases": [
+        "Wise",
+        "哲"
       ]
     },
     {
@@ -189,6 +193,10 @@
           "sourceImageWidth": 724,
           "sourceImageHeight": 2216
         }
+      ],
+      "aliases": [
+        "Belle",
+        "铃"
       ]
     },
     {
@@ -522,6 +530,11 @@
           "sourceImageWidth": 1604,
           "sourceImageHeight": 2100
         }
+      ],
+      "aliases": [
+        "大潘",
+        "Pan Yinhu",
+        "Da Pan"
       ]
     },
     {
@@ -621,7 +634,39 @@
           "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/8/83/Agent_Aria_Discordant_Note_Portrait.png/revision/latest?cb=20260206213808",
           "sourceImageWidth": 1002,
           "sourceImageHeight": 1991
+        },
+        {
+          "id": "zzz-outfit-cuteness-loading",
+          "sectionId": "skin:zzz-outfit-cuteness-loading",
+          "characterNameZh": "爱芮",
+          "characterNameEn": "Aria",
+          "wikiCharacterNameEn": "Aria",
+          "nameZh": "萌力加载中",
+          "nameEn": "Cuteness Loading",
+          "aliases": [
+            "萌力加载中",
+            "Cuteness Loading"
+          ],
+          "type": [
+            "Event Reward"
+          ],
+          "releaseVersion": "3.2",
+          "image": "images/爱芮/zzz-outfit-cuteness-loading.webp",
+          "imageWidth": 637,
+          "imageHeight": 1200,
+          "imageBytes": 109064,
+          "imageSha256": "cb7f30d1c1f90e0cdeac00d11268960883e3a3ee42c8060d06048741a5d02a31",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Cuteness_Loading",
+          "sourceImageFile": "Agent Aria Cuteness Loading Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/5/5c/Agent_Aria_Cuteness_Loading_Portrait.png",
+          "sourceImageWidth": 1048,
+          "sourceImageHeight": 1972
         }
+      ],
+      "aliases": [
+        "阿莉亚",
+        "艾莉亚",
+        "Aria"
       ]
     },
     {
@@ -654,7 +699,38 @@
           "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/2/22/Agent_Sunna_Afternoon_Tea_Break_Portrait.png/revision/latest?cb=20260206213318",
           "sourceImageWidth": 856,
           "sourceImageHeight": 1956
+        },
+        {
+          "id": "zzz-outfit-delusions-in-business",
+          "sectionId": "skin:zzz-outfit-delusions-in-business",
+          "characterNameZh": "千夏",
+          "characterNameEn": "Sunna",
+          "wikiCharacterNameEn": "Sunna",
+          "nameZh": "梦想营业中",
+          "nameEn": "Delusions in Business",
+          "aliases": [
+            "梦想营业中",
+            "Delusions in Business"
+          ],
+          "type": [
+            "Event Reward"
+          ],
+          "releaseVersion": "3.2",
+          "image": "images/千夏/zzz-outfit-delusions-in-business.webp",
+          "imageWidth": 463,
+          "imageHeight": 1200,
+          "imageBytes": 116318,
+          "imageSha256": "0f148feb60a02cc6cb8b9096f15c685ea2667e3cdcb415b9ba2e7cc64fed7760",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Delusions_in_Business",
+          "sourceImageFile": "Agent Sunna Delusions in Business Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/9/94/Agent_Sunna_Delusions_in_Business_Portrait.png",
+          "sourceImageWidth": 756,
+          "sourceImageHeight": 1956
         }
+      ],
+      "aliases": [
+        "苏娜",
+        "Sunna"
       ]
     },
     {
@@ -687,7 +763,37 @@
           "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/0/0e/Agent_Nangong_Yu_Rhapsody%27s_Muse_Portrait.png/revision/latest?cb=20260324141945",
           "sourceImageWidth": 1260,
           "sourceImageHeight": 2212
+        },
+        {
+          "id": "zzz-outfit-heartfelt-support",
+          "sectionId": "skin:zzz-outfit-heartfelt-support",
+          "characterNameZh": "南宫羽",
+          "characterNameEn": "Nangong Yu",
+          "wikiCharacterNameEn": "Nangong Yu",
+          "nameZh": "心动应援中",
+          "nameEn": "Heartfelt Support",
+          "aliases": [
+            "心动应援中",
+            "Heartfelt Support"
+          ],
+          "type": [
+            "Event Reward"
+          ],
+          "releaseVersion": "3.2",
+          "image": "images/南宫羽/zzz-outfit-heartfelt-support.webp",
+          "imageWidth": 450,
+          "imageHeight": 1200,
+          "imageBytes": 108310,
+          "imageSha256": "81137b3ad6e7917de58267654ac54ae2eae769d6fc818d3d1cedb40f3aec75fc",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Heartfelt_Support",
+          "sourceImageFile": "Agent Nangong Yu Heartfelt Support Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/e/e5/Agent_Nangong_Yu_Heartfelt_Support_Portrait.png",
+          "sourceImageWidth": 820,
+          "sourceImageHeight": 2184
         }
+      ],
+      "aliases": [
+        "Nangong Yu"
       ]
     },
     {
@@ -720,6 +826,148 @@
           "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/4/47/Agent_Velina_Airgid_Shade_of_Leisure_Portrait.png/revision/latest?cb=20260617071454",
           "sourceImageWidth": 1272,
           "sourceImageHeight": 2036
+        }
+      ]
+    },
+    {
+      "nameZh": "希格丽德",
+      "nameEn": "Sigrid de L'Azur",
+      "aliases": [
+        "希格丽德",
+        "Sigrid de L'Azur",
+        "Sigrid"
+      ],
+      "skins": [
+        {
+          "id": "zzz-outfit-majestic-wavechaser",
+          "sectionId": "skin:zzz-outfit-majestic-wavechaser",
+          "characterNameZh": "希格丽德",
+          "characterNameEn": "Sigrid de L'Azur",
+          "wikiCharacterNameEn": "Sigrid de L'Azur",
+          "nameZh": "惊鸿逐浪",
+          "nameEn": "Majestic Wavechaser",
+          "aliases": [
+            "惊鸿逐浪",
+            "Majestic Wavechaser"
+          ],
+          "type": [
+            "Paid"
+          ],
+          "releaseVersion": "3.1",
+          "image": "images/希格丽德/zzz-outfit-majestic-wavechaser.webp",
+          "imageWidth": 444,
+          "imageHeight": 1200,
+          "imageBytes": 103456,
+          "imageSha256": "1f4b35f76d00a132f90135d2c1a8c966f59a0be04eaf88059fdf210d4beb9809",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Majestic_Wavechaser",
+          "sourceImageFile": "Agent Sigrid de L'Azur Majestic Wavechaser Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/a/a8/Agent_Sigrid_de_L%27Azur_Majestic_Wavechaser_Portrait.png",
+          "sourceImageWidth": 1000,
+          "sourceImageHeight": 2700
+        }
+      ]
+    },
+    {
+      "nameZh": "蕾米埃尔",
+      "nameEn": "Remielle Dan",
+      "aliases": [
+        "蕾米埃尔",
+        "Remielle Dan",
+        "Remielle"
+      ],
+      "skins": [
+        {
+          "id": "zzz-outfit-moonlight-whispers",
+          "sectionId": "skin:zzz-outfit-moonlight-whispers",
+          "characterNameZh": "蕾米埃尔",
+          "characterNameEn": "Remielle Dan",
+          "wikiCharacterNameEn": "Remielle Dan",
+          "nameZh": "月夜密语",
+          "nameEn": "Moonlight Whispers",
+          "aliases": [
+            "月夜密语",
+            "Moonlight Whispers"
+          ],
+          "type": [
+            "Paid"
+          ],
+          "releaseVersion": "3.1",
+          "image": "images/蕾米埃尔/zzz-outfit-moonlight-whispers.webp",
+          "imageWidth": 1917,
+          "imageHeight": 1200,
+          "imageBytes": 226864,
+          "imageSha256": "1755d43815796733490c85b9769c6474eb4a54851867e133f4c04d6ee3f86c59",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Moonlight_Whispers",
+          "sourceImageFile": "Agent Remielle Dan Moonlight Whispers Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/6/6f/Agent_Remielle_Dan_Moonlight_Whispers_Portrait.png",
+          "sourceImageWidth": 2128,
+          "sourceImageHeight": 1332
+        },
+        {
+          "id": "zzz-outfit-seashade-pas-seul",
+          "sectionId": "skin:zzz-outfit-seashade-pas-seul",
+          "characterNameZh": "蕾米埃尔",
+          "characterNameEn": "Remielle Dan",
+          "wikiCharacterNameEn": "Remielle Dan",
+          "nameZh": "影池独舞",
+          "nameEn": "Seashade Pas Seul",
+          "aliases": [
+            "影池独舞",
+            "Seashade Pas Seul"
+          ],
+          "type": [
+            "Paid"
+          ],
+          "releaseVersion": "3.1",
+          "image": "images/蕾米埃尔/zzz-outfit-seashade-pas-seul.webp",
+          "imageWidth": 934,
+          "imageHeight": 1200,
+          "imageBytes": 144142,
+          "imageSha256": "1722de1d7ce7b4cbdb0a3043eb8f9fac0687fbb98abfd2a50cd8629ddd991728",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Seashade_Pas_Seul",
+          "sourceImageFile": "Agent Remielle Dan Seashade Pas Seul Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/c/c9/Agent_Remielle_Dan_Seashade_Pas_Seul_Portrait.png",
+          "sourceImageWidth": 1580,
+          "sourceImageHeight": 2028
+        }
+      ]
+    },
+    {
+      "nameZh": "露西",
+      "nameEn": "Luciana de Montefio",
+      "aliases": [
+        "露西",
+        "Luciana de Montefio",
+        "Lucy"
+      ],
+      "skins": [
+        {
+          "id": "zzz-outfit-princess-on-holiday",
+          "sectionId": "skin:zzz-outfit-princess-on-holiday",
+          "characterNameZh": "露西",
+          "characterNameEn": "Luciana de Montefio",
+          "wikiCharacterNameEn": "Luciana de Montefio",
+          "nameZh": "公主假日",
+          "nameEn": "Princess on Holiday",
+          "aliases": [
+            "公主假日",
+            "Princess on Holiday"
+          ],
+          "type": [
+            "Event Reward",
+            "Paid"
+          ],
+          "releaseVersion": "3.1",
+          "image": "images/露西/zzz-outfit-princess-on-holiday.webp",
+          "imageWidth": 773,
+          "imageHeight": 1200,
+          "imageBytes": 194190,
+          "imageSha256": "a807a2ef8e61b3479f725b18601daae2234e979f88909e06c3c7cceb4e961923",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Princess_on_Holiday",
+          "sourceImageFile": "Agent Luciana de Montefio Princess on Holiday Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/a/a3/Agent_Luciana_de_Montefio_Princess_on_Holiday_Portrait.png",
+          "sourceImageWidth": 1428,
+          "sourceImageHeight": 2216
         }
       ]
     }
