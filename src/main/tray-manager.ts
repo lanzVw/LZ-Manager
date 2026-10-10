@@ -1,31 +1,47 @@
 import { app, Tray, Menu, BrowserWindow, nativeImage, Notification } from 'electron'
 import path from 'path'
+import fs from 'fs'
 
 export interface TrayCallbacks {
   onToggleOverlay: () => void
   onReloadModsF10: () => void
   onLaunchGame: () => void
+  getCloseAction?: () => 'quit' | 'minimize_to_tray'
 }
 
 export class TrayManager {
   private tray: Tray | null = null
   private mainWindow: BrowserWindow | null = null
+  private callbacks: TrayCallbacks
   private isQuitting: boolean = false
   private notifiedOnce: boolean = false
 
   constructor(mainWindow: BrowserWindow, callbacks: TrayCallbacks) {
     this.mainWindow = mainWindow
+    this.callbacks = callbacks
     this.initTray(callbacks)
     this.setupWindowInterception()
   }
 
   private initTray(callbacks: TrayCallbacks) {
-    const iconPath = (app && app.isPackaged)
-      ? path.join(process.resourcesPath, 'icons/tray.png')
-      : path.join(__dirname, '../../resources/icons/tray.png')
+    const icoPath = (app && app.isPackaged)
+      ? path.join(process.resourcesPath, 'icons/tray.ico')
+      : path.join(__dirname, '../../resources/icons/tray.ico')
+    const pngPath = (app && app.isPackaged)
+      ? path.join(process.resourcesPath, 'icons/icon.png')
+      : path.join(__dirname, '../../resources/icons/icon.png')
 
-    const icon = nativeImage.createFromPath(iconPath)
-    this.tray = new Tray(icon)
+    let trayIcon: any
+    if (process.platform === 'win32' && fs.existsSync(icoPath)) {
+      // Windows 上原生 .ico 包含 16/24/32/48/256 多尺寸，系统自动按 DPI 缩放渲染最清晰画质
+      trayIcon = icoPath
+    } else if (fs.existsSync(pngPath)) {
+      trayIcon = nativeImage.createFromPath(pngPath).resize({ width: 16, height: 16 })
+    } else {
+      trayIcon = pngPath
+    }
+
+    this.tray = new Tray(trayIcon)
     this.tray.setToolTip('LZ Manager - 3DMigoto Mod 管理器 (Ctrl+F 悬浮窗)')
 
     const contextMenu = Menu.buildFromTemplate([
@@ -72,22 +88,38 @@ export class TrayManager {
     if (!this.mainWindow) return
 
     this.mainWindow.on('close', (event) => {
-      if (!this.isQuitting) {
+      if (this.isQuitting) return
+
+      const action = this.callbacks.getCloseAction ? this.callbacks.getCloseAction() : 'quit'
+      if (action === 'minimize_to_tray') {
         event.preventDefault()
         this.mainWindow?.hide()
-
-        // 仅在首次最小化到托盘时发出轻量提示
-        if (!this.notifiedOnce) {
-          this.notifiedOnce = true
-          if (Notification.isSupported()) {
-            new Notification({
-              title: 'LZ Manager',
-              body: '已最小化至系统托盘，按 Ctrl+F 或手柄按键可随时在游戏中唤出悬浮窗。'
-            }).show()
-          }
-        }
+        this.notifyHiddenToTray()
+      } else {
+        // 默认彻底退出程序：直接解除拦截并执行 app.quit()
+        this.isQuitting = true
+        app.quit()
       }
     })
+  }
+
+  public notifyHiddenToTray() {
+    if (this.tray && process.platform === 'win32') {
+      try {
+        this.tray.displayBalloon({
+          title: 'LZ Manager 已收起至系统托盘',
+          content: '主界面已收起，按 Ctrl+F 随时在游戏中唤出悬浮窗。右键托盘图标可恢复主界面或彻底退出。'
+        })
+        return
+      } catch (_) {}
+    }
+
+    if (Notification.isSupported()) {
+      new Notification({
+        title: 'LZ Manager 已收起至系统托盘',
+        body: '主界面已收起，按 Ctrl+F 随时在游戏中唤出悬浮窗。'
+      }).show()
+    }
   }
 
   public showMainWindow() {

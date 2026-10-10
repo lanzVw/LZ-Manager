@@ -4,7 +4,7 @@ import fs from 'fs'
 
 // 强制为 Windows 任务栏注册专属 AppUserModelId，彻底解除与默认 electron.exe 图标的关联
 if (process.platform === 'win32' && app) {
-  app.setAppUserModelId('com.lzmanager.desktop')
+  app.setAppUserModelId('com.lz.manager.v1')
 }
 
 import { ConfigStore } from '../core/config-store'
@@ -12,17 +12,25 @@ import { ModEngine } from '../core/mod-engine'
 import { PresetEngine } from '../core/preset-engine'
 import { GameLauncher } from '../core/game-launcher'
 import { getCharactersForGame, normalizeCharacterName, detectCharacterForMod } from '../core/characters-data'
-import { searchMods, getModDetails, installMod } from '../core/gamebanana-service'
+import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpdates } from '../core/gamebanana-service'
 import { translateModDetails } from '../core/translate-service'
 import { PersistBridgeManager } from '../core/persist-bridge'
+import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 // 单实例锁 - 彻底解决多开报错，已启动时直接唤醒并置顶窗口
+const syncLog = (msg: string) => {
+  try { fs.writeSync(1, `[LZ Main] ${msg}\n`) } catch (_) {}
+}
+syncLog(`bootstrap pid=${process.pid} argv=${JSON.stringify(process.argv.slice(1, 3))}`)
 if (app) {
+  syncLog('before requestSingleInstanceLock')
   const gotTheLock = app.requestSingleInstanceLock()
+  syncLog(`after requestSingleInstanceLock gotTheLock=${gotTheLock}`)
   if (!gotTheLock) {
+    syncLog('quitting: another instance holds the lock')
     app.quit()
   } else {
     app.on('second-instance', () => {
@@ -39,7 +47,33 @@ if (app) {
 
 process.on('uncaughtException', (err) => {
   console.error('[LZ Main] Uncaught Exception:', err)
+  logFatal('uncaughtException', err)
 })
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[LZ Main] Unhandled Rejection:', reason)
+  logFatal('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)))
+})
+
+/**
+ * 把主进程致命错误写入本地日志并弹一次系统错误框（限流），
+ * 避免生产 GUI 环境下"功能坏了但完全不可见"。
+ */
+let fatalDialogShown = 0
+function logFatal(kind: string, err: Error) {
+  try {
+    const logDir = app?.getPath ? app.getPath('userData') : process.cwd()
+    const logPath = path.join(logDir, 'lz-main-error.log')
+    const line = `[${new Date().toISOString()}] ${kind}: ${err.stack || err.message}\n`
+    fs.appendFileSync(logPath, line, 'utf8')
+    if (Date.now() - fatalDialogShown > 60000) {
+      fatalDialogShown = Date.now()
+      dialog.showErrorBox('LZ Manager 遇到内部错误', `${err.message}\n\n详细信息已写入:\n${logPath}`)
+    }
+  } catch (_) {
+    /* 日志失败时静默，避免二次异常 */
+  }
+}
 
 
 // 计算指定游戏的 3DMigoto / XXMI 运行环境根目录
@@ -100,10 +134,70 @@ const isDev = process.env.NODE_ENV === 'development'
 const overlayManager = new OverlayManager(preloadPath, isDev)
 const controllerService = new ControllerService(binariesDir)
 const gameFocusService = new GameFocusService(binariesDir)
+gameFocusService.setGames(configStore.getConfig().games)
 gameFocusService.setActiveGame(activeGame)
 overlayManager.setGameFocusService(gameFocusService)
 
-function getAppIcon() {
+/**
+ * 统一切换激活游戏并同步所有底层服务与窗口
+ */
+function applyActiveGame(gameId: string, origin: 'manual' | 'auto-focus' = 'manual'): boolean {
+  if (!gameId) return false
+  const cfg = configStore.getConfig()
+  const g = cfg.games.find((x: any) => x.id === gameId)
+  if (!g) return false
+
+  const prevId = cfg.activeGameId
+  if (prevId !== gameId) {
+    configStore.setActiveGame(gameId)
+  } else if (origin === 'auto-focus') {
+    // 焦点切回的仍是当前激活游戏：什么都不用重置，也不向两个窗口重复广播 game:changed，
+    // 否则每次 alt-tab 回游戏都会触发两份全量扫描 + 悬浮窗浏览状态丢失
+    gameFocusService.setActiveGame(g)
+    return true
+  }
+
+  gameFocusService.setActiveGame(g)
+  const envRoot = getEnvRootForGame(g)
+  modEngine.setModFolderPath(g.modFolderPath)
+  modEngine.setPersistBridge(
+    persistBridgeManager,
+    envRoot,
+    configStore.getConfig().persistBridgeEnabled ?? true,
+    configStore.getConfig().persistBridgeCacheSize ?? 12
+  )
+  conflictDetector.setModFolderPath(g.modFolderPath)
+
+  const payload = { game: g, gameId: g.id, origin }
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('game:changed', payload)
+    }
+  } catch (_) {}
+
+  try {
+    const overlayWin = overlayManager.getWindow()
+    if (overlayWin && !overlayWin.isDestroyed()) {
+      overlayWin.webContents.send('game:changed', payload)
+    }
+  } catch (_) {}
+
+  return true
+}
+
+overlayManager.setOnAutoSwitchGame((matchedGame: any) => {
+  if (matchedGame && matchedGame.id) {
+    applyActiveGame(matchedGame.id, 'auto-focus')
+  }
+})
+
+gameFocusService.on('game-change', (matchedGame: any) => {
+  if (matchedGame && matchedGame.id) {
+    applyActiveGame(matchedGame.id, 'auto-focus')
+  }
+})
+
+function getAppIconPath(): string {
   const icoPath = (app && app.isPackaged)
     ? path.join(process.resourcesPath, 'icons/icon.ico')
     : path.join(__dirname, '../../resources/icons/icon.ico')
@@ -111,35 +205,86 @@ function getAppIcon() {
     ? path.join(process.resourcesPath, 'icons/icon.png')
     : path.join(__dirname, '../../resources/icons/icon.png')
 
-  if (fs.existsSync(icoPath)) {
-    return nativeImage.createFromPath(icoPath)
-  }
-  if (fs.existsSync(pngPath)) {
-    return nativeImage.createFromPath(pngPath)
+  if (fs.existsSync(icoPath)) return icoPath
+  if (fs.existsSync(pngPath)) return pngPath
+  return ''
+}
+
+function getAppIcon() {
+  const iconPath = getAppIconPath()
+  if (iconPath) {
+    return nativeImage.createFromPath(iconPath)
   }
   return undefined
 }
 
 function createMainWindow() {
+  const iconPath = getAppIconPath()
   const appIcon = getAppIcon()
 
   mainWindow = new BrowserWindow({
+    title: 'LZ Manager',
     width: 1280,
     height: 820,
     minWidth: 1024,
     minHeight: 700,
     frame: false,
-    icon: appIcon,
+    skipTaskbar: false,
+    icon: iconPath || appIcon,
     backgroundColor: '#030712',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
-      sandbox: false,
-      webSecurity: false // 允许加载本地 Mod 封面图片 file:///
+      // preload 仅使用 ipcRenderer/contextBridge/webUtils，可安全沙箱化
+      sandbox: true,
+      // 生产环境保持 webSecurity 开启（file:// 页面加载 file:// 图片不受影响）；
+      // 仅开发模式下为让 dev server 页面加载本地 file:// 封面图临时放开
+      webSecurity: process.env.NODE_ENV === 'development'
     }
   })
 
-  if (appIcon) {
+  // 防护：任何 window.open 一律拒绝，http/https 交给系统浏览器；
+  // 否则新窗口会继承本窗口 webPreferences（含 preload），远程页面将获得全部 IPC API
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url).catch(() => {})
+    }
+    return { action: 'deny' }
+  })
+  // 防护：禁止主文档导航到远程内容（防注入跳转）
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowed = process.env.NODE_ENV === 'development'
+      ? url.startsWith('http://localhost:5173')
+      : url.startsWith('file://')
+    if (!allowed) {
+      event.preventDefault()
+    }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    const closeAction = configStore.getConfig().closeAction || 'quit'
+    if (closeAction === 'quit') {
+      app.quit()
+    }
+  })
+
+  if (iconPath) {
+    mainWindow.setIcon(iconPath)
+  } else if (appIcon) {
     mainWindow.setIcon(appIcon)
+  }
+
+  if (process.platform === 'win32' && iconPath) {
+    try {
+      mainWindow.setAppDetails({
+        appId: 'com.lz.manager.v1',
+        appIconPath: iconPath,
+        appIconIndex: 0,
+        relaunchDisplayName: 'LZ Manager'
+      })
+    } catch (err) {
+      console.error('[LZ Main] setAppDetails error:', err)
+    }
   }
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
@@ -152,19 +297,23 @@ function createMainWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
-
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
 }
 
 // 全局快捷键注册 (默认 Ctrl+F 唤起游戏内侧边悬浮窗)
 function registerHotkeys() {
   const hotkey = configStore.getConfig().overlayHotkey || 'CommandOrControl+F'
   try {
-    globalShortcut.register(hotkey, () => {
+    const ok = globalShortcut.register(hotkey, () => {
       overlayManager.toggleOverlay()
     })
+    if (!ok) {
+      // 快捷键被其他全局软件占用时注册会静默失败，必须让用户知道
+      console.warn(`[LZ Main] Global hotkey "${hotkey}" failed to register (可能被其他程序占用)`)
+      const win = mainWindow
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('overlay:toast', `全局快捷键 ${hotkey} 注册失败，可能被其他程序占用，请在设置中更换`)
+      }
+    }
   } catch (err) {
     console.warn('Failed to register global hotkey:', err)
   }
@@ -173,51 +322,58 @@ function registerHotkeys() {
 // 注册 IPC 通信路由
 function setupIpc() {
   // Config
+  // 白名单校验：config patch 由渲染层传入，必须限制可写的键，
+  // 防止被注入的渲染进程把 gamePath/modFolderPath 改成任意程序路径再借 game:launch 启动
+  const APP_CONFIG_KEYS = new Set([
+    'activeGameId', 'characterUsage', 'serverUrl', 'enableOptionAExclusive',
+    'overlayHotkey', 'persistBridgeEnabled', 'persistBridgeCacheSize', 'closeAction',
+    'theme', 'characterSectionsByGame'
+  ])
+  const GAME_CONFIG_KEYS = new Set([
+    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'launchMode'
+  ])
+  const sanitizePatch = (patch: any, allowed: Set<string>): any => {
+    if (!patch || typeof patch !== 'object') return {}
+    const out: any = {}
+    for (const [k, v] of Object.entries(patch)) {
+      if (allowed.has(k)) out[k] = v
+    }
+    // 路径类字段必须是字符串且不含控制字符（真正存在性校验在使用处做，避免误杀未安装的游戏）
+    for (const p of ['gamePath', 'modFolderPath', 'modLoaderPath']) {
+      if (p in out && (typeof out[p] !== 'string' || /[\u0000-\u001f]/.test(out[p]))) delete out[p]
+    }
+    if ('persistBridgeCacheSize' in out && typeof out.persistBridgeCacheSize !== 'number') delete out.persistBridgeCacheSize
+    if ('overlayHotkey' in out && (typeof out.overlayHotkey !== 'string' || out.overlayHotkey.length > 64)) delete out.overlayHotkey
+    return out
+  }
+
   ipcMain.handle('config:get', () => configStore.getConfig())
   ipcMain.handle('config:updateApp', (_, patch: any) => {
-    configStore.updateAppConfig(patch)
-    if (patch.persistBridgeEnabled !== undefined) {
-      modEngine.setPersistBridgeEnabled(patch.persistBridgeEnabled)
+    const safe = sanitizePatch(patch, APP_CONFIG_KEYS)
+    configStore.updateAppConfig(safe)
+    if (safe.persistBridgeEnabled !== undefined) {
+      modEngine.setPersistBridgeEnabled(safe.persistBridgeEnabled)
     }
-    if (patch.persistBridgeCacheSize !== undefined) {
-      modEngine.setPersistBridgeCacheSize(patch.persistBridgeCacheSize)
+    if (safe.persistBridgeCacheSize !== undefined) {
+      modEngine.setPersistBridgeCacheSize(safe.persistBridgeCacheSize)
     }
-    if (patch.enableOptionAExclusive !== undefined) {
-      modEngine.setOptionAExclusive(patch.enableOptionAExclusive)
+    if (safe.enableOptionAExclusive !== undefined) {
+      modEngine.setOptionAExclusive(safe.enableOptionAExclusive)
     }
     return { success: true, config: configStore.getConfig() }
   })
   ipcMain.handle('config:setActiveGame', (_, gameId: string) => {
-    configStore.setActiveGame(gameId)
-    const g = configStore.getActiveGame()
-    if (g) {
-      gameFocusService.setActiveGame(g)
-      const envRoot = getEnvRootForGame(g)
-      modEngine.setModFolderPath(g.modFolderPath)
-      modEngine.setPersistBridge(
-        persistBridgeManager,
-        envRoot,
-        configStore.getConfig().persistBridgeEnabled ?? true,
-        configStore.getConfig().persistBridgeCacheSize ?? 12
-      )
-      conflictDetector.setModFolderPath(g.modFolderPath)
-    }
-    return { success: true }
+    const success = applyActiveGame(gameId, 'manual')
+    return { success }
   })
   ipcMain.handle('config:updateGame', (_, gameId: string, patch: any) => {
-    configStore.updateGameConfig(gameId, patch)
+    if (!gameId || typeof gameId !== 'string') return { success: false, error: '无效的游戏 ID' }
+    const safe = sanitizePatch(patch, GAME_CONFIG_KEYS)
+    configStore.updateGameConfig(gameId, safe)
+    gameFocusService.setGames(configStore.getConfig().games)
     const g = configStore.getActiveGame()
     if (g && g.id === gameId) {
-      gameFocusService.setActiveGame(g)
-      const envRoot = getEnvRootForGame(g)
-      modEngine.setModFolderPath(g.modFolderPath)
-      modEngine.setPersistBridge(
-        persistBridgeManager,
-        envRoot,
-        configStore.getConfig().persistBridgeEnabled ?? true,
-        configStore.getConfig().persistBridgeCacheSize ?? 12
-      )
-      conflictDetector.setModFolderPath(g.modFolderPath)
+      applyActiveGame(gameId, 'manual')
     }
     return { success: true }
   })
@@ -262,11 +418,11 @@ function setupIpc() {
   })
 
   // Mods
-  ipcMain.handle('mods:scan', () => {
+  ipcMain.handle('mods:scan', async () => {
     const g = configStore.getActiveGame()
     if (!g) return {}
     modEngine.setModFolderPath(g.modFolderPath)
-    const rawLocalResult = modEngine.scanMods()
+    const rawLocalResult = await modEngine.scanMods()
     const result: Record<string, any[]> = {}
 
     // 1. 扫描本地文件夹并统一归一化为国服官方标准名（消除因别名并存产生的重复条目）
@@ -313,12 +469,48 @@ function setupIpc() {
   })
 
   ipcMain.handle('characters:getAvatars', (_, gameId?: string) => {
-    const g = configStore.getActiveGame()
-    const targetGameId = gameId || g?.id
+    // 显式传入 gameId（如悬浮窗）时必须用该游戏自己的 modFolderPath 扫描，
+    // 否则头像索引与当前激活游戏错配
+    const g = gameId
+      ? (configStore.getGameById(gameId) || configStore.getActiveGame())
+      : configStore.getActiveGame()
     if (g) {
       modEngine.setModFolderPath(g.modFolderPath)
     }
-    return modEngine.getCharacterAvatars(targetGameId)
+    return modEngine.getCharacterAvatars(gameId || g?.id)
+  })
+
+  // 批量读取 Mod 元数据（批量检查更新用）：一次 IPC 并发读取，替代渲染层 N+1 串行
+  ipcMain.handle('mods:batchDetails', async (_, fullPaths: string[]) => {
+    if (!Array.isArray(fullPaths)) return {}
+    const list = fullPaths.filter((p) => typeof p === 'string' && p).slice(0, 2000)
+    const concurrency = 8
+    const result: Record<string, any> = {}
+    let cursor = 0
+    const workers = Array(Math.min(concurrency, list.length))
+      .fill(null)
+      .map(async () => {
+        while (cursor < list.length) {
+          const p = list[cursor++]
+          try {
+            const d = await modEngine.getModDetails(p)
+            if (d) {
+              // modId/version/lastUpdated 位于 getModDetails 返回值的 metadata 下
+              const meta: any = (d as any).metadata || {}
+              result[p] = {
+                fullPath: p,
+                modId: meta.modId,
+                version: meta.version,
+                lastUpdated: meta.lastUpdated
+              }
+            }
+          } catch (_) {
+            /* 单个失败不影响整体 */
+          }
+        }
+      })
+    await Promise.all(workers)
+    return result
   })
 
   ipcMain.handle('characters:setAvatar', async (_, charName: string, imagePath: string) => {
@@ -354,6 +546,19 @@ function setupIpc() {
     return modEngine.saveModMetadata(modFullPath, metadata)
   })
 
+  ipcMain.handle('mods:setBroken', (_, modFullPath: string, isBroken: boolean, reason?: string) => {
+    const success = modEngine.setModBrokenStatus(modFullPath, isBroken, reason)
+    return { success }
+  })
+
+  ipcMain.handle('mods:checkUpdate', async (_, params: { modId: number; localDate?: any; localVersion?: string }) => {
+    return checkModUpdate(params)
+  })
+
+  ipcMain.handle('mods:checkAllUpdates', async (_, mods: Array<{ fullPath: string; modId: number; lastUpdated?: any; version?: string }>) => {
+    return checkAllModsUpdates(mods)
+  })
+
   ipcMain.handle('mods:openFolder', (_, modFullPath: string) => {
     return shell.openPath(modFullPath)
   })
@@ -378,6 +583,55 @@ function setupIpc() {
     return modEngine.deleteModImage(imagePath)
   })
 
+  ipcMain.handle('mods:delete', async (_, modFullPath: string) => {
+    if (!modFullPath || typeof modFullPath !== 'string') {
+      return { success: false, error: '无效的模组路径' }
+    }
+    const resolved = path.resolve(modFullPath)
+    if (!fs.existsSync(resolved)) {
+      return { success: false, error: '模组目录不存在或已被移除' }
+    }
+
+    // 安全检查：目标必须在当前游戏 Mods 目录下，且至少是 Mods/角色名/模组名 级别，禁止误删根目录或角色目录
+    // 注意：必须在无激活游戏时直接拒绝（此处不设防会造成任意路径删除）；
+    // 包含判断必须用 path.relative（startsWith 前缀判断会被兄弟目录如 F:\x\Mods2 绕过）
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) {
+      return { success: false, error: '未配置激活游戏或模组目录，拒绝删除' }
+    }
+    const modRoot = path.resolve(g.modFolderPath)
+    const rel = path.relative(modRoot, resolved)
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      return { success: false, error: '非法删除路径：目标超出模组目录范围' }
+    }
+    const parts = rel.split(/[\\/]/)
+    if (parts.length < 2) {
+      return { success: false, error: '非法删除路径：无法直接删除角色分类目录或根目录' }
+    }
+
+    try {
+      await shell.trashItem(resolved)
+      return { success: true, recycled: true }
+    } catch (err: any) {
+      console.warn('[LZ Main] shell.trashItem failed, attempting fallback rmSync:', err)
+      try {
+        fs.rmSync(resolved, { recursive: true, force: true })
+        return { success: true, recycled: false }
+      } catch (rmErr: any) {
+        console.error('[LZ Main] Failed to remove mod directory:', rmErr)
+        return { success: false, error: rmErr.message || '删除模组失败' }
+      }
+    }
+  })
+
+  ipcMain.handle('mods:moveToCharacter', async (_, modFullPath: string, targetCharacterName: string) => {
+    const res = await modEngine.moveModToCharacter(modFullPath, targetCharacterName)
+    if (res.success) {
+      gameLauncher.triggerReloadF10().catch(() => {})
+    }
+    return res
+  })
+
   ipcMain.handle('mods:readIni', (_, iniPath: string) => {
     return modEngine.readIniFile(iniPath)
   })
@@ -386,8 +640,16 @@ function setupIpc() {
     return modEngine.saveIniFile(iniPath, content)
   })
 
+  ipcMain.handle('mods:translateConfig', async (_, modFullPath: string) => {
+    return autoTranslateModConfig(modFullPath, { forceCloud: true })
+  })
+
+  ipcMain.handle('mods:setVariableAlias', (_, modFullPath: string, varName: string, alias: string) => {
+    return saveCustomVariableAlias(modFullPath, varName, alias)
+  })
+
   // Conflicts
-  ipcMain.handle('conflicts:detect', (_, characterName?: string) => {
+  ipcMain.handle('conflicts:detect', async (_, characterName?: string) => {
     const g = configStore.getActiveGame()
     if (!g) return characterName ? null : {}
     conflictDetector.setModFolderPath(g.modFolderPath)
@@ -446,10 +708,10 @@ function setupIpc() {
     }
   })
 
-  ipcMain.handle('presets:create', (_, name: string, description?: string) => {
+  ipcMain.handle('presets:create', async (_, name: string, description?: string) => {
     const g = configStore.getActiveGame()
     if (!g) throw new Error('No active game')
-    const preset = presetEngine.createPresetFromCurrent(g.id, name, description)
+    const preset = await presetEngine.createPresetFromCurrent(g.id, name, description)
     return preset
   })
 
@@ -470,20 +732,60 @@ function setupIpc() {
   })
 
   // Launcher & F10
-  ipcMain.handle('game:launch', async (_, asAdmin: boolean) => {
+  ipcMain.handle('game:launch', async (_, asAdmin?: boolean) => {
     const g = configStore.getActiveGame()
-    if (!g || !g.gamePath) return { success: false, error: '未配置游戏启动路径' }
-    return gameLauncher.launchExecutable(g.gamePath, asAdmin)
+    if (!g) return { success: false, error: '未选择任何有效游戏' }
+    return gameLauncher.launchGame(g, !!asAdmin)
   })
 
   ipcMain.handle('game:launchLoader', async () => {
     const g = configStore.getActiveGame()
-    if (!g || !g.modLoaderPath) return { success: false, error: '未配置 XXMI/加载器路径' }
-    return gameLauncher.launchExecutable(g.modLoaderPath, true)
+    if (!g) return { success: false, error: '未选择任何有效游戏' }
+    return gameLauncher.launchLoader(g)
   })
 
   ipcMain.handle('game:reloadModsF10', async () => {
-    return gameLauncher.triggerReloadF10()
+    const g = configStore.getActiveGame()
+    let procName = ''
+    if (g && g.gamePath) {
+      procName = path.basename(g.gamePath)
+    } else if (g && g.id) {
+      procName = g.id
+    }
+    const res = await gameLauncher.triggerReloadF10(procName)
+
+    // 若悬浮窗处于展示状态，重新平稳拉回置顶与聚焦
+    setTimeout(() => {
+      const overlayWin = overlayManager.getWindow()
+      if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
+        overlayWin.focus()
+      }
+    }, 120)
+
+    return res
+  })
+
+  ipcMain.handle('game:triggerHotkey', async (_, keys: string[], targetProcName?: string) => {
+    let procName = targetProcName || ''
+    if (!procName) {
+      const g = configStore.getActiveGame()
+      if (g && g.gamePath) {
+        procName = path.basename(g.gamePath)
+      } else if (g && g.id) {
+        procName = g.id
+      }
+    }
+    const res = await gameLauncher.triggerHotkey(keys, procName)
+
+    // 若悬浮窗处于展示状态，重新平稳拉回置顶与聚焦
+    setTimeout(() => {
+      const overlayWin = overlayManager.getWindow()
+      if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
+        overlayWin.focus()
+      }
+    }, 120)
+
+    return res
   })
 
   // GameBanana
@@ -517,6 +819,7 @@ function setupIpc() {
       resolvedChar = normalizeCharacterName(resolvedChar, g?.id)
     }
 
+    // 安装目录校验：targetParentDir 由渲染层传入，必须位于当前游戏 Mods 目录内，逃逸一律拒绝
     let targetParentDir = params.targetParentDir
     if (!targetParentDir && g && g.modFolderPath) {
       if (resolvedChar && resolvedChar !== 'all') {
@@ -524,13 +827,31 @@ function setupIpc() {
       } else {
         targetParentDir = g.modFolderPath
       }
-    } else if (targetParentDir && g && g.modFolderPath) {
-      const rel = path.relative(g.modFolderPath, targetParentDir)
-      if (rel && !rel.startsWith('..')) {
-        const parts = rel.split(path.sep)
-        parts[0] = normalizeCharacterName(parts[0], g.id)
-        targetParentDir = path.join(g.modFolderPath, ...parts)
+    } else if (targetParentDir) {
+      if (!g || !g.modFolderPath) {
+        return { success: false, error: '未配置激活游戏或模组目录，拒绝安装' }
       }
+      const rel = path.relative(path.resolve(g.modFolderPath), path.resolve(targetParentDir))
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+        return { success: false, error: '非法安装路径：目标目录超出模组目录范围' }
+      }
+      const parts = rel.split(/[\\/]/)
+      parts[0] = normalizeCharacterName(parts[0], g.id)
+      targetParentDir = path.join(path.resolve(g.modFolderPath), ...parts)
+    }
+
+    // 下载地址白名单：只允许来自 GameBanana 官方域名的 https 链接，防止渲染层注入任意下载源
+    const downloadUrl = typeof params.downloadUrl === 'string' ? params.downloadUrl : ''
+    if (!downloadUrl || !/^https:\/\//i.test(downloadUrl)) {
+      return { success: false, error: '无效或缺失的下载地址' }
+    }
+    try {
+      const downloadHost = new URL(downloadUrl).hostname.toLowerCase()
+      if (downloadHost !== 'gamebanana.com' && !downloadHost.endsWith('.gamebanana.com')) {
+        return { success: false, error: `下载地址域名不受支持: ${downloadHost}` }
+      }
+    } catch {
+      return { success: false, error: '无效的下载地址' }
     }
     const previewUrl =
       params.previewImageUrl ||
@@ -557,7 +878,7 @@ function setupIpc() {
   })
 
   // 外观分区 (Appearance Sections)
-  ipcMain.handle('appearance:getSections', (_, characterName: string) => {
+  ipcMain.handle('appearance:getSections', async (_, characterName: string) => {
     const g = configStore.getActiveGame()
     if (!g) return []
     modEngine.setModFolderPath(g.modFolderPath)
@@ -594,6 +915,9 @@ function setupIpc() {
   ipcMain.handle('appearance:updateSection', (_, characterName: string, sectionId: string, name: string) => {
     const g = configStore.getActiveGame()
     if (!g) return { success: false, error: '未选择游戏' }
+    if (sectionId === 'base' || sectionId.startsWith('skin:')) {
+      return { success: false, error: '官方时装分区不允许重命名' }
+    }
     const trimmed = String(name || '').trim()
     if (!trimmed) return { success: false, error: '分区名称不能为空' }
     const custom = configStore.getCharacterSections(g.id, characterName)
@@ -609,6 +933,9 @@ function setupIpc() {
   ipcMain.handle('appearance:deleteSection', (_, characterName: string, sectionId: string) => {
     const g = configStore.getActiveGame()
     if (!g) return { success: false, error: '未选择游戏' }
+    if (sectionId === 'base' || sectionId.startsWith('skin:')) {
+      return { success: false, error: '官方时装分区不允许删除' }
+    }
     const custom = configStore.getCharacterSections(g.id, characterName)
     const next = custom.filter((s: any) => s.sectionId !== sectionId)
     configStore.setCharacterSections(g.id, characterName, next)
@@ -649,9 +976,17 @@ function setupIpc() {
   ipcMain.handle('overlay:getOnlyInGame', () => {
     return overlayManager.getOnlyShowInGame()
   })
+  ipcMain.handle('overlay:setPinned', (_, pinned: boolean) => {
+    overlayManager.setPinned(!!pinned)
+    return { success: true }
+  })
 
-  // Window Controls
-  ipcMain.handle('window:minimize', () => mainWindow?.minimize())
+  // Window & System Controls
+  ipcMain.handle('window:minimize', () => {
+    if (mainWindow) {
+      mainWindow.minimize()
+    }
+  })
   ipcMain.handle('window:maximize', () => {
     if (!mainWindow) return
     if (mainWindow.isMaximized()) {
@@ -660,11 +995,37 @@ function setupIpc() {
       mainWindow.maximize()
     }
   })
-  ipcMain.handle('window:close', () => mainWindow?.close())
+  ipcMain.handle('window:hideToTray', () => {
+    if (mainWindow) {
+      mainWindow.hide()
+      trayManager?.notifyHiddenToTray()
+    }
+  })
+  ipcMain.handle('window:close', () => {
+    const closeAction = configStore.getConfig().closeAction || 'quit'
+    if (closeAction === 'minimize_to_tray') {
+      if (mainWindow) {
+        mainWindow.hide()
+        trayManager?.notifyHiddenToTray()
+      }
+    } else {
+      // 彻底退出程序，释放全部后台进程与内存
+      trayManager?.setQuitting(true)
+      app.quit()
+    }
+  })
 }
 
 if (app) {
+  app.on('quit', (_e: Electron.Event | undefined, code: number) => {
+    syncLog(`app quit, exitCode = ${code}`)
+  })
+  process.on('exit', (code) => syncLog(`process exit, code = ${code}`))
   app.whenReady().then(() => {
+    syncLog('app ready, creating windows')
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.lz.manager.v1')
+    }
     setupIpc()
     createMainWindow()
     overlayManager.createOverlayWindow()
@@ -673,18 +1034,24 @@ if (app) {
     // 启动前台游戏窗口智能跟随服务
     gameFocusService.startWatch()
 
-    // 初始化系统托盘常驻
+    // 初始化系统托盘常驻（托盘异常不应连锁阻断手柄监听等后续初始化）
     if (mainWindow) {
-      trayManager = new TrayManager(mainWindow, {
+      try {
+        trayManager = new TrayManager(mainWindow, {
         onToggleOverlay: () => overlayManager.toggleOverlay(),
         onReloadModsF10: () => gameLauncher.triggerReloadF10(),
         onLaunchGame: async () => {
           const g = configStore.getActiveGame()
-          if (g && g.gamePath) {
-            gameLauncher.launchExecutable(g.gamePath, false)
+          if (g) {
+            await gameLauncher.launchGame(g)
           }
-        }
-      })
+        },
+        getCloseAction: () => configStore.getConfig().closeAction || 'quit'
+        })
+      } catch (trayErr) {
+        console.warn('[LZ Main] TrayManager init failed, continue without tray:', trayErr)
+        trayManager = null
+      }
     }
 
     // 启动手柄后台监听
@@ -705,6 +1072,7 @@ if (app) {
   app.on('will-quit', () => {
     trayManager?.setQuitting(true)
     trayManager?.destroy()
+    overlayManager?.destroy()
     controllerService.stop()
     gameFocusService.stopWatch()
     globalShortcut.unregisterAll()
