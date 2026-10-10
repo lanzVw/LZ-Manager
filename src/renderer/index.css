@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* tw-animate-css 是纯 CSS 包（仅 style 导出条件），用 @import 接入而非 @plugin：
+   提供 animate-in fade-in zoom-in-95 slide-in-from-* 等工具类（此前是空类名） */
+@import "tw-animate-css";
+/* GameBanana 详情富文本使用 prose 类（typography 是真插件，用 @plugin） */
+@plugin "@tailwindcss/typography";
+
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 /* 本地引入 Inter 字体（英文字母与数字优先） */

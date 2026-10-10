@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   ArrowLeft,
   FolderOpen,
@@ -13,40 +13,164 @@ import {
   FileText,
   CheckCircle2,
   XCircle,
-  ExternalLink,
   Save,
   Check,
   Tag,
   Crop as CropIcon,
   AlertTriangle,
-  Sparkles,
   Sliders,
   RotateCcw,
   ToggleLeft,
   ToggleRight,
   Zap,
-  Cpu
+  Cpu,
+  Globe,
+  ExternalLink,
+  ShoppingBag,
+  Layers,
+  AlertOctagon,
+  ArrowUpCircle,
+  RefreshCw,
+  Copy,
+  FolderInput,
+  Languages,
+  Edit3,
+  Keyboard,
+  Play,
+  SlidersHorizontal
 } from 'lucide-react'
-import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable } from '../../core/types'
+import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
+import { toFileUrl } from '../utils/fileUrl'
+import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
+import { MoveModModal } from '../components/MoveModModal'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { Badge } from '../components/ui/Badge'
+import { Select } from '../components/ui/Select'
+import { Switch } from '../components/ui/Switch'
+import { Modal } from '../components/ui/Modal'
+import { useToast } from '../components/ui/Toast'
 
 interface ModDetailPageProps {
   modFullPath: string
   onBack: () => void
   onToggleActive: (charName: string, modName: string, enabled: boolean) => Promise<void>
+  onNavigateToMarket?: (modId?: number, searchKeyword?: string) => void
+  onDeleteSuccess?: () => void
+}
+
+const formatDateTime = (val?: string | number | Date | null): string => {
+  if (!val) return '暂无记录'
+  let d: Date
+
+  if (val instanceof Date) {
+    d = val
+  } else if (typeof val === 'number') {
+    d = val < 10000000000 ? new Date(val * 1000) : new Date(val)
+  } else if (typeof val === 'string') {
+    const trimmed = val.trim()
+    if (!trimmed) return '暂无记录'
+    if (/^\d{10,13}$/.test(trimmed)) {
+      const num = Number(trimmed)
+      d = num < 10000000000 ? new Date(num * 1000) : new Date(num)
+    } else {
+      const normalized = trimmed.replace(/(\.\d{3})\d+Z?$/i, '$1Z')
+      d = new Date(normalized)
+      if (isNaN(d.getTime())) {
+        d = new Date(trimmed)
+      }
+    }
+  } else {
+    return '暂无记录'
+  }
+
+  if (isNaN(d.getTime())) {
+    return String(val)
+  }
+
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const Y = d.getFullYear()
+  const M = pad(d.getMonth() + 1)
+  const D = pad(d.getDate())
+  const h = pad(d.getHours())
+  const m = pad(d.getMinutes())
+  const s = pad(d.getSeconds())
+
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`
+}
+
+// 热键元数据合并（persistInfo 有/无两分支此前各写一份约 40 行近似逻辑，现统一入口）
+// - persistVariables 有值时：按变量名/热键名匹配 PersistBridge 变量，合并当前值、中文别名与档位表
+// - 无论如何：再套用全局 variableAliases / hotkeyTranslations / valueLabels 元数据
+// 就地合并并返回 hotkeys（与原实现一致，避免额外复制数组）
+const mergeHotkeyMeta = (
+  base: {
+    hotkeys: ParsedHotkey[]
+    variableAliases: Record<string, string>
+    hotkeyTranslations: Record<string, string>
+    valueLabels: Record<string, string>
+  },
+  persistVariables?: ModPersistVariable[]
+): ParsedHotkey[] => {
+  for (const h of base.hotkeys) {
+    let pv: ModPersistVariable | undefined
+    if (persistVariables && persistVariables.length > 0) {
+      const hVar = h.variable?.toLowerCase()
+      pv = persistVariables.find(
+        (v) =>
+          (hVar && (v.canonicalName || '').toLowerCase() === hVar) ||
+          (v.name || '').toLowerCase() === h.name.toLowerCase()
+      )
+    }
+
+    if (pv) {
+      h.currentValue = pv.currentValue
+      if (pv.alias) h.chineseName = pv.alias
+      if (!h.allowedValues || h.allowedValues.length === 0) {
+        h.allowedValues = pv.allowedValues
+      }
+      if (pv.valueLabels) {
+        h.valueLabels = { ...(h.valueLabels || {}), ...pv.valueLabels }
+      }
+    } else if (h.allowedValues && h.allowedValues.length > 0 && !h.currentValue) {
+      h.currentValue = h.allowedValues[0]
+    }
+
+    if (base.hotkeyTranslations[h.name]) h.chineseName = base.hotkeyTranslations[h.name]
+    if (h.variable && base.variableAliases[h.variable]) h.chineseName = base.variableAliases[h.variable]
+    if (h.description && base.hotkeyTranslations[h.description]) h.chineseDescription = base.hotkeyTranslations[h.description]
+    const varLabelMap = (h.variable && base.valueLabels[h.variable]) || {}
+    if (Object.keys(varLabelMap).length > 0) {
+      h.valueLabels = { ...(h.valueLabels || {}), ...varLabelMap }
+    }
+  }
+
+  return base.hotkeys
 }
 
 export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   modFullPath,
   onBack,
-  onToggleActive
+  onToggleActive,
+  onNavigateToMarket,
+  onDeleteSuccess
 }) => {
+  const toast = useToast()
   const [details, setDetails] = useState<ModDetailedInfo | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(0)
+  // 主图加载失败兜底：裂图时回退到占位块；切换 Mod / 切图 / 重载详情后自动复位
+  const [mainImageError, setMainImageError] = useState<boolean>(false)
+  const [deleteImageTarget, setDeleteImageTarget] = useState<string | null>(null)
+  const [showDeleteModModal, setShowDeleteModModal] = useState<boolean>(false)
+  const [deletingMod, setDeletingMod] = useState<boolean>(false)
   const [author, setAuthor] = useState<string>('')
   const [version, setVersion] = useState<string>('Version 1.0')
   const [description, setDescription] = useState<string>('')
+  const [sourceUrl, setSourceUrl] = useState<string>('')
+  const [copySuccess, setCopySuccess] = useState<boolean>(false)
   const [savingMeta, setSavingMeta] = useState<boolean>(false)
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [selectedIni, setSelectedIni] = useState<string | null>(null)
@@ -66,34 +190,162 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   const [updatingVar, setUpdatingVar] = useState<string | null>(null)
   const [resettingVars, setResettingVars] = useState<boolean>(false)
   const [persistToast, setPersistToast] = useState<string | null>(null)
+  const [editingVar, setEditingVar] = useState<ModPersistVariable | null>(null)
+  const [editingAliasName, setEditingAliasName] = useState<string>('')
+  const [savingAlias, setSavingAlias] = useState<boolean>(false)
+  const [translatingConfig, setTranslatingConfig] = useState<boolean>(false)
+  const [parsedHotkeys, setParsedHotkeys] = useState<ParsedHotkey[]>([])
+  const [triggeringHotkey, setTriggeringHotkey] = useState<string | null>(null)
+  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'config'>('overview')
 
-  // 加载 Mod 详情
-  const loadDetails = async () => {
+  // 外观分区列表状态
+  const [sections, setSections] = useState<AppearanceSection[]>([])
+  const [changingSection, setChangingSection] = useState<boolean>(false)
+
+  // 失效状态与原因
+  const [isBroken, setIsBroken] = useState<boolean>(false)
+  const [brokenReason, setBrokenReason] = useState<string>('')
+  const [savingBroken, setSavingBroken] = useState<boolean>(false)
+
+  // 线上作者更新检测
+  const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false)
+  const [updateInfo, setUpdateInfo] = useState<any | null>(null)
+
+  // 移动模组到其他角色分类弹窗
+  const [showMoveModal, setShowMoveModal] = useState<boolean>(false)
+
+  const loadSections = async (charName: string) => {
+    try {
+      const list = await window.lz.getAppearanceSections(charName)
+      if (list && Array.isArray(list)) {
+        setSections(list)
+      }
+    } catch (err) {
+      console.error('Failed to load appearance sections:', err)
+    }
+  }
+
+  // 加载 Mod 详情（isCancelled: useEffect 注入的竞态守卫，切换 Mod 后过期响应直接丢弃）
+  const loadDetails = async (isCancelled?: () => boolean) => {
     setLoading(true)
+    // 进入加载时先重置派生状态，避免残留上一条 Mod 的横幅与图片索引
+    setUpdateInfo(null)
+    setConflictSummary(null)
+    setCurrentImageIndex(0)
     try {
       const data = await window.lz.getModDetails(modFullPath)
+      if (isCancelled?.()) return
       if (data) {
         setDetails(data)
         setAuthor(data.metadata?.author || '')
         setVersion(data.metadata?.version || 'Version 1.0')
         setDescription(data.metadata?.description || '')
+        setSourceUrl(data.metadata?.sourceUrl || data.metadata?.url || data.metadata?.gamebananaUrl || '')
         setPersistInfo(data.persistInfo || null)
+        setIsBroken(Boolean(data.metadata?.modBroken))
+        setBrokenReason(data.metadata?.brokenReason || '')
 
-        // 默认选中第一个 ini 文件
+        // 加载该角色的外观分区
+        await loadSections(data.characterName)
+        if (isCancelled?.()) return
+
+        // 解析与智能关联所有 INI 快捷键与档位
+        const allHotkeys: ParsedHotkey[] = []
         if (data.iniFiles && data.iniFiles.length > 0) {
           setSelectedIni(data.iniFiles[0].fullPath)
-          const content = await window.lz.readIni(data.iniFiles[0].fullPath)
-          setIniContent(content)
+          const firstContent = await window.lz.readIni(data.iniFiles[0].fullPath)
+          if (isCancelled?.()) return
+          setIniContent(firstContent ?? '')
+
+          for (const ini of data.iniFiles) {
+            const raw = ini.fullPath === data.iniFiles[0].fullPath ? firstContent : await window.lz.readIni(ini.fullPath)
+            if (isCancelled?.()) return
+            if (raw) {
+              allHotkeys.push(...parseIniHotkeys(raw))
+            }
+          }
+        } else {
+          setIniContent('')
         }
 
+        // 去重
+        const seen = new Set<string>()
+        const uniqueHotkeys = allHotkeys.filter((item) => {
+          const sig = `${item.name}-${item.keys.join('+')}`
+          if (seen.has(sig)) return false
+          seen.add(sig)
+          return true
+        })
+
+        // 统一合并热键元数据：persistInfo 变量（若有）+ 全局别名/翻译/档位字典
+        mergeHotkeyMeta(
+          {
+            hotkeys: uniqueHotkeys,
+            variableAliases: data?.metadata?.variableAliases || {},
+            hotkeyTranslations: data?.metadata?.hotkeyTranslations || {},
+            valueLabels: data?.metadata?.valueLabels || {}
+          },
+          data?.persistInfo?.variables
+        )
+
+        setParsedHotkeys(uniqueHotkeys)
+
         // 检查 3DMigoto 资源冲突
-        checkConflicts(data.characterName, data.name)
+        checkConflicts(data.characterName, data.name, isCancelled)
       }
     } catch (err) {
       console.error('Failed to load mod details:', err)
     } finally {
-      setLoading(false)
+      if (!isCancelled?.()) {
+        setLoading(false)
+      }
     }
+  }
+
+  // 切换外观分区
+  const handleMoveSection = async (nextSecId: string) => {
+    if (!details) return
+    setChangingSection(true)
+    try {
+      const res = await window.lz.setModAppearanceSection(details.fullPath, nextSecId)
+      if (res?.success) {
+        setDetails({ ...details, appearanceSectionId: nextSecId })
+        await loadSections(details.characterName)
+        toast.success('外观分区更新成功')
+      } else {
+        toast.error('切换外观分区失败', res?.error || '操作未成功')
+      }
+    } catch (err: any) {
+      toast.error('切换外观分区失败', err.message)
+    } finally {
+      setChangingSection(false)
+    }
+  }
+
+  // 一次性提示定时器句柄：重复设置前先清旧定时器（避免旧定时器掐掉新提示），卸载时统一清理
+  const toastTimersRef = useRef<{ persist?: number; saved?: number; copied?: number }>({})
+  const scheduleToastClear = (key: 'persist' | 'saved' | 'copied', delay: number, clear: () => void) => {
+    const prev = toastTimersRef.current[key]
+    if (prev) window.clearTimeout(prev)
+    toastTimersRef.current[key] = window.setTimeout(() => {
+      toastTimersRef.current[key] = undefined
+      clear()
+    }, delay)
+  }
+
+  useEffect(() => {
+    return () => {
+      const timers = toastTimersRef.current
+      Object.values(timers).forEach((id) => {
+        if (id) window.clearTimeout(id)
+      })
+    }
+  }, [])
+
+  // 展示 persist 提示条并安排 3s 自动消失（重复提示会重置计时器）
+  const showPersistToast = (msg: string) => {
+    setPersistToast(msg)
+    scheduleToastClear('persist', 3000, () => setPersistToast(null))
   }
 
   // 切换/循环修改 Mod 变量数值
@@ -121,11 +373,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     try {
       const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal)
       if (res && res.success) {
-        setPersistToast(`已成功设定 $${v.name} = ${nextVal} (已热刷新)`)
-        setTimeout(() => setPersistToast(null), 3000)
+        showPersistToast(`已成功设定 $${v.name} = ${nextVal} (已热刷新)`)
       } else {
-        setPersistToast(`修改失败: ${res?.error || '未知错误'}`)
-        setTimeout(() => setPersistToast(null), 3000)
+        showPersistToast(`修改失败: ${res?.error || '未知错误'}`)
       }
     } catch (err: any) {
       console.error('Failed to update mod variable:', err)
@@ -141,118 +391,382 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     try {
       const res = await window.lz.resetModVariables(details.fullPath)
       if (res && res.success) {
-        setPersistInfo((prev) => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            variables: prev.variables.map((item) => ({ ...item, currentValue: item.defaultValue }))
-          }
-        })
-        setPersistToast('已重置该 Mod 全部服装与开关至默认值')
-        setTimeout(() => setPersistToast(null), 3000)
-      } else {
-        setPersistToast(`重置失败: ${res?.error || '未知错误'}`)
-        setTimeout(() => setPersistToast(null), 3000)
+        showPersistToast('已重置此 Mod 的所有服装与开关数值为初始状态')
+        // 重新拉取最新信息
+        const data = await window.lz.getModDetails(modFullPath)
+        if (data?.persistInfo) setPersistInfo(data.persistInfo)
       }
     } catch (err: any) {
-      console.error('Failed to reset mod variables:', err)
+      console.error('Failed to reset variables:', err)
     } finally {
       setResettingVars(false)
     }
   }
 
-  const checkConflicts = async (charName: string, modName: string) => {
+  // 一键汉化配置与快捷键说明
+  const handleTranslateConfig = async () => {
+    if (!details) return
+    setTranslatingConfig(true)
     try {
-      const reps: any = await window.lz.detectConflicts(charName)
-      if (reps && reps[charName]?.conflictsByMod?.[modName]?.hasConflict) {
-        setConflictSummary(reps[charName].conflictsByMod[modName])
+      await window.lz.translateConfig(details.fullPath)
+      await loadDetails()
+      setActiveDetailTab('config')
+      toast.success('汉化完成', '已成功为模组的配置变量与快捷键生成中文说明并缓存至本地！')
+    } catch (err: any) {
+      toast.error('汉化失败', err?.message || '自动翻译遇到异常')
+    } finally {
+      setTranslatingConfig(false)
+    }
+  }
+
+  // 保存用户自定义变量中文别名
+  const handleSaveVarAlias = async () => {
+    if (!editingVar || !details || !editingAliasName.trim()) return
+    setSavingAlias(true)
+    try {
+      await window.lz.setVariableAlias(details.fullPath, editingVar.name, editingAliasName.trim())
+      if (persistInfo) {
+        setPersistInfo({
+          ...persistInfo,
+          variables: persistInfo.variables.map((v) =>
+            v.name === editingVar.name ? { ...v, alias: editingAliasName.trim() } : v
+          )
+        })
+      }
+      toast.success('已更新别名', `变量 $${editingVar.name} 的中文名称已设为 "${editingAliasName.trim()}"`)
+      setEditingVar(null)
+    } catch (err: any) {
+      toast.error('保存失败', err?.message || '未知错误')
+    } finally {
+      setSavingAlias(false)
+    }
+  }
+
+  // 点击触发按键
+  const handleTriggerHotkey = async (h: ParsedHotkey) => {
+    setTriggeringHotkey(h.name)
+    try {
+      const ok = await window.lz.triggerHotkey(h.keys)
+      if (ok) {
+        toast.success('已触发快捷键', `向游戏发送了 [${h.keys.join(' + ')}]`)
       } else {
-        setConflictSummary(null)
+        toast.warning('未触发', '请确保游戏已在前台运行')
+      }
+    } catch (err: any) {
+      toast.error('触发异常', err?.message || '未知错误')
+    } finally {
+      setTriggeringHotkey(null)
+    }
+  }
+
+  // 点击直选按键档位
+  const handleSelectHotkeyVal = async (h: ParsedHotkey, targetVal: string) => {
+    // 1. 若此快捷键已绑定 PersistBridge 变量，优先直接走内存桥接持久化设定
+    const hVar = h.variable?.toLowerCase()
+    const pv = persistInfo?.variables?.find(
+      (v) => (hVar && (v.canonicalName || '').toLowerCase() === hVar) || (v.name || '').toLowerCase() === h.name.toLowerCase()
+    )
+    if (pv) {
+      await handleUpdateVariable(pv, targetVal)
+      return
+    }
+
+    // 2. 若纯 3DMigoto 按键，根据当前档位步进差自动模拟连按
+    const vals = h.allowedValues || []
+    if (vals.length === 0) return
+    const currIdx = vals.indexOf(h.currentValue ?? vals[0])
+    const targetIdx = vals.indexOf(targetVal)
+    if (currIdx === -1 || targetIdx === -1 || currIdx === targetIdx) return
+
+    const steps = (targetIdx - currIdx + vals.length) % vals.length
+    for (let i = 0; i < steps; i++) {
+      await window.lz.triggerHotkey(h.keys)
+      if (i < steps - 1) await new Promise((r) => setTimeout(r, 60))
+    }
+    // 更新本地显示
+    setParsedHotkeys((prev) =>
+      prev.map((item) => (item.name === h.name ? { ...item, currentValue: targetVal } : item))
+    )
+    toast.success('已切换档位', `${h.chineseName || h.name} 已选定为: ${targetVal}`)
+  }
+
+  // 检测冲突（isCancelled 同样作为竞态守卫，避免过期响应回写）
+  const checkConflicts = async (charName: string, modName: string, isCancelled?: () => boolean) => {
+    try {
+      const reports = await window.lz.detectConflicts(charName)
+      if (isCancelled?.()) return
+      if (reports && reports[charName] && reports[charName].conflictsByMod) {
+        const modSummary = reports[charName].conflictsByMod[modName]
+        if (modSummary && modSummary.hasConflict) {
+          setConflictSummary(modSummary)
+        } else {
+          setConflictSummary(null)
+        }
       }
     } catch (_) {}
   }
 
+  // 一键解决冲突
   const handleResolveConflict = async (keepThisMod: boolean) => {
     if (!details || !conflictSummary) return
     setResolvingConflict(true)
     try {
-      const keep = keepThisMod ? details.name : conflictSummary.conflictingMods[0]
-      const conflicts = keepThisMod ? conflictSummary.conflictingMods : [details.name]
-
-      await window.lz.resolveConflicts(details.characterName, keep, conflicts)
+      if (keepThisMod) {
+        // 启用当前，停用与其冲突的所有其他 Mod
+        await window.lz.resolveConflicts(
+          details.characterName,
+          details.name,
+          conflictSummary.conflictingMods
+        )
+      } else {
+        // 停用当前 Mod
+        await window.lz.toggleMod(details.characterName, details.name, false)
+      }
       await loadDetails()
+    } catch (err: any) {
+      toast.error('解决冲突失败', err.message)
     } finally {
       setResolvingConflict(false)
     }
   }
 
   useEffect(() => {
-    loadDetails()
+    let cancelled = false
+    loadDetails(() => cancelled)
+    return () => {
+      cancelled = true
+    }
   }, [modFullPath])
 
-  const handleSelectIni = async (fullPath: string) => {
-    setSelectedIni(fullPath)
+  // 主图错误态复位：切换图片（索引）、重新加载详情（删除图片后 details 引用更新）时重置
+  useEffect(() => {
+    setMainImageError(false)
+  }, [details, currentImageIndex])
+
+  // 切换装备状态
+  const handleToggle = async () => {
+    if (!details) return
+    setToggling(true)
     try {
-      const content = await window.lz.readIni(fullPath)
-      setIniContent(content)
-    } catch (err) {
-      console.error('Failed to read INI file:', err)
+      await onToggleActive(details.characterName, details.name, details.enabled)
+      setDetails({ ...details, enabled: !details.enabled })
+      checkConflicts(details.characterName, details.name)
+    } finally {
+      setToggling(false)
     }
   }
 
+  // 保存元数据
   const handleSaveMetadata = async () => {
+    if (!details) return
     setSavingMeta(true)
     setSavedSuccess(false)
     try {
       await window.lz.saveModMetadata(modFullPath, {
         author,
         version,
-        description
+        description,
+        sourceUrl
       })
       setSavedSuccess(true)
-      setTimeout(() => setSavedSuccess(false), 2500)
-    } catch (err) {
-      console.error('Failed to save metadata:', err)
+      scheduleToastClear('saved', 2000, () => setSavedSuccess(false))
     } finally {
       setSavingMeta(false)
     }
   }
 
-  const handleOpenFolder = () => {
-    window.lz.openModFolder(modFullPath)
+  // 来源与市场关联计算
+  const isGameBanana = Boolean(
+    sourceUrl.toLowerCase().includes('gamebanana.com') ||
+    details?.metadata?.source === 'GameBanana' ||
+    details?.metadata?.modId
+  )
+
+  const detectedModId = React.useMemo(() => {
+    if (details?.metadata?.modId) return Number(details.metadata.modId)
+    const match = sourceUrl.match(/gamebanana\.com\/mods\/(\d+)/i)
+    if (match) return parseInt(match[1], 10)
+    return null
+  }, [details, sourceUrl])
+
+  const hasValidUrl = Boolean(
+    sourceUrl && (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'))
+  )
+
+  const canJumpToInAppMarket = Boolean(isGameBanana && (detectedModId || details?.name) && onNavigateToMarket)
+
+  // 外部浏览器打开链接
+  const handleOpenExternal = () => {
+    if (hasValidUrl) {
+      window.lz.openExternalUrl(sourceUrl)
+    }
   }
 
+  // 应用内市场联动跳转
+  const handleJumpToMarket = () => {
+    if (onNavigateToMarket) {
+      onNavigateToMarket(detectedModId || undefined, details?.name)
+    }
+  }
+
+  // 复制链接到剪贴板
+  const handleCopyUrl = async () => {
+    if (!sourceUrl) return
+    try {
+      await navigator.clipboard.writeText(sourceUrl)
+      setCopySuccess(true)
+      scheduleToastClear('copied', 2000, () => setCopySuccess(false))
+    } catch (_) {}
+  }
+
+  // 检查作者在 GameBanana 上的更新
+  const handleCheckUpdate = React.useCallback(async (manual = false) => {
+    if (!detectedModId || !details) return
+    setCheckingUpdate(true)
+    try {
+      const res = await window.lz.checkModUpdate({
+        modId: detectedModId,
+        localDate: details.mtime || details.metadata?.lastUpdated || details.metadata?.dateUpdated,
+        localVersion: details.metadata?.version || version
+      })
+      if (res && res.hasUpdate) {
+        setUpdateInfo(res)
+        if (manual) toast.success('检测到新版本！', `作者发布了新版本：${res.remoteVersion || '最新版'}`)
+      } else {
+        setUpdateInfo(null)
+        if (manual) toast.info('当前已是最新', '作者在 GameBanana 上暂无更新')
+      }
+    } catch (err: any) {
+      if (manual) toast.error('检查更新失败', err.message)
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }, [detectedModId, details, version])
+
+  React.useEffect(() => {
+    if (detectedModId && details) {
+      handleCheckUpdate(false)
+    }
+  }, [detectedModId, details?.fullPath])
+
+  // 切换失效/损坏状态
+  const handleToggleBroken = async (nextVal: boolean) => {
+    if (!details) return
+    setSavingBroken(true)
+    try {
+      const res = await window.lz.setModBrokenStatus(details.fullPath, nextVal, brokenReason)
+      if (res?.success) {
+        setIsBroken(nextVal)
+        setDetails((prev) => (prev ? {
+          ...prev,
+          metadata: {
+            ...prev.metadata,
+            modBroken: nextVal,
+            brokenReason: nextVal ? brokenReason : undefined
+          }
+        } : prev))
+        if (nextVal) {
+          toast.warning('模组已标记为失效', '若游戏内碎模或报错，建议将其卸装保持待命')
+        } else {
+          toast.success('已解除失效标记', '模组状态已恢复正常')
+        }
+      }
+    } catch (err: any) {
+      toast.error('修改失效状态失败', err.message)
+    } finally {
+      setSavingBroken(false)
+    }
+  }
+
+  // 保存失效说明
+  const handleSaveBrokenReason = async () => {
+    if (!details) return
+    setSavingBroken(true)
+    try {
+      const res = await window.lz.setModBrokenStatus(details.fullPath, isBroken, brokenReason)
+      if (res?.success) {
+        toast.success('失效原因已保存')
+      }
+    } catch (err: any) {
+      toast.error('保存失败', err.message)
+    } finally {
+      setSavingBroken(false)
+    }
+  }
+
+  // 设为封面
   const handleSetCover = async (imagePath: string) => {
     await window.lz.setAsCoverImage(modFullPath, imagePath)
     await loadDetails()
   }
 
-  const handleDeleteImage = async (imagePath: string) => {
-    if (!confirm('确定要删除这张预览图吗？')) return
-    await window.lz.deleteModImage(imagePath)
-    if (currentImageIndex > 0) {
-      setCurrentImageIndex((prev) => prev - 1)
+  // 确认删除图片
+  const handleConfirmDeleteImage = async () => {
+    if (!deleteImageTarget) return
+    try {
+      await window.lz.deleteModImage(deleteImageTarget)
+      await loadDetails()
+      setCurrentImageIndex(0)
+      toast.success('预览图已删除')
+    } catch (err: any) {
+      toast.error('删除预览图失败', err.message)
+    } finally {
+      setDeleteImageTarget(null)
     }
-    await loadDetails()
   }
 
-  const handleToggle = async () => {
+  // 确认删除整个模组文件夹（移入 Windows 回收站）
+  const handleConfirmDeleteMod = async () => {
     if (!details) return
-    setToggling(true)
+    setDeletingMod(true)
     try {
-      await onToggleActive(details.characterName, details.name, !details.enabled)
-      await loadDetails()
+      const res = await window.lz.deleteMod(modFullPath)
+      if (res && res.success) {
+        toast.success('模组已删除', `${details.name} 已安全移入系统回收站`)
+        setShowDeleteModModal(false)
+        if (onDeleteSuccess) {
+          onDeleteSuccess()
+        } else {
+          onBack()
+        }
+      } else {
+        toast.error('删除模组失败', res?.error || '无法删除模组文件夹')
+      }
+    } catch (err: any) {
+      toast.error('删除异常', err.message || '操作失败')
     } finally {
-      setToggling(false)
+      setDeletingMod(false)
     }
+  }
+
+  // 切换查看 INI 内容（请求序号守卫：快速连续点击时丢弃过期响应）
+  const iniLoadSeqRef = useRef<number>(0)
+  const handleSelectIni = async (iniPath: string) => {
+    const seq = ++iniLoadSeqRef.current
+    setSelectedIni(iniPath)
+    try {
+      const content = await window.lz.readIni(iniPath)
+      if (seq !== iniLoadSeqRef.current) return
+      setIniContent(content ?? '')
+    } catch (err) {
+      console.error('Failed to read ini:', iniPath, err)
+      if (seq === iniLoadSeqRef.current) {
+        setIniContent('')
+      }
+    }
+  }
+
+  // 打开物理文件夹
+  const handleOpenFolder = () => {
+    window.lz.openModFolder(modFullPath)
   }
 
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
-        <div className="flex flex-col items-center space-y-3 text-blue-600">
-          <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shadow-sm" />
-          <span className="text-xs font-mono tracking-widest uppercase text-slate-500">
+        <div className="flex flex-col items-center space-y-3 text-primary">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin shadow-xs" />
+          <span className="text-xs font-mono tracking-widest uppercase text-text-muted">
             // 加载模组数据中 //
           </span>
         </div>
@@ -263,13 +777,10 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   if (!details) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-4">
-        <p className="text-sm font-mono text-slate-500">未能找到此 Mod 的目录实体或已被移除</p>
-        <button
-          onClick={onBack}
-          className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-xs"
-        >
-          返回模组库
-        </button>
+        <p className="text-sm font-mono text-text-muted">未能找到此 Mod 的目录实体或已被移除</p>
+        <Button variant="secondary" onClick={onBack}>
+          返回角色库
+        </Button>
       </div>
     )
   }
@@ -285,86 +796,148 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto text-slate-800 select-none porcelain-scrollbar-light">
-      {/* 1. Light Breadcrumb Header Bar */}
-      <div className="sticky top-0 z-30 bg-white/85 backdrop-blur-2xl border-b border-blue-100 px-6 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center space-x-3.5">
-          <button
-            onClick={onBack}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 hover:border-blue-300 transition text-xs font-semibold active:scale-95 shadow-sm"
-            title="返回模组库"
-          >
-            <ArrowLeft className="w-4 h-4 text-blue-600" />
-            <span>返回模组库</span>
-          </button>
+    <div className="flex-1 flex flex-col overflow-y-auto text-text select-none bg-surface/30">
+      {/* 1. Sticky Header Bar with Dedicated Two-Row Layout */}
+      <div className="sticky top-0 z-30 bg-surface/85 backdrop-blur-xl border-b border-border shadow-xs">
+        {/* Row 1: Breadcrumb Title & Quick Actions */}
+        <div className="px-6 py-3 flex items-center justify-between border-b border-border/50">
+          <div className="flex items-center space-x-3.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onBack}
+              icon={<ArrowLeft className="w-4 h-4 text-primary" />}
+            >
+              返回角色库
+            </Button>
 
-          <button
-            onClick={handleOpenFolder}
-            className="p-1.5 rounded-xl bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 hover:border-blue-300 transition active:scale-95 shadow-sm"
-            title="在系统资源管理器中打开文件夹"
-          >
-            <FolderOpen className="w-4 h-4 text-blue-600" />
-          </button>
+            <div className="flex items-center space-x-2 pl-2 border-l border-border">
+              <h1 className="text-sm font-bold text-text tracking-wide truncate max-w-sm sm:max-w-md">
+                {details.name}
+              </h1>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-2 text-text-muted font-medium border border-border">
+                {version}
+              </span>
+            </div>
+          </div>
 
-          <div className="flex items-center space-x-2 pl-2 border-l border-slate-200">
-            <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-              #{details.characterName}
-            </span>
-            <h1 className="text-sm font-bold text-slate-900 tracking-wide truncate max-w-sm sm:max-w-md">
-              {details.name}
-            </h1>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-              {version}
-            </span>
+          {/* Right Actions: Open Folder, Move Mod, Delete Mod & Equip / Unequip */}
+          <div className="flex items-center space-x-2.5">
+            {/* Open Folder Button */}
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={handleOpenFolder}
+              className="border-border hover:border-primary/50 text-text-muted hover:text-text transition-colors cursor-pointer"
+              title="在系统资源管理器中打开此模组文件夹"
+              icon={<FolderOpen className="w-4 h-4 text-primary" />}
+            >
+              <span>打开文件夹</span>
+            </Button>
+
+            {/* Move to Character Button */}
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => setShowMoveModal(true)}
+              className="border-border hover:border-primary/50 text-text-muted hover:text-text transition-colors cursor-pointer"
+              title="将该模组移动到其他角色分类"
+              icon={<FolderInput className="w-4 h-4 text-primary" />}
+            >
+              <span>移动到其他角色</span>
+            </Button>
+
+            {/* Delete Mod Button */}
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => setShowDeleteModModal(true)}
+              className="border-border hover:border-danger/40 hover:bg-danger/10 hover:text-danger text-text-muted transition-colors cursor-pointer"
+              title="将该模组目录安全移至 Windows 回收站"
+              icon={<Trash2 className="w-4 h-4 text-danger/80" />}
+            >
+              <span>删除模组</span>
+            </Button>
+
+            {/* Equip / Unequip */}
+            <Button
+              variant={details.enabled ? 'danger' : 'secondary'}
+              size="md"
+              onClick={handleToggle}
+              loading={toggling}
+              icon={
+                details.enabled ? (
+                  <XCircle className="w-4 h-4 text-danger" />
+                ) : (
+                  <Zap className="w-4 h-4 text-primary" />
+                )
+              }
+            >
+              {details.enabled ? '卸下模组' : '装备启用'}
+            </Button>
           </div>
         </div>
 
-        {/* Right Action: Equip / Unequip */}
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={handleToggle}
-            disabled={toggling}
-            className={`flex items-center space-x-2 px-5 py-2 rounded-2xl text-xs font-bold tracking-wide transition-all shadow-sm active:scale-95 ${
-              details.enabled
-                ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200'
-                : 'bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white shadow-md shadow-blue-500/20'
-            } ${toggling ? 'opacity-50 cursor-wait' : ''}`}
-          >
-            {toggling ? (
-              <RotateCcw className="w-4 h-4 animate-spin" />
-            ) : details.enabled ? (
-              <>
-                <XCircle className="w-4 h-4 text-rose-500" />
-                <span>卸下模组</span>
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4 fill-white text-white" />
-                <span>装备启用</span>
-              </>
-            )}
-          </button>
+        {/* Row 2: Tab 导航切换栏 (单独第二行/列，置顶吸顶) */}
+        <div className="px-6 py-2 bg-surface/50 backdrop-blur-md">
+          <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="flex items-center space-x-2 bg-surface-2/90 p-1 rounded-control border border-border shadow-xs">
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab('overview')}
+                className={`flex items-center space-x-2 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
+                  activeDetailTab === 'overview'
+                    ? 'bg-primary/15 text-primary border-primary/30 shadow-xs font-bold'
+                    : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                <span>模组规格与封面</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab('config')}
+                className={`flex items-center space-x-2 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
+                  activeDetailTab === 'config'
+                    ? 'bg-primary/15 text-primary border-primary/30 shadow-xs font-bold'
+                    : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
+                }`}
+              >
+                <Sliders className="w-4 h-4" />
+                <span>模组配置与脚本</span>
+                {((persistInfo?.variables?.length || 0) + parsedHotkeys.length > 0 || (details.iniFiles?.length || 0) > 0) && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-primary/20 text-primary border border-primary/30">
+                    {(persistInfo?.variables?.length || 0) + parsedHotkeys.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto w-full p-6 space-y-6">
-        {/* Conflict Diagnostic Banner */}
-        {conflictSummary && (
-          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+        {/* Tab 1: 模组规格与封面 (主 Tab) */}
+        {activeDetailTab === 'overview' && (
+          <div className="space-y-6 animate-in fade-in duration-fast">
+            {/* Conflict Diagnostic Banner */}
+            {conflictSummary && (
+          <div className="p-4 rounded-card bg-danger/10 border border-danger/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
             <div className="flex items-start space-x-3">
-              <div className="p-2 rounded-xl bg-rose-100 text-rose-600 border border-rose-200 shrink-0">
+              <div className="p-2 rounded-control bg-danger/15 text-danger border border-danger/30 shrink-0">
                 <AlertTriangle className="w-5 h-5 animate-pulse" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-rose-800 tracking-wide flex items-center space-x-2">
+                <h3 className="text-xs font-bold text-danger tracking-wide flex items-center space-x-2">
                   <span>检测到 3DMigoto 资源冲突</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-600 text-white font-mono">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-danger text-white font-mono">
                     {conflictSummary.collisions.length} 处 Hash 重叠
                   </span>
                 </h3>
-                <p className="text-[11px] text-rose-700/80 mt-1 leading-relaxed">
+                <p className="text-[11px] text-danger/80 mt-1 leading-relaxed">
                   当前 Mod 与已启用的{' '}
-                  <span className="font-semibold text-rose-900">
+                  <span className="font-semibold text-danger">
                     {conflictSummary.conflictingMods.join(', ')}
                   </span>{' '}
                   修改了相同游戏模型或贴图，可能导致画面撕裂或崩溃。
@@ -373,37 +946,117 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             </div>
 
             <div className="flex items-center space-x-2 shrink-0">
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => handleResolveConflict(true)}
                 disabled={resolvingConflict}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition active:scale-95"
               >
                 仅保留此 Mod
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => handleResolveConflict(false)}
                 disabled={resolvingConflict}
-                className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium transition"
               >
                 禁用此 Mod
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
-        {/* 2. Hero Preview Showcase (白瓷圆角视口) */}
+        {/* 失效/损坏警示横幅 */}
+        {isBroken && (
+          <div className="p-4 rounded-card bg-danger/10 border border-danger/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 rounded-control bg-danger/20 text-danger shrink-0">
+                <AlertOctagon className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h4 className="text-sm font-bold text-danger">此模组已被标记为失效 / 损坏</h4>
+                  {brokenReason && (
+                    <span className="text-[11px] font-medium text-danger/90 bg-danger/15 px-2 py-0.5 rounded-full border border-danger/25">
+                      原因: {brokenReason}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                  该模组可能在当前游戏版本中存在碎模、黑脸或导致闪退，建议保持待命或等待作者发布修复版本。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              {details.enabled && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={handleToggle}
+                >
+                  立即卸装待命
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleToggleBroken(false)}
+                disabled={savingBroken}
+              >
+                恢复正常
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 作者新版本更新提醒横幅 */}
+        {updateInfo?.hasUpdate && (
+          <div className="p-4 rounded-card bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 rounded-control bg-amber-500/20 text-amber-500 shrink-0">
+                <ArrowUpCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h4 className="text-sm font-bold text-amber-500">检测到作者已发布新版本！</h4>
+                  <Badge variant="accent" size="sm" className="font-mono text-[10px]">
+                    {updateInfo.remoteVersion}
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-text-muted mt-1 leading-relaxed line-clamp-1">
+                  {updateInfo.changelog || `线上最新修改于 ${formatDateTime(updateInfo.remoteDate)}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleJumpToMarket}
+                icon={<ShoppingBag className="w-3.5 h-3.5" />}
+              >
+                在市场中获取更新
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 2. Hero Preview Showcase */}
         <div className="space-y-3">
-          <div className="relative aspect-[21/9] sm:aspect-[16/7] bg-white border border-blue-100 rounded-3xl overflow-hidden flex items-center justify-center shadow-sm">
-            {activeImage ? (
+          <Card className="relative aspect-[21/9] sm:aspect-[16/7] overflow-hidden flex items-center justify-center">
+            {activeImage && !mainImageError ? (
               <img
-                src={`file://${activeImage.path}`}
+                src={toFileUrl(activeImage.path)}
                 alt={details.name}
                 className="w-full h-full object-contain"
+                onError={() => setMainImageError(true)}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center text-slate-400">
-                <ImageIcon className="w-12 h-12 stroke-[1.2] mb-2" />
-                <span className="text-xs font-mono uppercase tracking-wider text-slate-400">
+              <div className="flex flex-col items-center justify-center text-text-muted">
+                <CropIcon className="w-12 h-12 stroke-[1.2] mb-2 opacity-50" />
+                <span className="text-xs font-mono uppercase tracking-wider text-text-muted">
                   暂无预览立绘
                 </span>
               </div>
@@ -413,19 +1066,21 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             {hasImages && images.length > 1 && (
               <>
                 <button
+                  type="button"
                   onClick={() =>
                     setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1))
                   }
-                  className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-2xl bg-white/80 hover:bg-white text-slate-700 backdrop-blur-md border border-slate-200 shadow-md transition"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-control bg-surface/85 hover:bg-surface text-text backdrop-blur-md border border-border shadow-md transition cursor-pointer"
                   title="上一张"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() =>
                     setCurrentImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0))
                   }
-                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-2xl bg-white/80 hover:bg-white text-slate-700 backdrop-blur-md border border-slate-200 shadow-md transition"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-control bg-surface/85 hover:bg-surface text-text backdrop-blur-md border border-border shadow-md transition cursor-pointer"
                   title="下一张"
                 >
                   <ChevronRight className="w-5 h-5" />
@@ -436,53 +1091,56 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             {/* Floating Utility Capsule */}
             {activeImage && (
               <div className="absolute top-4 right-4 flex items-center space-x-2">
-                <div className="flex items-center space-x-1.5 bg-white/90 backdrop-blur-xl border border-blue-100 rounded-2xl p-1.5 shadow-md">
+                <div className="flex items-center space-x-1.5 bg-surface/90 backdrop-blur-md border border-border rounded-control p-1.5 shadow-md">
                   {/* Smart Crop Button */}
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => {
-                      setCropImageSrc(`file://${activeImage.path}`)
+                      setCropImageSrc(toFileUrl(activeImage.path))
                       setIsCropOpen(true)
                     }}
-                    className="flex items-center space-x-1 px-3 py-1 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition"
-                    title="裁切此图片并保存为封面"
+                    icon={<CropIcon className="w-3.5 h-3.5 text-primary" />}
                   >
-                    <CropIcon className="w-3.5 h-3.5" />
-                    <span>裁切封面</span>
-                  </button>
+                    裁切封面
+                  </Button>
 
                   {/* Set as Cover */}
                   {!activeImage.isCover && (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => handleSetCover(activeImage.path)}
-                      className="flex items-center space-x-1 px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold transition"
-                      title="直接将此图设为当前 Mod 封面"
+                      icon={<Star className="w-3.5 h-3.5 text-amber-500" />}
                     >
-                      <Star className="w-3.5 h-3.5" />
-                      <span>设为Mod封面</span>
-                    </button>
+                      设为Mod封面
+                    </Button>
                   )}
 
                   {/* Set as Character Avatar */}
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={async () => {
                       if (!details) return
                       const res = await window.lz.setCharacterAvatar(details.characterName, activeImage.path)
                       if (res?.success) {
-                        alert(`已成功将此图设为【${details.characterName}】的角色缩略图！`)
+                        toast.success('设置成功', `已将此图设为【${details.characterName}】的角色缩略图`)
+                      } else {
+                        toast.error('设置失败', res?.error || '无法设置角色头像')
                       }
                     }}
-                    className="flex items-center space-x-1 px-3 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold transition"
-                    title="将此图设为左侧菜单中该角色的代表头像"
+                    icon={<User className="w-3.5 h-3.5 text-purple-500" />}
                   >
-                    <User className="w-3.5 h-3.5" />
-                    <span>设为角色头像</span>
-                  </button>
+                    设为角色头像
+                  </Button>
 
                   {/* Delete Image */}
                   {images.length > 1 && (
                     <button
-                      onClick={() => handleDeleteImage(activeImage.path)}
-                      className="p-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition"
+                      type="button"
+                      onClick={() => setDeleteImageTarget(activeImage.path)}
+                      className="p-1 rounded-control bg-danger/10 hover:bg-danger/20 text-danger transition cursor-pointer"
                       title="删除此图片"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -491,24 +1149,25 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 </div>
               </div>
             )}
-          </div>
+          </Card>
 
           {/* Thumbnails Row */}
           {hasImages && images.length > 1 && (
-            <div className="flex items-center space-x-2.5 overflow-x-auto pb-1 porcelain-scrollbar-light">
+            <div className="flex items-center space-x-2.5 overflow-x-auto pb-1">
               {images.map((img, idx) => (
                 <button
                   key={img.path}
+                  type="button"
                   onClick={() => setCurrentImageIndex(idx)}
-                  className={`relative w-20 h-14 rounded-2xl overflow-hidden shrink-0 border transition ${
+                  className={`relative w-20 h-14 rounded-control overflow-hidden shrink-0 border transition cursor-pointer ${
                     currentImageIndex === idx
-                      ? 'border-blue-600 shadow-md ring-2 ring-blue-500/20'
-                      : 'border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-300'
+                      ? 'border-primary shadow-xs ring-2 ring-primary/25'
+                      : 'border-border opacity-60 hover:opacity-100'
                   }`}
                 >
-                  <img src={`file://${img.path}`} alt="" className="w-full h-full object-cover" />
+                  <img src={toFileUrl(img.path)} alt="" className="w-full h-full object-cover" loading="lazy" />
                   {img.isCover && (
-                    <div className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-blue-600 shadow-sm" />
+                    <div className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-primary shadow-xs" />
                   )}
                 </button>
               ))}
@@ -516,293 +1175,646 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           )}
         </div>
 
-        {/* 3. Mod 设定数值记忆与调节 (Persist Bridge Matrix) */}
-        {persistInfo && persistInfo.hasPersist && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200">
-                  <Sliders className="w-4 h-4" />
+        {/* 4. Equipment Specifications */}
+        <div className="space-y-3">
+          <h2 className="text-xs font-bold text-text tracking-wide uppercase flex items-center space-x-2">
+            <Cpu className="w-4 h-4 text-primary" />
+            <span>模组规格与元数据</span>
+          </h2>
+
+          <Card className="p-5 space-y-4">
+            {/* 外观分区 (仿 QAQ 体验) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-border gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-control bg-primary/10 text-primary">
+                  <Layers className="w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-xs font-bold text-slate-800 tracking-wide uppercase flex items-center space-x-2">
-                    <span>模组设定数值调控 (PERSIST BRIDGE)</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-blue-50 text-blue-600 border border-blue-200">
-                      {persistInfo.variables.length} 个调控变量
-                    </span>
-                  </h2>
-                  <p className="text-[11px] text-slate-500 font-sans mt-0.5">
-                    实时调节发型、服饰部件与开关，变更立即写回 3DMigoto 并触发游戏热刷新
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-semibold text-text">外观分区</h4>
+                    {details.appearanceSectionId && details.appearanceSectionId !== 'base' && (
+                      <Badge variant="primary" size="sm" className="text-[10px]">
+                        {sections.find((s) => s.sectionId === details.appearanceSectionId)?.official ? '官方皮肤' : '自定义分区'}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-text-muted">
+                    只改变显示位置，不改变启用状态
                   </p>
                 </div>
               </div>
 
-              <button
-                onClick={handleResetVariables}
-                disabled={resettingVars}
-                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 hover:text-blue-600 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 transition disabled:opacity-50 active:scale-95 shadow-sm"
-                title="将此 Mod 的所有服装与开关数值重置为默认值"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 text-blue-600 ${resettingVars ? 'animate-spin' : ''}`} />
-                <span>重置默认值</span>
-              </button>
-            </div>
-
-            {persistToast && (
-              <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-800 flex items-center space-x-2 animate-in fade-in duration-200 shadow-sm">
-                <Zap className="w-4 h-4 text-blue-600 shrink-0 fill-current" />
-                <span className="font-semibold">{persistToast}</span>
+              <div className="w-64">
+                <Select
+                  value={details.appearanceSectionId || 'base'}
+                  onChange={(val) => handleMoveSection(val)}
+                  disabled={changingSection}
+                  options={sections.map((s) => ({
+                    value: s.sectionId,
+                    label: s.name,
+                    description: `${s.enabledCount || 0} 启用 · ${s.totalCount || 0} Mod`,
+                    icon: <Layers className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                  }))}
+                  className="w-full"
+                  popupClassName="w-64"
+                  title="只改变显示位置，不改变启用状态"
+                />
               </div>
-            )}
-
-            <div className="bg-white border border-blue-100 rounded-3xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4 shadow-sm">
-              {persistInfo.variables.map((v) => {
-                const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
-                const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
-                const isOn = v.currentValue === '1'
-                const isUpdating = updatingVar === v.name
-
-                return (
-                  <div
-                    key={v.name}
-                    className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 hover:border-blue-300 transition-all flex flex-col justify-between space-y-3.5 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm font-mono font-bold text-slate-900 tracking-wide">
-                            ${v.name}
-                          </span>
-                          {v.keybind && (
-                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-semibold bg-blue-100 text-blue-800 border border-blue-200">
-                              {v.keybind}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10.5px] text-slate-500 font-mono mt-0.5">
-                          来源: {v.iniFile} · 默认值: {v.defaultValue}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-[11px] text-slate-500 font-mono">当前:</span>
-                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-white text-blue-600 border border-blue-200 shadow-sm">
-                          {v.currentValue}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Interactive Switch or Segmented Cycle */}
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-200/80">
-                      <span className="text-[11px] text-slate-500 font-medium">
-                        调控档位:
-                      </span>
-
-                      {isBinary ? (
-                        <button
-                          onClick={() => handleUpdateVariable(v, isOn ? '0' : '1')}
-                          disabled={isUpdating}
-                          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all active:scale-95 ${
-                            isOn
-                              ? 'bg-blue-600 text-white shadow-sm'
-                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                          } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
-                        >
-                          {isOn ? (
-                            <>
-                              <ToggleRight className="w-4 h-4 text-white" />
-                              <span>已开启 (1)</span>
-                            </>
-                          ) : (
-                            <>
-                              <ToggleLeft className="w-4 h-4 text-slate-400" />
-                              <span>已关闭 (0)</span>
-                            </>
-                          )}
-                        </button>
-                      ) : (
-                        <div className="flex items-center space-x-1.5">
-                          {allowed.map((val) => (
-                            <button
-                              key={val}
-                              onClick={() => handleUpdateVariable(v, val)}
-                              disabled={isUpdating}
-                              className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition-all active:scale-95 ${
-                                v.currentValue === val
-                                  ? 'bg-blue-600 text-white shadow-sm'
-                                  : 'bg-white text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-300'
-                              } ${isUpdating ? 'opacity-50' : ''}`}
-                            >
-                              {val}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
             </div>
-          </div>
-        )}
 
-        {/* 4. Equipment Specifications */}
-        <div className="space-y-3">
-          <h2 className="text-xs font-bold text-slate-800 tracking-wide uppercase flex items-center space-x-2">
-            <Cpu className="w-4 h-4 text-blue-600" />
-            <span>模组规格与元数据</span>
-          </h2>
-
-          <div className="bg-white border border-blue-100 rounded-3xl p-5 space-y-4 shadow-sm">
             {/* 检查时间 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-border gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-2xl bg-blue-50 text-blue-600">
+                <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-800">检查时间</h4>
-                  <p className="text-[11px] text-slate-500">上次检索此模组的时间戳</p>
+                  <h4 className="text-xs font-semibold text-text">检查时间</h4>
+                  <p className="text-[11px] text-text-muted">上次检索此模组的时间戳</p>
                 </div>
               </div>
 
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700">
-                  {details.metadata?.checkTime || '2026/10/5'}
+                <span className="text-xs font-mono bg-surface-2 px-3 py-1.5 rounded-control border border-border text-text">
+                  {formatDateTime(details.metadata?.checkTime || details.metadata?.dateChecked)}
                 </span>
-                <Clock className="w-4 h-4 text-slate-400" />
+                <Clock className="w-4 h-4 text-text-muted" />
               </div>
             </div>
 
             {/* 最后更新 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-border gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-2xl bg-blue-50 text-blue-600">
+                <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-800">最后更新</h4>
-                  <p className="text-[11px] text-slate-500">模组文件上次物理写入修改时间</p>
+                  <h4 className="text-xs font-semibold text-text">最后更新</h4>
+                  <p className="text-[11px] text-text-muted">模组文件上次物理写入修改时间</p>
                 </div>
               </div>
 
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700">
-                  {details.metadata?.lastUpdated || '2026/10/5'}
+                <span className="text-xs font-mono bg-surface-2 px-3 py-1.5 rounded-control border border-border text-text">
+                  {formatDateTime(details.mtime || details.metadata?.lastUpdated || details.metadata?.dateUpdated)}
                 </span>
-                <Clock className="w-4 h-4 text-slate-400" />
+                <Clock className="w-4 h-4 text-text-muted" />
               </div>
             </div>
 
             {/* 作者 (可编辑) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-border gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-2xl bg-blue-50 text-blue-600">
+                <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <User className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-800">创作者</h4>
-                  <p className="text-[11px] text-slate-500">模组原作者署名</p>
+                  <h4 className="text-xs font-semibold text-text">创作者</h4>
+                  <p className="text-[11px] text-text-muted">模组原作者署名</p>
                 </div>
               </div>
 
-              <input
-                type="text"
-                placeholder="请输入创作者署名..."
-                value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-                className="w-64 bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-xl px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none font-sans"
-              />
+              <div className="w-64">
+                <Input
+                  placeholder="请输入创作者署名..."
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* 版本号 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-border gap-2">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-2xl bg-blue-50 text-blue-600">
+                <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Tag className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-800">版本标识</h4>
-                  <p className="text-[11px] text-slate-500">模组发布版本编号</p>
+                  <h4 className="text-xs font-semibold text-text">版本标识</h4>
+                  <p className="text-[11px] text-text-muted">模组发布版本编号</p>
                 </div>
               </div>
 
-              <input
-                type="text"
-                placeholder="例如：Version 1.0"
-                value={version}
-                onChange={(e) => setVersion(e.target.value)}
-                className="w-64 bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-xl px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none font-sans"
-              />
+              <div className="w-64">
+                <Input
+                  placeholder="例如：Version 1.0"
+                  value={version}
+                  onChange={(e) => setVersion(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* 模组来源与市场链接 */}
+            <div className="flex flex-col pb-4 border-b border-border gap-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 rounded-control bg-primary/10 text-primary">
+                    <Globe className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-xs font-semibold text-text">模组来源与市场链接</h4>
+                      {isGameBanana && (
+                        <Badge variant="primary" size="sm" className="text-[10px] font-mono">
+                          GameBanana
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-text-muted">
+                      记录模组原帖或市场下载来源，支持直接在默认浏览器或应用内市场联动
+                    </p>
+                  </div>
+                </div>
+
+                {/* 快捷操作按钮组 */}
+                <div className="flex items-center space-x-2 shrink-0">
+                  {/* 在默认浏览器中打开 */}
+                  {hasValidUrl && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleOpenExternal}
+                      title={`在浏览器中打开: ${sourceUrl}`}
+                      icon={<ExternalLink className="w-3.5 h-3.5 text-primary" />}
+                    >
+                      浏览器打开
+                    </Button>
+                  )}
+
+                  {/* 检查更新 */}
+                  {detectedModId && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleCheckUpdate(true)}
+                      loading={checkingUpdate}
+                      title="联网检查作者在 GameBanana 上是否发布了新版"
+                      icon={<RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />}
+                    >
+                      检查更新
+                    </Button>
+                  )}
+
+                  {/* 应用内市场联动跳转 */}
+                  {canJumpToInAppMarket && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleJumpToMarket}
+                      title="在 LZ Manager 模组市场中查看该模组详情"
+                      icon={<ShoppingBag className="w-3.5 h-3.5" />}
+                    >
+                      在市场中查看
+                    </Button>
+                  )}
+
+                  {/* 复制链接 */}
+                  {hasValidUrl && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleCopyUrl}
+                      title="复制完整链接到剪贴板"
+                      icon={
+                        copySuccess ? (
+                          <Check className="w-3.5 h-3.5 text-success stroke-[2.5]" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5 text-text-muted" />
+                        )
+                      }
+                    >
+                      {copySuccess ? '已复制' : '复制'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* 链接输入框 */}
+              <div className="w-full">
+                <Input
+                  placeholder="例如：https://gamebanana.com/mods/567291"
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            {/* 模组健康与失效维护 */}
+            <div className="flex flex-col pb-4 border-b border-border gap-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-3">
+                  <div className={`p-2 rounded-control ${isBroken ? 'bg-danger/15 text-danger' : 'bg-surface-2 text-text-muted'}`}>
+                    <AlertOctagon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-xs font-semibold text-text">标记为失效 / 损坏 (Broken)</h4>
+                      {isBroken && (
+                        <Badge variant="danger" size="sm" className="text-[10px]">
+                          已失效
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-text-muted">
+                      当游戏版本更新导致碎模、黑脸或报错时标记此项，将在卡片与详情中醒目警告
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <Switch
+                    checked={isBroken}
+                    onChange={handleToggleBroken}
+                    disabled={savingBroken}
+                  />
+                </div>
+              </div>
+
+              {/* 失效原因备注输入 */}
+              {isBroken && (
+                <div className="flex items-center gap-2 pt-1 pl-11">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="请填写失效原因（例如：3.2版本碎模、需要修复补丁...）"
+                      value={brokenReason}
+                      onChange={(e) => setBrokenReason(e.target.value)}
+                      className="text-xs"
+                    />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleSaveBrokenReason}
+                    loading={savingBroken}
+                  >
+                    保存原因
+                  </Button>
+                </div>
+              )}
             </div>
 
             {/* 磁盘路径与体积 */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
               <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-2xl bg-blue-50 text-blue-600">
+                <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <HardDrive className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-800">物理存储路径</h4>
-                  <p className="text-[11px] font-mono text-slate-500 truncate max-w-sm sm:max-w-md">
+                  <h4 className="text-xs font-semibold text-text">物理存储路径</h4>
+                  <p className="text-[11px] font-mono text-text-muted truncate max-w-sm sm:max-w-md">
                     {details.fullPath}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 text-xs font-mono text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200">
-                <span className="font-bold text-slate-800">{formatSize(details.totalSize)}</span>
-                <span className="text-slate-400">/</span>
+              <div className="flex items-center space-x-2 text-xs font-mono text-primary bg-surface-2 px-3 py-1.5 rounded-control border border-border">
+                <span className="font-bold text-text">{formatSize(details.totalSize)}</span>
+                <span className="text-text-muted">/</span>
                 <span>{details.fileCount} 个文件</span>
               </div>
             </div>
 
             {/* 保存修改按钮 */}
             <div className="flex justify-end pt-2">
-              <button
+              <Button
+                variant={savedSuccess ? 'secondary' : 'primary'}
+                size="sm"
                 onClick={handleSaveMetadata}
-                disabled={savingMeta}
-                className={`flex items-center space-x-1.5 px-5 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                  savedSuccess
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20'
-                }`}
+                loading={savingMeta}
+                icon={savedSuccess ? <Check className="w-4 h-4 stroke-[2.5]" /> : <Save className="w-4 h-4" />}
               >
-                {savedSuccess ? (
-                  <>
-                    <Check className="w-4 h-4 stroke-[2.5]" />
-                    <span>信息已保存</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>保存信息修改</span>
-                  </>
-                )}
-              </button>
+                {savedSuccess ? '信息已保存' : '保存信息修改'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+    )}
+
+    {/* Tab 2: 模组配置与脚本 */}
+    {activeDetailTab === 'config' && (
+      <div className="space-y-6 animate-in fade-in duration-fast">
+        {/* 3. 模组配置与按键调控 (MOD CONFIGURATION & KEYBINDS) */}
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+                <Sliders className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-xs font-bold text-text tracking-wide uppercase flex items-center space-x-2">
+                  <span>模组配置与按键调控 (MOD CONTROLS)</span>
+                  {persistInfo && persistInfo.hasPersist && persistInfo.variables.length > 0 && (
+                    <Badge variant="primary" size="sm">
+                      {persistInfo.variables.length} 个调控变量
+                    </Badge>
+                  )}
+                  {parsedHotkeys.length > 0 && (
+                    <Badge variant="primary" size="sm">
+                      {parsedHotkeys.length} 组快捷键
+                    </Badge>
+                  )}
+                </h2>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  实时调节发型、服饰部件与开关，支持直接点击直选目标设定值
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              {/* 一键汉化配置说明 */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTranslateConfig}
+                loading={translatingConfig}
+                icon={<Languages className="w-3.5 h-3.5 text-primary" />}
+                title="自动翻译并规范所有变量与按键名称"
+              >
+                汉化说明
+              </Button>
+
+              {/* 重置默认值 */}
+              {persistInfo && persistInfo.hasPersist && persistInfo.variables.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleResetVariables}
+                  disabled={resettingVars}
+                  icon={<RotateCcw className={`w-3.5 h-3.5 text-primary ${resettingVars ? 'animate-spin' : ''}`} />}
+                >
+                  重置默认值
+                </Button>
+              )}
             </div>
           </div>
+
+          {persistToast && (
+            <div className="p-3 rounded-control bg-primary/10 border border-primary/25 text-xs text-primary flex items-center space-x-2 animate-in fade-in duration-fast shadow-xs">
+              <Zap className="w-4 h-4 text-primary shrink-0 fill-current" />
+              <span className="font-semibold">{persistToast}</span>
+            </div>
+          )}
+
+          {/* 子块 A: 实时外观参数调控 (Persist Bridge Matrix) */}
+          {persistInfo && persistInfo.hasPersist && persistInfo.variables.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="text-[11px] font-bold text-text-muted flex items-center space-x-1.5 uppercase tracking-wider">
+                <SlidersHorizontal className="w-3 h-3 text-primary" />
+                <span>持久化记忆变量 (PERSIST BRIDGE)</span>
+              </div>
+              <Card className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {persistInfo.variables.map((v) => {
+                  const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
+                  const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
+                  const isOn = v.currentValue === '1'
+                  const isUpdating = updatingVar === v.name
+
+                  return (
+                    <div
+                      key={v.name}
+                      className="p-4 rounded-control bg-surface-2 border border-border hover:border-primary/40 transition-colors flex flex-col justify-between space-y-3.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-bold text-text tracking-wide">
+                              {v.alias || v.name}
+                            </span>
+                            {v.alias && v.alias !== v.name && (
+                              <span className="text-[11px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border">
+                                ${v.name}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingVar(v)
+                                setEditingAliasName(v.alias || v.name)
+                              }}
+                              title="自定义中文名称"
+                              className="p-1 text-text-muted hover:text-primary transition-colors rounded hover:bg-surface cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            {v.keybind && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-primary/10 text-primary border border-primary/20">
+                                {v.keybind}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10.5px] text-text-muted font-mono mt-0.5">
+                            来源: {v.iniFile} · 默认值: {v.defaultValue}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-[11px] text-text-muted font-mono">当前:</span>
+                          <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-md bg-surface text-primary border border-border shadow-xs">
+                            {v.currentValue}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Interactive Switch or Segmented Cycle */}
+                      <div className="flex items-center justify-between pt-2 border-t border-border">
+                        <span className="text-[11px] text-text-muted font-medium">
+                          调控档位:
+                        </span>
+
+                        {isBinary ? (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateVariable(v, isOn ? '0' : '1')}
+                            disabled={isUpdating}
+                            className={`flex items-center space-x-2 px-3 py-1.5 rounded-control text-xs font-semibold tracking-wide transition-colors cursor-pointer border ${
+                              isOn
+                                ? 'bg-primary text-primary-fg border-primary shadow-xs'
+                                : 'bg-surface text-text border-border hover:bg-surface-2'
+                            } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
+                          >
+                            {isOn ? (
+                              <>
+                                <ToggleRight className="w-4 h-4" />
+                                <span>已开启 (1)</span>
+                              </>
+                            ) : (
+                              <>
+                                <ToggleLeft className="w-4 h-4 text-text-muted" />
+                                <span>已关闭 (0)</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <div className="flex items-center space-x-1 flex-wrap gap-1">
+                            {allowed.map((val) => {
+                              const isCur = v.currentValue === val
+                              const label = v.valueLabels?.[val]
+                              return (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => handleUpdateVariable(v, val)}
+                                  disabled={isUpdating}
+                                  className={`px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer border ${
+                                    isCur
+                                      ? 'bg-primary text-primary-fg border-primary shadow-xs font-extrabold'
+                                      : 'bg-surface text-text hover:text-primary border-border hover:border-primary/40'
+                                  } ${isUpdating ? 'opacity-50' : ''}`}
+                                >
+                                  {label ? `${label} (${val})` : val}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </Card>
+            </div>
+          )}
+
+          {/* 子块 B: 快捷键触发与档位切换 (Author Hotkeys & Direct Value Selector) */}
+          {parsedHotkeys.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="text-[11px] font-bold text-text-muted flex items-center space-x-1.5 uppercase tracking-wider">
+                <Keyboard className="w-3 h-3 text-primary" />
+                <span>模组快捷键与档位切换 (KEYBINDS & TOGGLES)</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {parsedHotkeys.map((h, idx) => {
+                  const isTriggering = triggeringHotkey === h.name
+
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-control bg-surface-2 border border-border hover:border-primary/40 transition-colors flex flex-col justify-between space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2 truncate">
+                            <span className="text-xs font-bold text-text truncate">
+                              {h.chineseName || h.name}
+                            </span>
+                            {h.chineseName && h.chineseName !== h.name && (
+                              <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border shrink-0">
+                                {h.name}
+                              </span>
+                            )}
+                          </div>
+                          {(h.chineseDescription || (h.description && h.description !== h.name)) && (
+                            <div className="text-[11px] text-text-muted truncate mt-0.5">
+                              {h.chineseDescription || h.description}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Keys Badge */}
+                        <div className="flex items-center space-x-1 shrink-0">
+                          {h.keys.map((k, kIdx) => (
+                            <kbd
+                              key={kIdx}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-surface text-primary border border-border shadow-xs"
+                            >
+                              {k}
+                            </kbd>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Direct Value Selection Pills & Trigger Button */}
+                      <div className="flex items-center justify-between pt-2 border-t border-border gap-2">
+                        {h.allowedValues && h.allowedValues.length > 0 ? (
+                          <div className="flex items-center space-x-1 flex-wrap gap-1">
+                            <span className="text-[10.5px] text-text-muted font-medium mr-1">
+                              选定值:
+                            </span>
+                            {h.allowedValues.map((val) => {
+                              const isSelected = (h.currentValue ?? h.allowedValues?.[0]) === val
+                              const label =
+                                h.valueLabels?.[val] ||
+                                (h.allowedValues!.length === 2 && val === '0'
+                                  ? '关'
+                                  : h.allowedValues!.length === 2 && val === '1'
+                                  ? '开'
+                                  : val)
+                              return (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => handleSelectHotkeyVal(h, val)}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer border ${
+                                    isSelected
+                                      ? 'bg-primary text-primary-fg border-primary shadow-xs font-extrabold'
+                                      : 'bg-surface text-text hover:text-primary border-border hover:border-primary/40'
+                                  }`}
+                                  title={`直接切换设定值为: ${val}`}
+                                >
+                                  {label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-text-muted">单次触发按键</span>
+                        )}
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleTriggerHotkey(h)}
+                          disabled={isTriggering}
+                          className="text-xs text-primary hover:bg-primary/10 shrink-0 h-7 px-2.5 cursor-pointer"
+                          icon={<Play className={`w-3 h-3 fill-current ${isTriggering ? 'animate-spin' : ''}`} />}
+                          title="在游戏中模拟触发此按键"
+                        >
+                          模拟按键
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 若既无 Persist 也无 Hotkeys */}
+          {(!persistInfo || !persistInfo.hasPersist || persistInfo.variables.length === 0) && parsedHotkeys.length === 0 && (
+            <Card className="p-6 text-center border-dashed border-border flex flex-col items-center justify-center space-y-2">
+              <div className="p-3 rounded-full bg-surface-2 text-text-muted">
+                <Sliders className="w-5 h-5 opacity-40" />
+              </div>
+              <h4 className="text-xs font-semibold text-text">该模组无动态配置项</h4>
+              <p className="text-[11px] text-text-muted max-w-sm">
+                当前 Mod 属于静态模型/贴图替换，未在 INI 脚本中检测到快捷键或服装调控变量。
+              </p>
+            </Card>
+          )}
         </div>
 
         {/* 5. INI 配置文件查看器 */}
         {details.iniFiles && details.iniFiles.length > 0 && (
           <div className="space-y-3">
-            <h2 className="text-xs font-bold text-slate-800 tracking-wide uppercase flex items-center space-x-2">
-              <FileText className="w-4 h-4 text-blue-600" />
+            <h2 className="text-xs font-bold text-text tracking-wide uppercase flex items-center space-x-2">
+              <FileText className="w-4 h-4 text-primary" />
               <span>3DMIGOTO 配置脚本 ({details.iniFiles.length})</span>
             </h2>
 
-            <div className="bg-white border border-blue-100 rounded-3xl p-5 space-y-3 shadow-sm">
+            <Card className="p-5 space-y-3">
               {/* Tab Selector for INI files */}
-              <div className="flex items-center space-x-2 overflow-x-auto pb-1 porcelain-scrollbar-light">
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1">
                 {details.iniFiles.map((ini) => (
                   <button
                     key={ini.fullPath}
+                    type="button"
                     onClick={() => handleSelectIni(ini.fullPath)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-mono font-semibold transition ${
+                    className={`px-3 py-1.5 rounded-control text-xs font-mono font-semibold transition cursor-pointer border ${
                       selectedIni === ini.fullPath
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200'
+                        ? 'bg-primary text-primary-fg border-primary shadow-xs'
+                        : 'bg-surface-2 text-text-muted hover:text-text border-border'
                     }`}
                   >
                     {ini.name}
@@ -816,20 +1828,22 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   readOnly
                   value={iniContent}
                   rows={10}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 text-xs font-mono text-sky-200 leading-relaxed focus:outline-none resize-y selection:bg-blue-600 selection:text-white"
+                  className="w-full bg-surface-2 border border-border rounded-control p-4 text-xs font-mono text-text leading-relaxed focus:outline-none resize-y"
                 />
               </div>
-            </div>
+            </Card>
           </div>
         )}
       </div>
+    )}
+  </div>
 
       {/* Smart Crop Modal */}
       {isCropOpen && (
         <CropDialog
           isOpen={isCropOpen}
           onClose={() => setIsCropOpen(false)}
-          imageSrc={cropImageSrc || (activeImage ? `file://${activeImage.path}` : '')}
+          imageSrc={cropImageSrc || (activeImage ? toFileUrl(activeImage.path) : '')}
           modFullPath={modFullPath}
           characterName={details.characterName}
           modName={details.name}
@@ -838,6 +1852,91 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           }}
         />
       )}
+
+      {/* Delete Image Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteImageTarget}
+        onClose={() => setDeleteImageTarget(null)}
+        onConfirm={handleConfirmDeleteImage}
+        title="删除预览图"
+        variant="danger"
+        confirmText="确认删除"
+        cancelText="取消"
+      >
+        <p className="text-sm text-slate-300">
+          确定要从磁盘删除这张预览图吗？此操作无法撤销。
+        </p>
+      </Modal>
+
+      {/* Delete Mod Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModModal}
+        onClose={() => !deletingMod && setShowDeleteModModal(false)}
+        onConfirm={handleConfirmDeleteMod}
+        title="确认删除该模组？"
+        variant="danger"
+        confirmText={deletingMod ? "正在删除..." : "移入回收站"}
+        cancelText="取消"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-text leading-relaxed">
+            确定要删除模组 <strong className="text-primary font-bold font-mono">{details?.name}</strong> 吗？
+          </p>
+          <div className="p-3 rounded-control bg-surface-2 border border-border text-xs text-text-muted space-y-1 font-mono">
+            <div>角色：{details?.characterName}</div>
+            <div className="truncate">路径：{modFullPath}</div>
+          </div>
+          <p className="text-xs text-amber-500/90 flex items-center space-x-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span>模组文件将安全移至系统回收站，若误删可随时从回收站还原。</span>
+          </p>
+        </div>
+      </Modal>
+
+      {/* Move Mod Modal */}
+      {details && (
+        <MoveModModal
+          isOpen={showMoveModal}
+          onClose={() => setShowMoveModal(false)}
+          modName={details.name}
+          modFullPath={details.fullPath}
+          currentCharacter={details.characterName}
+          onSuccess={() => {
+            if (onDeleteSuccess) {
+              onDeleteSuccess()
+            } else {
+              onBack()
+            }
+          }}
+        />
+      )}
+
+      {/* Edit Variable Chinese Alias Modal */}
+      <Modal
+        isOpen={!!editingVar}
+        onClose={() => !savingAlias && setEditingVar(null)}
+        onConfirm={handleSaveVarAlias}
+        loading={savingAlias}
+        confirmText="保存名称"
+        cancelText="取消"
+        title="自定义配置项中文名称"
+        maxWidth="max-w-sm"
+      >
+        <div className="space-y-3 py-2">
+          <p className="text-xs text-text-muted leading-relaxed">
+            为原作者变量 <span className="font-mono text-primary font-bold">${editingVar?.name}</span> 设定直观易懂的中文别名。保存后将同步写入配置并在游戏内悬浮窗实时生效：
+          </p>
+          <Input
+            value={editingAliasName}
+            onChange={(e) => setEditingAliasName(e.target.value)}
+            placeholder="例如: 外套开关, 短发, 连裤袜..."
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSaveVarAlias()
+            }}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

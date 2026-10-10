@@ -29,12 +29,14 @@ import {
   Minus,
   Plus,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  FolderInput
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from '../components/Logo'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
 import { ModDetailedInfo, ModPersistVariable } from '../../core/types'
+import { MoveModModal } from '../components/MoveModModal'
 
 export const OverlayApp: React.FC = () => {
   const { theme, toggleTheme } = useTheme()
@@ -85,6 +87,7 @@ export const OverlayApp: React.FC = () => {
   const [activeModDetails, setActiveModDetails] = useState<ModDetailedInfo | null>(null)
   const [parsedHotkeys, setParsedHotkeys] = useState<ParsedHotkey[]>([])
   const [loadingHotkeys, setLoadingHotkeys] = useState<boolean>(false)
+  const [showMoveModal, setShowMoveModal] = useState<boolean>(false)
   const [markedMods, setMarkedMods] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('lz-marked-mods')
@@ -97,10 +100,70 @@ export const OverlayApp: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null)
   const lastGamepadInputTime = useRef<number>(0)
   const modListContainerRef = useRef<HTMLDivElement>(null)
+  const charStripRef = useRef<HTMLDivElement>(null)
+  const selectedCharBtnRef = useRef<HTMLButtonElement | null>(null)
+  const isDraggingCharStrip = useRef<boolean>(false)
+  const dragStartX = useRef<number>(0)
+  const dragScrollLeft = useRef<number>(0)
+  const dragDistance = useRef<number>(0)
+  const loadSeqRef = useRef<number>(0)
+  const detailLoadSeqRef = useRef<number>(0)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [isDraggingStrip, setIsDraggingStrip] = useState<boolean>(false)
+
+  // 角色胶囊条鼠标滚轮横向滚动（将滚轮 deltaY 转换为横向 scrollLeft）
+  const handleCharStripWheel = (e: React.WheelEvent) => {
+    if (!charStripRef.current) return
+    e.stopPropagation()
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+    charStripRef.current.scrollLeft += delta
+  }
+
+  // 角色胶囊条鼠标按住抓取拖拽滑动 (Drag to scroll)
+  const handleCharStripMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 || !charStripRef.current) return
+    isDraggingCharStrip.current = true
+    setIsDraggingStrip(true)
+    dragStartX.current = e.clientX
+    dragScrollLeft.current = charStripRef.current.scrollLeft
+    dragDistance.current = 0
+  }
+
+  const handleCharStripMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingCharStrip.current || !charStripRef.current) return
+    const dx = e.clientX - dragStartX.current
+    dragDistance.current += Math.abs(dx)
+    charStripRef.current.scrollLeft = dragScrollLeft.current - dx
+  }
+
+  const handleCharStripMouseUp = () => {
+    isDraggingCharStrip.current = false
+    setIsDraggingStrip(false)
+  }
+
+  const handleCharStripMouseLeave = () => {
+    isDraggingCharStrip.current = false
+    setIsDraggingStrip(false)
+  }
+
+  // 当选中角色改变时（快捷键/手柄LB-RB/点击），自动平滑滚动居中当前角色胶囊
+  useEffect(() => {
+    if (selectedCharBtnRef.current) {
+      selectedCharBtnRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center'
+      })
+    }
+  }, [selectedCharIndex])
 
   const showToast = (msg: string) => {
+    // 先清掉上一次的定时器，避免每次提示各自起 timer 互相掐灭
+    if (toastTimerRef.current !== null) {
+      clearTimeout(toastTimerRef.current)
+    }
     setToastMsg(msg)
-    setTimeout(() => setToastMsg(null), 2000)
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 2000)
   }
 
   // 监听主进程发送过来的悬浮窗 Toast 提示
@@ -113,24 +176,40 @@ export const OverlayApp: React.FC = () => {
     }
   }, [])
 
-  // 1. 初始化数据加载
-  const loadData = useCallback(async () => {
+  // 组件卸载时清理 toast 定时器
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        clearTimeout(toastTimerRef.current)
+      }
+    }
+  }, [])
+
+  // 1. 初始化及刷新数据加载（loadSeqRef 序号守卫：onGameChanged 与 onOverlayShown 并发触发时丢弃过期段）
+  const loadData = useCallback(async (forcedGameId?: string) => {
+    const seq = ++loadSeqRef.current
     try {
       const cfg = await window.lz.getConfig()
+      if (seq !== loadSeqRef.current) return
       setConfig(cfg)
-      const current = cfg.games.find((g: any) => g.id === cfg.activeGameId) || cfg.games[0]
+      const targetId = forcedGameId || cfg.activeGameId
+      const current = cfg.games.find((g: any) => g.id === targetId) || cfg.games[0]
       setActiveGame(current)
 
       const mods = await window.lz.scanMods()
+      if (seq !== loadSeqRef.current) return
       setModsData(mods || {})
       const charList = Object.keys(mods || {})
       setCharacters(charList)
 
       const presetData = await window.lz.getPresets()
+      if (seq !== loadSeqRef.current) return
       setPresets(presetData.presets || [])
       setActivePresetId(presetData.activePresetId || null)
 
-      const avatars = await window.lz.getCharacterAvatars?.()
+      const avatars = await window.lz.getCharacterAvatars?.(current?.id)
+      // 应用最终 state 前再校验一次序号
+      if (seq !== loadSeqRef.current) return
       if (avatars) setCharacterAvatars(avatars)
     } catch (err) {
       console.error('Failed to load overlay data:', err)
@@ -139,6 +218,27 @@ export const OverlayApp: React.FC = () => {
 
   useEffect(() => {
     loadData()
+
+    const unsubGame = window.lz.onGameChanged?.(async (data: any) => {
+      if (data && data.gameId) {
+        setSelectedCharIndex(0)
+        setFocusedModIndex(0)
+        setCharSearchQuery('')
+        setStatusFilter('all')
+        setActiveDetailMod(null)
+        setActiveModDetails(null)
+        await loadData(data.gameId)
+      }
+    })
+
+    const unsubShow = window.lz.onOverlayShown?.(async () => {
+      await loadData()
+    })
+
+    return () => {
+      unsubGame?.()
+      unsubShow?.()
+    }
   }, [loadData])
 
   // 显示的角色列表（支持过滤只看有 Mod 角色）
@@ -197,6 +297,20 @@ export const OverlayApp: React.FC = () => {
     localStorage.setItem('lz-overlay-only-in-game', next.toString())
     await window.lz.setOverlayOnlyInGame?.(next)
     showToast(next ? '已开启：仅在游戏前台显示' : '已关闭：可在任何窗口呼出')
+  }
+
+  // 📌 切换窗口置顶并同步到主进程（失败时回滚本地状态并提示）
+  const handleTogglePinned = async () => {
+    const nextValue = !isPinned
+    setIsPinned(nextValue)
+    showToast(nextValue ? '窗口已锁定置顶' : '窗口置顶已解除')
+    try {
+      await window.lz.setOverlayPinned(nextValue)
+    } catch (err) {
+      console.error('Failed to set overlay pinned:', err)
+      setIsPinned(!nextValue)
+      showToast('置顶状态设置失败')
+    }
   }
 
   // 组件挂载时自动同步上次保存的窗口缩放尺寸和仅游戏显示配置
@@ -311,26 +425,101 @@ export const OverlayApp: React.FC = () => {
     }
   }
 
-  // 打开 Mod 详情抽屉 (QAQ 侧滑详情)
+  // 打开 Mod 详情抽屉 (QAQ 侧滑详情, detailLoadSeqRef 序号守卫防止过期详情回写)
   const handleOpenDetail = async (mod: any) => {
+    const seq = ++detailLoadSeqRef.current
     setActiveDetailMod(mod)
+    // 打开新详情时重置旧详情状态
+    setActiveModDetails(null)
+    setParsedHotkeys([])
     setLoadingHotkeys(true)
     try {
       const details = await window.lz.getModDetails(mod.fullPath)
+      if (seq !== detailLoadSeqRef.current) return
       setActiveModDetails(details)
 
-      // 解析 INI 文件中的 KeyBind
+      // 解析 INI 文件中的 KeyBind（支持扫描所有相关 INI 文件）
       if (details?.iniFiles && details.iniFiles.length > 0) {
-        const fullContent = await window.lz.readIni(details.iniFiles[0].fullPath)
-        const hotkeys = parseIniHotkeys(fullContent)
-        setParsedHotkeys(hotkeys)
+        let allHotkeys: ParsedHotkey[] = []
+        for (const ini of details.iniFiles) {
+          try {
+            const content = await window.lz.readIni(ini.fullPath)
+            if (seq !== detailLoadSeqRef.current) return
+            const keys = parseIniHotkeys(content)
+            allHotkeys.push(...keys)
+          } catch (e) {
+            console.error('Failed to read/parse ini:', ini.fullPath, e)
+          }
+        }
+        // 去重
+        const seen = new Set<string>()
+        const uniqueHotkeys = allHotkeys.filter((item) => {
+          const sig = `${item.name}-${item.keys.join('+')}`
+          if (seen.has(sig)) return false
+          seen.add(sig)
+          return true
+        })
+
+        // 智能关联 PersistBridge 变量与当前生效值，并合并元数据翻译
+        const vAliases = details?.metadata?.variableAliases || {}
+        const hTrans = details?.metadata?.hotkeyTranslations || {}
+        const vLabels = details?.metadata?.valueLabels || {}
+
+        if (details?.persistInfo?.variables) {
+          for (const h of uniqueHotkeys) {
+            const hVar = h.variable?.toLowerCase()
+            const pv = details.persistInfo.variables.find(
+              (v) => (hVar && v.canonicalName.toLowerCase() === hVar) || v.name.toLowerCase() === h.name.toLowerCase()
+            )
+            if (pv) {
+              h.currentValue = pv.currentValue
+              if (pv.alias) h.chineseName = pv.alias
+              if (!h.allowedValues || h.allowedValues.length === 0) {
+                h.allowedValues = pv.allowedValues
+              }
+              if (pv.valueLabels) {
+                h.valueLabels = { ...(h.valueLabels || {}), ...pv.valueLabels }
+              }
+            } else if (h.allowedValues && h.allowedValues.length > 0 && !h.currentValue) {
+              h.currentValue = h.allowedValues[0]
+            }
+
+            // 合并外部自定义与持久化翻译
+            if (hTrans[h.name]) h.chineseName = hTrans[h.name]
+            if (h.variable && vAliases[h.variable]) h.chineseName = vAliases[h.variable]
+            if (h.description && hTrans[h.description]) h.chineseDescription = hTrans[h.description]
+            const varLabelMap = (h.variable && vLabels[h.variable]) || {}
+            if (Object.keys(varLabelMap).length > 0) {
+              h.valueLabels = { ...(h.valueLabels || {}), ...varLabelMap }
+            }
+          }
+        } else {
+          for (const h of uniqueHotkeys) {
+            if (h.allowedValues && h.allowedValues.length > 0 && !h.currentValue) {
+              h.currentValue = h.allowedValues[0]
+            }
+            if (hTrans[h.name]) h.chineseName = hTrans[h.name]
+            if (h.variable && vAliases[h.variable]) h.chineseName = vAliases[h.variable]
+            if (h.description && hTrans[h.description]) h.chineseDescription = hTrans[h.description]
+            const varLabelMap = (h.variable && vLabels[h.variable]) || {}
+            if (Object.keys(varLabelMap).length > 0) {
+              h.valueLabels = { ...(h.valueLabels || {}), ...varLabelMap }
+            }
+          }
+        }
+
+        setParsedHotkeys(uniqueHotkeys)
       } else {
         setParsedHotkeys([])
       }
     } catch (err) {
+      // 失败分支同样先比对序号：过期请求的错误不做任何处理
+      if (seq !== detailLoadSeqRef.current) return
       console.error('Failed to load detail for overlay:', err)
     } finally {
-      setLoadingHotkeys(false)
+      if (seq === detailLoadSeqRef.current) {
+        setLoadingHotkeys(false)
+      }
     }
   }
 
@@ -358,9 +547,90 @@ export const OverlayApp: React.FC = () => {
           }
         }
       })
+
+      // 同时联动同步 parsedHotkeys 对应变量的当前值
+      setParsedHotkeys((prev) =>
+        prev.map((item) => {
+          const isMatch =
+            (item.variable && item.variable.toLowerCase() === v.canonicalName.toLowerCase()) ||
+            item.name.toLowerCase() === v.name.toLowerCase()
+          return isMatch ? { ...item, currentValue: nextVal! } : item
+        })
+      )
+
       showToast(`已更新 $${v.name} = ${nextVal}`)
     } catch {
       showToast('更新参数失败')
+    }
+  }
+
+  // 直接选择快捷键的设定数值（免去盲目多次单步循环点击）
+  const handleSelectHotkeyVal = async (h: ParsedHotkey, targetVal: string) => {
+    // 1. 如果匹配到 Persist Bridge 持久化变量，优先直接通过持久化通道精准写入并热刷新
+    const hVar = h.variable?.toLowerCase()
+    const pv = activeModDetails?.persistInfo?.variables?.find(
+      (v) => (hVar && v.canonicalName.toLowerCase() === hVar) || v.name.toLowerCase() === h.name.toLowerCase()
+    )
+
+    if (pv) {
+      await handleUpdatePersistVar(pv, targetVal)
+      setParsedHotkeys((prev) =>
+        prev.map((item) => (item === h || item.name === h.name ? { ...item, currentValue: targetVal } : item))
+      )
+      showToast(`已直接设定 [${h.name}] = ${targetVal}`)
+      return
+    }
+
+    // 2. 如果非持久化变量，而是通过游戏内快捷键循环切换：计算步进差额并连续触发按键
+    if (h.allowedValues && h.allowedValues.length > 1) {
+      const currVal = h.currentValue || h.allowedValues[0]
+      const currIdx = h.allowedValues.indexOf(currVal)
+      const targetIdx = h.allowedValues.indexOf(targetVal)
+
+      if (currIdx >= 0 && targetIdx >= 0) {
+        const steps = (targetIdx - currIdx + h.allowedValues.length) % h.allowedValues.length
+        if (steps > 0) {
+          showToast(`正在切换至设定值 ${targetVal}...`)
+          for (let s = 0; s < steps; s++) {
+            await window.lz.triggerHotkey(h.keys, activeGame?.processName)
+            if (s < steps - 1) await new Promise((r) => setTimeout(r, 60))
+          }
+        }
+        setParsedHotkeys((prev) =>
+          prev.map((item) => (item === h || item.name === h.name ? { ...item, currentValue: targetVal } : item))
+        )
+        showToast(`已切换 [${h.name}] 至设定值: ${targetVal}`)
+        return
+      }
+    }
+
+    // 兜底直接发送一次按键
+    await handleTriggerHotkey(h)
+  }
+
+  // 点击快捷键卡片向游戏窗口触发对应按键
+  const handleTriggerHotkey = async (h: ParsedHotkey) => {
+    if (h.keys.some((k) => k.includes('🎮'))) {
+      showToast('手柄按键请直接使用游戏手柄操作')
+      return
+    }
+    if (h.keys.some((k) => k.includes('鼠标') || k.includes('键') || k.includes('Button'))) {
+      showToast('鼠标类按键请直接在游戏中使用鼠标操作')
+      return
+    }
+
+    try {
+      showToast(`正在发送 [${h.keys.join(' + ')}]...`)
+      const procName = activeGame?.processName || ''
+      const ok = await window.lz.triggerHotkey(h.keys, procName)
+      if (ok) {
+        showToast(`已触发快捷键 [${h.keys.join(' + ')}]`)
+      } else {
+        showToast(`已向系统发送 [${h.keys.join(' + ')}]`)
+      }
+    } catch (err) {
+      console.error('Trigger hotkey error:', err)
+      showToast('触发快捷键失败')
     }
   }
 
@@ -386,6 +656,12 @@ export const OverlayApp: React.FC = () => {
   // 快捷键监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 输入控件聚焦时（搜索框/输入框/可编辑区域）不触发全局快捷键，避免误触
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        if (e.key === 'Escape') target.blur()
+        return
+      }
       if (e.key === 'Escape') {
         if (activeDetailMod) {
           setActiveDetailMod(null)
@@ -415,6 +691,7 @@ export const OverlayApp: React.FC = () => {
           handleToggleMod(currentMods[focusedModIndex])
         }
       } else if (e.key === 'F10') {
+        e.preventDefault()
         handleReloadF10()
       }
     }
@@ -525,13 +802,15 @@ export const OverlayApp: React.FC = () => {
             backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 70)}%, transparent)`
           }}
         >
-          <div className="flex items-center space-x-2 no-drag">
-            <div className="rounded-[6px] shadow-xs overflow-hidden">
+          <div className="flex items-center space-x-2 no-drag min-w-0">
+            <div className="rounded-[6px] shadow-xs overflow-hidden shrink-0">
               <Logo size={20} />
             </div>
-            <span className="font-title font-extrabold text-xs tracking-tight text-text">
-              Mod 切换
-            </span>
+            <div className="flex items-center min-w-0">
+              <span className="font-title font-extrabold text-xs tracking-tight text-text truncate max-w-[160px]" title={activeGame?.name || 'Mod 切换'}>
+                {activeGame?.name || 'Mod 切换'}
+              </span>
+            </div>
           </div>
 
           {/* 右侧操作按钮组 */}
@@ -581,10 +860,7 @@ export const OverlayApp: React.FC = () => {
             {/* 📌 锁定置顶按钮 */}
             <button
               type="button"
-              onClick={() => {
-                setIsPinned(!isPinned)
-                showToast(isPinned ? '窗口置顶已解除' : '窗口已锁定置顶')
-              }}
+              onClick={handleTogglePinned}
               className={`p-1.5 rounded-md border transition-colors cursor-pointer text-[11px] ${
                 isPinned
                   ? 'bg-primary/15 text-primary border-primary/40 shadow-2xs font-bold'
@@ -628,10 +904,10 @@ export const OverlayApp: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. 角色胶囊滚动条 (QAQ char-strip: ☰ 气泡按钮 + 横向胶囊条 + ♥ 收藏 + 🎯 过滤) */}
+        {/* 2. 角色胶囊滚动条 (QAQ char-strip: ☰ 气泡按钮 + ◀ 横向胶囊条 ▶ + ♥ 收藏 + 🎯 过滤) */}
         <div
-          onWheel={(e) => { e.currentTarget.scrollLeft += e.deltaY }}
-          className="px-3 py-1.5 border-b border-border/50 flex items-center space-x-1.5 overflow-x-auto shrink-0 scrollbar-none"
+          onWheel={handleCharStripWheel}
+          className="px-2.5 py-1.5 border-b border-border/50 flex items-center space-x-1 shrink-0 select-none"
           style={{
             backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 50)}%, transparent)`
           }}
@@ -640,7 +916,7 @@ export const OverlayApp: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsCharDrawerOpen(!isCharDrawerOpen)}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all shrink-0 cursor-pointer shadow-2xs ${
+            className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all shrink-0 cursor-pointer shadow-2xs mr-0.5 ${
               isCharDrawerOpen
                 ? 'bg-primary text-primary-fg border-primary shadow-xs'
                 : 'bg-surface-2/80 text-text hover:bg-surface border-border/80'
@@ -650,8 +926,28 @@ export const OverlayApp: React.FC = () => {
             <Menu className="w-3.5 h-3.5" />
           </button>
 
-          {/* 角色横向滚动胶囊 */}
-          <div className="flex items-center space-x-1 flex-1 overflow-x-auto scrollbar-none">
+          {/* ◀ 左滚动微调按钮 */}
+          <button
+            type="button"
+            onClick={() => charStripRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
+            className="w-4 h-7 rounded hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+            title="向左滚动角色列表"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+
+          {/* 角色横向滚动胶囊容器 (支持鼠标滚轮横滑 + 按住抓取平滑拖动) */}
+          <div
+            ref={charStripRef}
+            onWheel={handleCharStripWheel}
+            onMouseDown={handleCharStripMouseDown}
+            onMouseMove={handleCharStripMouseMove}
+            onMouseUp={handleCharStripMouseUp}
+            onMouseLeave={handleCharStripMouseLeave}
+            className={`flex items-center space-x-1 flex-1 overflow-x-auto scrollbar-none scroll-smooth ${
+              isDraggingStrip ? 'cursor-grabbing' : 'cursor-grab'
+            }`}
+          >
             {displayCharacters.map((charName, idx) => {
               const isSelected = idx === selectedCharIndex
               const mods = modsData[charName] || []
@@ -660,20 +956,22 @@ export const OverlayApp: React.FC = () => {
               return (
                 <button
                   key={charName}
+                  ref={isSelected ? selectedCharBtnRef : undefined}
                   type="button"
                   onClick={() => {
+                    if (dragDistance.current > 6) return
                     setSelectedCharIndex(idx)
                     setFocusedModIndex(0)
                   }}
-                  className={`px-2.5 py-1 rounded-[6px] text-[11px] font-semibold shrink-0 flex items-center space-x-1.5 transition-all cursor-pointer border ${
+                  className={`px-2.5 py-1 rounded-[6px] text-[11px] font-semibold shrink-0 flex items-center space-x-1.5 transition-all border ${
                     isSelected
                       ? 'bg-surface text-primary border-primary/50 shadow-xs ring-1 ring-primary/20 font-bold'
                       : 'bg-surface-2/60 text-text-muted hover:text-text hover:bg-surface border-transparent'
                   }`}
                 >
-                  <span className="font-title font-bold tracking-wide truncate max-w-[80px]">{charName}</span>
+                  <span className="font-title font-bold tracking-wide truncate max-w-[80px] pointer-events-none">{charName}</span>
                   <span
-                    className={`text-[9px] font-mono px-1 py-0.2 rounded-full font-bold ${
+                    className={`text-[9px] font-mono px-1 py-0.2 rounded-full font-bold pointer-events-none ${
                       isSelected
                         ? 'bg-primary text-primary-fg'
                         : enabledCount > 0
@@ -687,6 +985,16 @@ export const OverlayApp: React.FC = () => {
               )
             })}
           </div>
+
+          {/* ▶ 右滚动微调按钮 */}
+          <button
+            type="button"
+            onClick={() => charStripRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
+            className="w-4 h-7 rounded hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors mr-0.5"
+            title="向右滚动角色列表"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
 
           {/* ♥ 收藏过滤按钮 */}
           <button
@@ -1109,24 +1417,36 @@ export const OverlayApp: React.FC = () => {
                 </span>
               </div>
 
-              {/* 标记按钮 (QAQ detailMarkBtn) */}
-              <button
-                type="button"
-                onClick={() => handleToggleMark(activeDetailMod.fullPath)}
-                className={`w-full py-2 rounded-[10px] text-xs font-bold border transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs ${
-                  markedMods[activeDetailMod.fullPath]
-                    ? 'bg-amber-500 text-white border-amber-500'
-                    : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/80'
-                }`}
-              >
-                <span>{markedMods[activeDetailMod.fullPath] ? '🏷️ 取消标记' : '🔖 标记此 Mod'}</span>
-              </button>
+              {/* 标记按钮 + 移动到其他角色 (QAQ Actions) */}
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleToggleMark(activeDetailMod.fullPath)}
+                  className={`py-2 rounded-[10px] text-xs font-bold border transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs ${
+                    markedMods[activeDetailMod.fullPath]
+                      ? 'bg-amber-500 text-white border-amber-500'
+                      : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/80'
+                  }`}
+                >
+                  <span>{markedMods[activeDetailMod.fullPath] ? '🏷️ 取消标记' : '🔖 标记此 Mod'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMoveModal(true)}
+                  className="py-2 rounded-[10px] text-xs font-semibold border border-border/80 bg-surface hover:bg-surface-2 text-text-muted hover:text-text transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs"
+                  title="将该模组移动到其他角色分类"
+                >
+                  <FolderInput className="w-3.5 h-3.5 text-primary" />
+                  <span>移动分类</span>
+                </button>
+              </div>
 
               {/* ⌨️ 快捷键分区 (QAQ detail-hotkey-section) */}
               <div className="space-y-1.5 pt-1">
                 <div className="text-[11px] font-bold text-text flex items-center space-x-1">
                   <span>⌨️</span>
-                  <span>快捷键</span>
+                  <span>快捷键与设定值</span>
                 </div>
 
                 {loadingHotkeys ? (
@@ -1138,27 +1458,95 @@ export const OverlayApp: React.FC = () => {
                     无专属按键 (可通过游戏原生快捷键控制)
                   </div>
                 ) : (
-                  <div className="space-y-1">
-                    {parsedHotkeys.map((h, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => showToast(`快捷键 [${h.keys.join('+')}]`)}
-                        className="p-2 rounded-[8px] bg-surface-2/60 hover:bg-surface border border-border/60 flex items-center justify-between text-xs transition-colors cursor-pointer"
-                        title="点击查看快捷键提示"
-                      >
-                        <span className="font-semibold text-[11px] text-text truncate mr-2">
-                          {h.name}
-                        </span>
+                  <div className="space-y-1.5">
+                    {parsedHotkeys.map((h, idx) => {
+                      const isGamepad = h.keys.some((k) => k.includes('🎮'))
+                      const isMouse = h.keys.some((k) => k.includes('鼠标') || k.includes('键'))
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => handleTriggerHotkey(h)}
+                          className="p-2 rounded-[8px] bg-surface-2/60 hover:bg-surface hover:border-primary/50 border border-border/60 text-xs transition-all cursor-pointer active:scale-[0.99] select-none group"
+                          title={
+                            isGamepad
+                              ? `${h.name} (手柄按键，请使用手柄触发)`
+                              : isMouse
+                              ? `${h.name} (鼠标按键，请在游戏中使用鼠标操作)`
+                              : `点击向游戏发送 [${h.keys.join(' + ')}]`
+                          }
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0 mr-2 flex flex-col">
+                              <div className="flex items-center space-x-1.5 truncate">
+                                <span className="font-semibold text-[11px] text-text group-hover:text-primary transition-colors truncate">
+                                  {h.chineseName || h.name}
+                                </span>
+                                {h.chineseName && h.chineseName !== h.name && (
+                                  <span className="text-[9px] font-mono text-text-muted bg-surface/80 px-1 py-0.2 rounded border border-border/40 shrink-0">
+                                    {h.name}
+                                  </span>
+                                )}
+                              </div>
+                              {(h.chineseDescription || (h.description && h.description !== h.name)) && (
+                                <span className="text-[9.5px] text-text-muted truncate max-w-[190px]">
+                                  {h.chineseDescription || h.description}
+                                </span>
+                              )}
+                            </div>
 
-                        <div className="flex items-center space-x-1 shrink-0">
-                          {h.keys.map((k, kIdx) => (
-                            <kbd key={kIdx} className="detail-kbd">
-                              {k}
-                            </kbd>
-                          ))}
+                            <div className="flex items-center space-x-1 shrink-0">
+                              {h.keys.map((k, kIdx) => (
+                                <kbd key={kIdx} className="detail-kbd group-hover:border-primary/40 transition-colors">
+                                  {k}
+                                </kbd>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 作者设置的直接数值选项行 (可直接点击选定值) */}
+                          {h.allowedValues && h.allowedValues.length > 0 && (
+                            <div
+                              className="mt-1.5 pt-1.5 border-t border-border/40 flex items-center justify-between"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="text-[10px] text-text-muted shrink-0 mr-1.5 flex items-center space-x-1">
+                                <SlidersHorizontal className="w-2.5 h-2.5 text-primary" />
+                                <span>设定值:</span>
+                              </span>
+
+                              <div className="flex items-center space-x-1 overflow-x-auto scrollbar-none py-0.5">
+                                {h.allowedValues.map((val) => {
+                                  const isSelected = (h.currentValue ?? h.allowedValues?.[0]) === val
+                                  const label =
+                                    h.valueLabels?.[val] ||
+                                    (h.allowedValues!.length === 2 && val === '0'
+                                      ? '关'
+                                      : h.allowedValues!.length === 2 && val === '1'
+                                      ? '开'
+                                      : val)
+
+                                  return (
+                                    <button
+                                      key={val}
+                                      type="button"
+                                      onClick={() => handleSelectHotkeyVal(h, val)}
+                                      className={`px-2 py-0.5 rounded-[5px] text-[10px] font-mono font-bold shrink-0 border transition-all cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-primary text-primary-fg border-primary shadow-2xs font-extrabold'
+                                          : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/70'
+                                      }`}
+                                      title={`直接设定为: ${val}`}
+                                    >
+                                      {label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -1183,8 +1571,17 @@ export const OverlayApp: React.FC = () => {
                           className="p-2 rounded-[8px] bg-surface-2/60 border border-border/60 flex items-center justify-between text-xs"
                         >
                           <div>
-                            <span className="font-mono font-bold text-[11px] text-text">${v.name}</span>
-                            <span className="text-[10px] text-text-muted ml-1.5">值: {v.currentValue}</span>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-bold text-[11px] text-text">
+                                {v.alias || v.name}
+                              </span>
+                              {v.alias && v.alias !== v.name && (
+                                <span className="font-mono text-[9px] text-text-muted bg-surface/70 px-1 rounded border border-border/40">
+                                  ${v.name}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-text-muted">当前值: {v.currentValue}</span>
                           </div>
 
                           {isBinary ? (
@@ -1201,20 +1598,24 @@ export const OverlayApp: React.FC = () => {
                             </button>
                           ) : (
                             <div className="flex items-center space-x-1">
-                              {allowed.map((val) => (
-                                <button
-                                  key={val}
-                                  type="button"
-                                  onClick={() => handleUpdatePersistVar(v, val)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer border ${
-                                    v.currentValue === val
-                                      ? 'bg-primary text-primary-fg border-primary'
-                                      : 'bg-surface text-text hover:text-primary border-border'
-                                  }`}
-                                >
-                                  {val}
-                                </button>
-                              ))}
+                              {allowed.map((val) => {
+                                const isCur = v.currentValue === val
+                                const label = v.valueLabels?.[val] || val
+                                return (
+                                  <button
+                                    key={val}
+                                    type="button"
+                                    onClick={() => handleUpdatePersistVar(v, val)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border transition-all ${
+                                      isCur
+                                        ? 'bg-primary text-primary-fg border-primary shadow-2xs font-extrabold'
+                                        : 'bg-surface text-text hover:text-primary border-border'
+                                    }`}
+                                  >
+                                    {label}
+                                  </button>
+                                )
+                              })}
                             </div>
                           )}
                         </div>
@@ -1393,6 +1794,38 @@ export const OverlayApp: React.FC = () => {
                 />
               </div>
 
+              {/* 当前关联游戏 (智能跟随或手动切换) */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-text">当前关联游戏</div>
+                  <span className="text-[10px] text-text-muted">前台智能识别跟随</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(config?.games || []).map((g: any) => {
+                    const isCur = activeGame?.id === g.id
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={async () => {
+                          await window.lz.setActiveGame(g.id)
+                          await loadData(g.id)
+                          showToast(`已切换至: ${g.name}`)
+                        }}
+                        className={`p-2 rounded-[8px] border text-left flex items-center space-x-1.5 transition-all cursor-pointer ${
+                          isCur
+                            ? 'bg-primary/15 border-primary text-primary font-bold shadow-2xs ring-1 ring-primary/30'
+                            : 'bg-surface hover:bg-surface-2 border-border/80 text-text-muted hover:text-text'
+                        }`}
+                      >
+                        <span className="text-xs truncate flex-1">{g.shortName || g.name}</span>
+                        {isCur && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               {/* 唤出热键提示 */}
               <div className="space-y-1">
                 <div className="font-bold text-text">呼出/隐藏快捷键</div>
@@ -1426,6 +1859,26 @@ export const OverlayApp: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* 模组移动分类弹窗 */}
+        {activeDetailMod && (
+          <MoveModModal
+            isOpen={showMoveModal}
+            onClose={() => setShowMoveModal(false)}
+            modName={activeDetailMod.name}
+            modFullPath={activeDetailMod.fullPath}
+            currentCharacter={currentChar}
+            onToast={showToast}
+            onSuccess={async () => {
+              setActiveDetailMod(null)
+              setShowMoveModal(false)
+              if (activeGame?.id) {
+                await loadData(activeGame.id)
+              }
+              showToast('模组已成功移动到新角色')
+            }}
+          />
         )}
       </div>
     </div>

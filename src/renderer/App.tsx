@@ -7,8 +7,10 @@ import { PresetsPage } from './pages/PresetsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ImportModal } from './components/ImportModal'
 import { UploadCloud } from 'lucide-react'
+import { useToast } from './components/ui/Toast'
 
 export default function App() {
+  const toast = useToast()
   const [activeTab, setActiveTab] = useState<string>('mods')
   const [selectedModPath, setSelectedModPath] = useState<string | null>(null)
   const [config, setConfig] = useState<any>(null)
@@ -17,6 +19,8 @@ export default function App() {
   const [loadingMods, setLoadingMods] = useState<boolean>(false)
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false)
   const [importTarget, setImportTarget] = useState<{ archivePath: string; inspection: any } | null>(null)
+  const [marketInitialModId, setMarketInitialModId] = useState<number | null>(null)
+  const [marketInitialSearch, setMarketInitialSearch] = useState<string>('')
 
   // 1. 初始化读取配置
   const loadConfig = useCallback(async () => {
@@ -53,55 +57,107 @@ export default function App() {
     }
   }, [activeGame, scanMods])
 
+  // 当主窗口重新激活聚焦时，自动同步最新的 Mod 扫描结果（如悬浮窗切换了 Mod）
+  useEffect(() => {
+    const handleFocus = () => {
+      if (activeGame) {
+        scanMods()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [activeGame, scanMods])
+
+  // 监听前台游戏智能跟随切换事件，主界面实时同步更新游戏及配置
+  useEffect(() => {
+    const unsub = window.flairx.onGameChanged?.(async (data: any) => {
+      if (data && data.game) {
+        setSelectedModPath(null)
+        setActiveGame(data.game)
+        await loadConfig()
+      }
+    })
+    return () => {
+      unsub?.()
+    }
+  }, [loadConfig])
+
   // 全局本地压缩包拖拽导入监听 (.zip / .7z / .rar)
   useEffect(() => {
-    const handleDragOver = (e: DragEvent) => {
+    // 穿过子元素时 dragenter/dragleave 会成对触发，用计数器避免遮罩闪烁
+    let dragDepth = 0
+
+    const handleDragEnter = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+        dragDepth += 1
         setIsDraggingFile(true)
       }
+    }
+
+    const handleDragOver = (e: DragEvent) => {
+      // 必须持续阻止默认行为，否则浏览器不会触发 drop
+      e.preventDefault()
+      e.stopPropagation()
     }
 
     const handleDragLeave = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
+      dragDepth = Math.max(0, dragDepth - 1)
+      if (dragDepth === 0) {
+        setIsDraggingFile(false)
+      }
+    }
+
+    const resetDragging = () => {
+      dragDepth = 0
       setIsDraggingFile(false)
     }
 
     const handleDrop = async (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      setIsDraggingFile(false)
+      resetDragging()
 
       if (e.dataTransfer && e.dataTransfer.files.length > 0) {
         const file = e.dataTransfer.files[0]
-        const filePath = (file as any).path
-        if (filePath && filePath.match(/\.(zip|7z|rar)$/i)) {
+        // Electron 32+ 已移除 File.path，必须经 webUtils 获取真实路径
+        const filePath = window.lz?.getPathForFile?.(file) || ''
+        if (!filePath) {
+          toast.error('无法获取拖入文件路径')
+          return
+        }
+        if (filePath.match(/\.(zip|7z|rar)$/i)) {
           try {
             const inspection = await window.lz.inspectArchive(filePath)
             if (inspection.valid) {
               setImportTarget({ archivePath: filePath, inspection })
             } else {
-              alert(`无法解析该压缩包: ${inspection.error}`)
+              toast.error('解析压缩包失败', inspection.error)
             }
           } catch (err: any) {
-            alert(`检查压缩包失败: ${err.message}`)
+            toast.error('检查压缩包失败', err.message)
           }
         }
       }
     }
 
+    window.addEventListener('dragenter', handleDragEnter)
     window.addEventListener('dragover', handleDragOver)
     window.addEventListener('dragleave', handleDragLeave)
+    window.addEventListener('dragend', resetDragging)
     window.addEventListener('drop', handleDrop)
 
     return () => {
+      window.removeEventListener('dragenter', handleDragEnter)
       window.removeEventListener('dragover', handleDragOver)
       window.removeEventListener('dragleave', handleDragLeave)
+      window.removeEventListener('dragend', resetDragging)
       window.removeEventListener('drop', handleDrop)
     }
-  }, [])
+  }, [toast])
 
   // 切换游戏
   const handleSelectGame = async (gameId: string) => {
@@ -116,23 +172,46 @@ export default function App() {
     if (res.success) {
       await scanMods()
     } else {
-      alert(`切换失败: ${res.error || '未知错误'}`)
+      toast.error('切换模组状态失败', res.error || '未知错误')
     }
   }
 
+  const [launchingGame, setLaunchingGame] = useState<boolean>(false)
+
   // 启动游戏
   const handleLaunchGame = async () => {
-    const res = await window.flairx.launchGame()
-    if (!res.success) {
-      alert(`启动游戏失败: ${res.error}`)
+    if (launchingGame) return
+    setLaunchingGame(true)
+    try {
+      toast.info('正在唤起游戏...', activeGame ? `模式: ${activeGame.launchMode || '自动'} · ${activeGame.name}` : undefined)
+      const res = await window.flairx.launchGame()
+      if (res && res.success) {
+        toast.success(
+          '启动指令已下发',
+          activeGame ? `正在调起 ${activeGame.name}，请留意任务栏与游戏窗口` : '请留意系统任务栏与游戏窗口'
+        )
+      } else {
+        toast.error('启动游戏失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('启动异常', err?.message || '未知错误')
+    } finally {
+      setTimeout(() => setLaunchingGame(false), 2000)
     }
   }
 
   // 启动 XXMI 加载器
   const handleLaunchLoader = async () => {
-    const res = await window.flairx.launchLoader()
-    if (!res.success) {
-      alert(`启动加载器失败: ${res.error}`)
+    try {
+      toast.info('正在唤起加载器...', '调起独立图形界面')
+      const res = await window.flairx.launchLoader()
+      if (res && res.success) {
+        toast.success('加载器已调起')
+      } else {
+        toast.error('启动加载器失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('调起加载器异常', err?.message || '未知错误')
     }
   }
 
@@ -151,7 +230,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-porcelain-light text-slate-800 font-sans antialiased overflow-hidden select-none">
+    <div className="h-screen w-screen flex flex-col bg-bg text-text bg-cloud-pattern font-sans antialiased overflow-hidden select-none">
       <Header
         activeTab={activeTab}
         setActiveTab={(tab) => {
@@ -160,6 +239,8 @@ export default function App() {
         }}
         activeGame={activeGame}
         games={config?.games || []}
+        closeAction={config?.closeAction || 'quit'}
+        launchingGame={launchingGame}
         onSelectGame={handleSelectGame}
         onLaunchGame={handleLaunchGame}
         onLaunchLoader={handleLaunchLoader}
@@ -171,9 +252,22 @@ export default function App() {
           (selectedModPath ? (
             <ModDetailPage
               modFullPath={selectedModPath}
-              onBack={() => setSelectedModPath(null)}
+              onBack={() => {
+                setSelectedModPath(null)
+                scanMods()
+              }}
+              onDeleteSuccess={() => {
+                setSelectedModPath(null)
+                scanMods()
+              }}
               onToggleActive={async (char, mod, state) => {
                 await handleToggleMod(char, mod, state)
+              }}
+              onNavigateToMarket={(modId, searchKeyword) => {
+                setSelectedModPath(null)
+                setMarketInitialModId(modId || null)
+                setMarketInitialSearch(searchKeyword || '')
+                setActiveTab('gamebanana')
               }}
             />
           ) : (
@@ -192,6 +286,12 @@ export default function App() {
           <GameBananaPage
             activeGame={activeGame}
             onInstallSuccess={scanMods}
+            initialModId={marketInitialModId}
+            initialSearchTerm={marketInitialSearch}
+            onClearInitialNav={() => {
+              setMarketInitialModId(null)
+              setMarketInitialSearch('')
+            }}
           />
         )}
 
@@ -215,20 +315,20 @@ export default function App() {
         )}
       </div>
 
-      {/* Full-screen Drag Overlay (Porcelain Glass File Ingestion) */}
+      {/* Full-screen Drag Overlay */}
       {isDraggingFile && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-2xl border-4 border-dashed border-blue-500 m-4 rounded-3xl flex flex-col items-center justify-center space-y-4 pointer-events-none animate-in fade-in duration-200 shadow-2xl">
-          <div className="p-6 rounded-3xl bg-white text-blue-600 border border-blue-200 shadow-xl">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xl border-4 border-dashed border-primary m-4 rounded-card flex flex-col items-center justify-center space-y-4 pointer-events-none animate-in fade-in duration-fast shadow-2xl">
+          <div className="p-6 rounded-card bg-surface text-primary border border-border shadow-xl">
             <UploadCloud className="w-14 h-14 animate-bounce stroke-[2]" />
           </div>
-          <div className="text-center bg-white/90 backdrop-blur-md px-8 py-4 rounded-2xl shadow-lg border border-blue-100">
-            <div className="text-xs font-mono tracking-widest text-blue-600 uppercase font-bold mb-1">
+          <div className="text-center bg-surface/90 backdrop-blur-md px-8 py-4 rounded-card shadow-lg border border-border">
+            <div className="text-xs font-mono tracking-widest text-primary uppercase font-bold mb-1">
               // MOD ARCHIVE IMPORT //
             </div>
-            <h3 className="text-2xl font-bold text-slate-800 tracking-wide">
+            <h3 className="text-2xl font-bold text-text tracking-wide">
               释放以导入 MOD 压缩包
             </h3>
-            <p className="text-xs text-slate-600 mt-1 font-medium">
+            <p className="text-xs text-text-muted mt-1 font-medium">
               支持 .ZIP / .7Z / .RAR 格式 · 智能识别角色与 3DMigoto 映射
             </p>
           </div>

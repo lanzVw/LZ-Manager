@@ -1,0 +1,9 @@
+<svg viewBox="0 0 64 64" width="64" height="64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="LZ Manager logo">
+  <rect width="64" height="64" rx="16" fill="#1F4FC4"/>
+  <rect x="3" y="3" width="58" height="58" rx="13" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1"/>
+  <g transform="translate(-0.75 0.5)">
+    <path d="M17 13V50.5" fill="none" stroke="#FFFFFF" stroke-width="7.5" stroke-linecap="round"/>
+    <path d="M18.60 53.89L20.09 53.00L21.66 52.10L23.29 51.21L24.97 50.33L26.71 49.47L28.49 48.62L30.30 47.79L32.15 46.99L34.01 46.23L35.90 45.49L37.79 44.80L39.68 44.14L41.57 43.54L43.45 42.99L45.32 42.50L47.16 42.09L47.69 41.86L48.02 41.40L48.09 40.84L47.86 40.31L47.40 39.98L46.84 39.91L44.90 40.12L42.92 40.36L40.92 40.64L38.90 40.96L36.86 41.33L34.81 41.73L32.77 42.16L30.73 42.63L28.70 43.13L26.69 43.65L24.71 44.19L22.76 44.75L20.85 45.32L18.98 45.91L17.17 46.50L15.40 47.11Z" fill="#FFFFFF"/>
+    <path d="M27.65 19.04L42.03 12.02L33.97 31.98L49.25 24.53" fill="none" stroke="#BCD0FF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

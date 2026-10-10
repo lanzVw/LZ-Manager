@@ -1,25 +1,37 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   Search,
-  CheckCircle2,
   XCircle,
   FolderOpen,
   Folder,
   Globe,
-  Image as ImageIcon,
-  ShieldCheck,
   RefreshCw,
   AlertTriangle,
-  Zap,
   Sparkles,
   Layers,
   LayoutList,
   LayoutGrid,
   ArrowUpDown,
-  Filter,
-  ChevronRight
+  Plus,
+  Trash2,
+  Edit2,
+  ChevronLeft,
+  ChevronRight,
+  AlertOctagon,
+  ArrowUpCircle
 } from 'lucide-react'
-import { CharacterConflictReport, ModConflictSummary } from '../../core/types'
+import { CharacterConflictReport, ModConflictSummary, AppearanceSection } from '../../core/types'
+import { useTheme } from '../contexts/ThemeContext'
+import { extractDominantColor, DEFAULT_PRIMARY_RGB, DEFAULT_DARK_PRIMARY_RGB } from '../utils/colorExtractor'
+import { toFileUrl } from '../utils/fileUrl'
+import { Button } from '../components/ui/Button'
+import { Badge } from '../components/ui/Badge'
+import { Input } from '../components/ui/Input'
+import { Select } from '../components/ui/Select'
+import { Modal } from '../components/ui/Modal'
+import { useToast } from '../components/ui/Toast'
+import { MoveModModal } from '../components/MoveModModal'
+import { ModCard } from '../components/mods/ModCard'
 
 interface ModsPageProps {
   modsData: Record<string, any[]>
@@ -31,37 +43,36 @@ interface ModsPageProps {
   activeGame?: any
 }
 
-// 角色头像/缩略图组件 (专为二游立绘优化，顶部居中、尺寸自适应、错误优雅兜底)
-const CharacterThumbnail: React.FC<{
+// 侧边栏紧凑型角色缩略头像组件 (56px 针对性优化)
+const CompactCharacterAvatar: React.FC<{
   src: string | null
   name: string
   hasActive: boolean
   isSelected: boolean
+  hasMods: boolean
   className?: string
-  aspectRatioClass?: string
-}> = ({ src, name, hasActive, isSelected, className = 'w-11 h-11', aspectRatioClass = 'aspect-square' }) => {
+}> = ({ src, name, hasActive, isSelected, hasMods, className = 'w-9 h-9' }) => {
   const [hasError, setHasError] = useState(false)
 
-  // 当 src 改变时重置错误状态
   useEffect(() => {
     setHasError(false)
   }, [src])
 
   return (
     <div
-      className={`relative ${className} ${aspectRatioClass} rounded-xl overflow-hidden shrink-0 border transition-all duration-300 bg-slate-100/90 shadow-xs flex items-center justify-center ${
+      className={`relative ${className} aspect-square rounded-lg overflow-hidden shrink-0 border transition-all duration-fast flex items-center justify-center ${
         isSelected
-          ? 'ring-2 ring-white/95 border-white/70 shadow-sm'
+          ? 'ring-2 ring-primary border-primary'
           : hasActive
-          ? 'border-blue-400/80 ring-2 ring-blue-500/20'
-          : 'border-slate-200/90'
-      }`}
+          ? 'border-primary/40 ring-1 ring-primary/20'
+          : 'border-border'
+      } ${!hasMods ? 'opacity-60' : 'opacity-100'}`}
     >
       {src && !hasError ? (
         <img
-          src={`file://${src}`}
+          src={toFileUrl(src)}
           alt={name}
-          className="w-full h-full object-cover object-top select-none pointer-events-none transition-transform duration-300 group-hover:scale-108"
+          className="w-full h-full object-cover object-top select-none pointer-events-none"
           loading="lazy"
           onError={() => setHasError(true)}
         />
@@ -69,21 +80,21 @@ const CharacterThumbnail: React.FC<{
         <div
           className={`w-full h-full flex items-center justify-center font-bold text-xs select-none ${
             isSelected
-              ? 'bg-white/20 text-white font-black'
+              ? 'bg-primary/20 text-primary'
               : hasActive
-              ? 'bg-blue-100 text-blue-700 font-bold'
-              : 'bg-slate-200/70 text-slate-600 font-semibold'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-surface-2 text-text-muted'
           }`}
         >
           {name.slice(0, 1)}
         </div>
       )}
 
-      {/* 装备状态微光角标 */}
+      {/* 已装载模组微光角标 */}
       {hasActive && (
         <span
-          className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white shadow-xs"
-          title="该角色当前已有装载生效的 Mod"
+          className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-surface shadow-xs"
+          title="该角色当前已有生效的模组"
         />
       )}
     </div>
@@ -99,30 +110,91 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   onNavigateTab,
   activeGame
 }) => {
+  const { theme } = useTheme()
   const [selectedChar, setSelectedChar] = useState<string>('all')
   const [searchChar, setSearchChar] = useState<string>('')
   const [searchMod, setSearchMod] = useState<string>('')
   const [sidebarMode, setSidebarMode] = useState<'list' | 'grid'>('list')
   const [charFilter, setCharFilter] = useState<'all' | 'hasMods' | 'equipped'>('all')
-  const [charSort, setCharSort] = useState<'count' | 'name' | 'enabled'>('count')
+  const [charSort, setCharSort] = useState<'default' | 'count' | 'name'>('default')
+  const [modSort, setModSort] = useState<'status' | 'character' | 'time' | 'name' | 'default'>('status')
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [conflictsMap, setConflictsMap] = useState<Record<string, CharacterConflictReport>>({})
   const [conflictFilterOnly, setConflictFilterOnly] = useState<boolean>(false)
+  const [brokenFilterOnly, setBrokenFilterOnly] = useState<boolean>(false)
+  const [updateFilterOnly, setUpdateFilterOnly] = useState<boolean>(false)
+  const [updatesMap, setUpdatesMap] = useState<Record<string, any>>({})
+  const [checkingUpdates, setCheckingUpdates] = useState<boolean>(false)
+  const toast = useToast()
+  const [characterAccentRgb, setCharacterAccentRgb] = useState<string>(
+    theme === 'dark' ? DEFAULT_DARK_PRIMARY_RGB : DEFAULT_PRIMARY_RGB
+  )
 
-  // 扫描检测所有冲突
-  const loadConflicts = async () => {
+  // 外观分区状态 (仿 QAQ 体验)
+  const [sections, setSections] = useState<AppearanceSection[]>([])
+  const [selectedSectionId, setSelectedSectionId] = useState<string>('all')
+  const [isCreateSectionOpen, setIsCreateSectionOpen] = useState<boolean>(false)
+  const [newSectionName, setNewSectionName] = useState<string>('')
+  const [editingSection, setEditingSection] = useState<AppearanceSection | null>(null)
+  const [editingName, setEditingName] = useState<string>('')
+  const trackRef = useRef<HTMLDivElement>(null)
+
+  // 并发守卫: 每次发起加载自增序号，响应返回时比对序号，过期结果直接丢弃
+  const conflictSeqRef = useRef(0)
+  const avatarsSeqRef = useRef(0)
+  const sectionsSeqRef = useRef(0)
+  const conflictDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 供 [modsData] 依赖的 effect 读取最新 selectedChar，避免闭包旧值
+  const selectedCharRef = useRef(selectedChar)
+
+  const loadSections = async (charName: string) => {
+    const seq = ++sectionsSeqRef.current
+    if (!charName || charName === 'all') {
+      setSections([])
+      return
+    }
     try {
-      const reps: any = await window.lz.detectConflicts()
-      if (reps) setConflictsMap(reps)
-    } catch (_) {}
+      const list = await window.lz.getAppearanceSections(charName)
+      if (seq === sectionsSeqRef.current && list && Array.isArray(list)) {
+        setSections(list)
+      }
+    } catch (err) {
+      console.error('Failed to load appearance sections:', err)
+    }
   }
 
-  // 加载全量角色的缩略图/头像映射表
+  useEffect(() => {
+    selectedCharRef.current = selectedChar
+    if (selectedChar !== 'all') {
+      setSelectedSectionId('all')
+      loadSections(selectedChar)
+    } else {
+      loadSections('all')
+      setSelectedSectionId('all')
+    }
+  }, [selectedChar])
+
+  // 扫描检测所有冲突 (400ms 防抖合并密集刷新 + 序号守卫丢弃过期响应)
+  const loadConflicts = () => {
+    const seq = ++conflictSeqRef.current
+    if (conflictDebounceRef.current) {
+      clearTimeout(conflictDebounceRef.current)
+    }
+    conflictDebounceRef.current = setTimeout(async () => {
+      try {
+        const reps: any = await window.lz.detectConflicts()
+        if (seq === conflictSeqRef.current && reps) setConflictsMap(reps)
+      } catch (_) {}
+    }, 400)
+  }
+
+  // 加载全量角色的缩略图/头像映射表 (序号守卫: 仅采纳最新一次结果)
   const loadCharacterAvatars = async () => {
+    const seq = ++avatarsSeqRef.current
     try {
       const avatars = await window.lz.getCharacterAvatars?.()
-      if (avatars) {
+      if (seq === avatarsSeqRef.current && avatars) {
         setCharacterAvatars(avatars)
       }
     } catch (err) {
@@ -133,7 +205,163 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   useEffect(() => {
     loadConflicts()
     loadCharacterAvatars()
+    const currentChar = selectedCharRef.current
+    if (currentChar !== 'all') {
+      loadSections(currentChar)
+    }
   }, [modsData])
+
+  // 卸载时清理挂起的防抖任务
+  useEffect(() => {
+    return () => {
+      if (conflictDebounceRef.current) {
+        clearTimeout(conflictDebounceRef.current)
+      }
+    }
+  }, [])
+
+  const baseSection = useMemo(() => {
+    return sections.find((s) => s.sectionId === 'base') || null
+  }, [sections])
+
+  const officialSections = useMemo(() => {
+    return sections.filter((s) => s.sectionId !== 'base' && (s.kind === 'skin' || s.official))
+  }, [sections])
+
+  const customSections = useMemo(() => {
+    return sections.filter((s) => s.sectionId !== 'base' && s.kind !== 'skin' && !s.official)
+  }, [sections])
+
+  // sectionId -> 分区对象 查找表 (渲染前建一次 Map，避免模组卡片逐个 find)
+  const sectionsById = useMemo(() => {
+    const map = new Map<string, AppearanceSection>()
+    for (const s of sections) {
+      map.set(s.sectionId, s)
+    }
+    return map
+  }, [sections])
+
+  const totalCharMods = useMemo(() => {
+    if (selectedChar === 'all') return 0
+    return (modsData[selectedChar] || []).length
+  }, [modsData, selectedChar])
+
+  const scrollTrack = (direction: 'left' | 'right') => {
+    if (trackRef.current) {
+      const scrollAmount = direction === 'left' ? -260 : 260
+      trackRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' })
+    }
+  }
+
+  const [deletingSection, setDeletingSection] = useState<AppearanceSection | null>(null)
+  const [isDeleting, setIsDeleting] = useState<boolean>(false)
+  const [moveTargetMod, setMoveTargetMod] = useState<any | null>(null)
+
+  const handleCreateSection = async () => {
+    const name = newSectionName.trim()
+    if (!name || selectedChar === 'all') return
+    try {
+      const res = await window.lz.createAppearanceSection(selectedChar, name)
+      if (res && res.success) {
+        setNewSectionName('')
+        setIsCreateSectionOpen(false)
+        await loadSections(selectedChar)
+        if (res.section) {
+          setSelectedSectionId(res.section.sectionId)
+        }
+        toast.success(`已成功创建外观分区【${name}】`)
+      } else {
+        toast.error(`创建分区失败: ${res?.error || '未知错误'}`)
+      }
+    } catch (err: any) {
+      toast.error(`创建分区失败: ${err.message}`)
+    }
+  }
+
+  const handleUpdateSection = async () => {
+    if (!editingSection || selectedChar === 'all') return
+    const name = editingName.trim()
+    if (!name || name === editingSection.name) return
+    try {
+      const res = await window.lz.updateAppearanceSection(selectedChar, editingSection.sectionId, name)
+      if (res && res.success) {
+        setEditingSection(null)
+        setEditingName('')
+        await loadSections(selectedChar)
+        toast.success(`已重命名分区为【${name}】`)
+      } else {
+        toast.error(`重命名分区失败: ${res?.error || '未知错误'}`)
+      }
+    } catch (err: any) {
+      toast.error(`重命名分区失败: ${err.message}`)
+    }
+  }
+
+  const handleDeleteSection = (sec: AppearanceSection) => {
+    if (selectedChar === 'all') return
+    setDeletingSection(sec)
+  }
+
+  const confirmDeleteSection = async () => {
+    if (!deletingSection || selectedChar === 'all') return
+    setIsDeleting(true)
+    try {
+      const res = await window.lz.deleteAppearanceSection(selectedChar, deletingSection.sectionId)
+      if (res && res.success) {
+        if (selectedSectionId === deletingSection.sectionId) {
+          setSelectedSectionId('all')
+        }
+        toast.success(`已成功删除外观分区【${deletingSection.name}】`)
+        setDeletingSection(null)
+        onRefresh()
+        await loadSections(selectedChar)
+      } else {
+        toast.error(`删除分区失败: ${res?.error || '未知错误'}`)
+      }
+    } catch (err: any) {
+      toast.error(`删除分区失败: ${err.message}`)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const handleMoveModSection = useCallback(async (mod: any, nextSectionId: string) => {
+    try {
+      const res = await window.lz.setModAppearanceSection(mod.fullPath, nextSectionId)
+      if (res?.success) {
+        const targetSec = sections.find((s) => s.sectionId === nextSectionId)
+        toast.success(`已将【${mod.name}】移动至【${targetSec?.name || '原角色'}】分区`)
+        onRefresh()
+        await loadSections(selectedChar)
+      }
+    } catch (err: any) {
+      toast.error(`移动外观分区失败: ${err.message}`)
+    }
+  }, [sections, selectedChar, onRefresh, toast])
+
+  // 切换角色时动态提取主色作为 --accent，若失败则平滑回退到默认 primary
+  useEffect(() => {
+    let cancelled = false
+    const fallback = theme === 'dark' ? DEFAULT_DARK_PRIMARY_RGB : DEFAULT_PRIMARY_RGB
+    const targetArt = baseSection?.coverUrl || characterAvatars[selectedChar]
+
+    if (selectedChar === 'all' || !targetArt) {
+      setCharacterAccentRgb(fallback)
+      return
+    }
+
+    extractDominantColor(targetArt.replace(/^file:\/\//, ''))
+      .then((rgb) => {
+        if (!cancelled) {
+          setCharacterAccentRgb(rgb || fallback)
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedChar, characterAvatars, baseSection, theme])
 
   const getModConflict = (charName: string, modName: string): ModConflictSummary | null => {
     const charReport = conflictsMap[charName]
@@ -153,9 +381,9 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     return count
   }, [conflictsMap])
 
-  // Character list with counts and avatars
+  // 角色列表统计
   const characters = useMemo(() => {
-    const list = Object.keys(modsData).map((name) => {
+    return Object.keys(modsData).map((name) => {
       const mods = modsData[name] || []
       const enabledCount = mods.filter((m) => m.enabled).length
       return {
@@ -165,7 +393,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         avatarPath: characterAvatars[name] || null
       }
     })
-    return list
   }, [modsData, characterAvatars])
 
   const charactersWithModsCount = useMemo(() => {
@@ -179,14 +406,14 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const filteredCharacters = useMemo(() => {
     let list = [...characters]
 
-    // 1. 状态筛选 (全部角色 / 仅有模组 / 仅已装备)
+    // 1. 状态筛选
     if (charFilter === 'hasMods') {
       list = list.filter((c) => c.total > 0)
     } else if (charFilter === 'equipped') {
       list = list.filter((c) => c.enabled > 0)
     }
 
-    // 2. 搜索框快速检索
+    // 2. 搜索检索
     if (searchChar) {
       const q = searchChar.toLowerCase().trim()
       list = list.filter((c) => c.name.toLowerCase().includes(q))
@@ -195,16 +422,30 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     // 3. 排序策略
     if (charSort === 'name') {
       list.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
-    } else if (charSort === 'enabled') {
+    } else if (charSort === 'count') {
       list.sort((a, b) => {
-        if (b.enabled !== a.enabled) return b.enabled - a.enabled
         if (b.total !== a.total) return b.total - a.total
         return a.name.localeCompare(b.name, 'zh-Hans-CN')
       })
     } else {
-      // 默认 'count': 有模组的按数量降序排前，未安装模组的排后，同数量按名称排序
+      // 默认排序: 已装备 (enabled > 0) -> 有mod待命 (total > 0) -> 未安装 (total === 0)
       list.sort((a, b) => {
-        if (b.total !== a.total) return b.total - a.total
+        const tierA = a.enabled > 0 ? 0 : a.total > 0 ? 1 : 2
+        const tierB = b.enabled > 0 ? 0 : b.total > 0 ? 1 : 2
+        if (tierA !== tierB) return tierA - tierB
+
+        if (tierA === 0) {
+          // 已装备组内：优先按已装备数量倒序，再按总模组数倒序，再按名称
+          if (b.enabled !== a.enabled) return b.enabled - a.enabled
+          if (b.total !== a.total) return b.total - a.total
+          return a.name.localeCompare(b.name, 'zh-Hans-CN')
+        }
+        if (tierA === 1) {
+          // 有mod未装备组内：按总模组数倒序，再按名称
+          if (b.total !== a.total) return b.total - a.total
+          return a.name.localeCompare(b.name, 'zh-Hans-CN')
+        }
+        // 未安装组内：按中文拼音字母排序
         return a.name.localeCompare(b.name, 'zh-Hans-CN')
       })
     }
@@ -212,7 +453,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     return list
   }, [characters, searchChar, charFilter, charSort])
 
-  // Active mods to display
+  // 模组列表筛选与排序
   const displayedMods = useMemo(() => {
     let list: any[] = []
     if (selectedChar === 'all') {
@@ -237,10 +478,180 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       list = list.filter((m) => getModConflict(m.charName, m.name) !== null)
     }
 
-    return list
-  }, [modsData, selectedChar, searchMod, conflictFilterOnly, conflictsMap])
+    if (brokenFilterOnly) {
+      list = list.filter((m) => Boolean(m.modBroken))
+    }
 
-  const handleToggle = async (charName: string, modName: string, currentState: boolean) => {
+    if (updateFilterOnly) {
+      list = list.filter((m) => Boolean(updatesMap[m.fullPath]?.hasUpdate))
+    }
+
+    // 外观分区筛选 (仅在选中具体角色且不是 'all' 全部分区时过滤)
+    if (selectedChar !== 'all' && selectedSectionId !== 'all') {
+      if (selectedSectionId === 'base') {
+        list = list.filter((m) => !m.appearanceSectionId || m.appearanceSectionId === 'base')
+      } else {
+        list = list.filter((m) => m.appearanceSectionId === selectedSectionId)
+      }
+    }
+
+    // 模组排序策略
+    if (modSort === 'status') {
+      list.sort((a, b) => {
+        if (b.enabled !== a.enabled) return (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
+        if (b.mtime && a.mtime && b.mtime !== a.mtime) return b.mtime - a.mtime
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      })
+    } else if (modSort === 'character') {
+      list.sort((a, b) => {
+        const charComp = a.charName.localeCompare(b.charName, 'zh-Hans-CN')
+        if (charComp !== 0) return charComp
+        if (b.enabled !== a.enabled) return (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      })
+    } else if (modSort === 'time') {
+      list.sort((a, b) => {
+        const timeA = a.mtime || 0
+        const timeB = b.mtime || 0
+        if (timeB !== timeA) return timeB - timeA
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      })
+    } else if (modSort === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
+    }
+
+    return list
+  }, [modsData, selectedChar, searchMod, conflictFilterOnly, brokenFilterOnly, updateFilterOnly, updatesMap, conflictsMap, selectedSectionId, modSort])
+
+  // 失效模组统计
+  const brokenModsCount = useMemo(() => {
+    let count = 0
+    if (selectedChar === 'all') {
+      for (const mods of Object.values(modsData)) {
+        count += (mods || []).filter((m) => m.modBroken).length
+      }
+    } else {
+      const mods = modsData[selectedChar] || []
+      count = mods.filter((m) => m.modBroken).length
+    }
+    return count
+  }, [modsData, selectedChar])
+
+  // 已启用的失效模组统计
+  const enabledBrokenModsCount = useMemo(() => {
+    let count = 0
+    if (selectedChar === 'all') {
+      for (const mods of Object.values(modsData)) {
+        count += (mods || []).filter((m) => m.modBroken && m.enabled).length
+      }
+    } else {
+      const mods = modsData[selectedChar] || []
+      count = mods.filter((m) => m.modBroken && m.enabled).length
+    }
+    return count
+  }, [modsData, selectedChar])
+
+  // 可更新模组统计
+  const updatesCount = useMemo(() => {
+    let count = 0
+    for (const [fullPath, info] of Object.entries(updatesMap)) {
+      if (info?.hasUpdate) {
+        if (selectedChar === 'all') {
+          count++
+        } else {
+          const charMods = modsData[selectedChar] || []
+          if (charMods.some((m) => m.fullPath === fullPath)) count++
+        }
+      }
+    }
+    return count
+  }, [updatesMap, modsData, selectedChar])
+
+  // 批量检查 GameBanana 更新
+  const handleCheckAllUpdates = async () => {
+    setCheckingUpdates(true)
+    try {
+      let targetMods: any[] = []
+      if (selectedChar === 'all') {
+        for (const mods of Object.values(modsData)) {
+          targetMods.push(...mods)
+        }
+      } else {
+        targetMods = modsData[selectedChar] || []
+      }
+
+      // 一次 IPC 批量读取全部元数据，替代逐个 getModDetails 的 N+1 串行请求
+      const paths = targetMods.map((m) => m.fullPath)
+      const batch = paths.length > 0 ? await window.lz.getModsBatchDetails(paths) : {}
+
+      const toCheck: Array<{ fullPath: string; modId: number; lastUpdated?: any; version?: string }> = []
+      for (const m of targetMods) {
+        const meta = batch?.[m.fullPath]
+        if (meta?.modId) {
+          toCheck.push({
+            fullPath: m.fullPath,
+            modId: Number(meta.modId),
+            lastUpdated: m.mtime || meta.lastUpdated,
+            version: meta.version
+          })
+        }
+      }
+
+      if (toCheck.length === 0) {
+        toast.info('未找到可更新的模组', '请确保模组已关联 GameBanana 市场来源')
+        return
+      }
+
+      toast.info('正在检查更新...', `共 ${toCheck.length} 个模组正在比对线上版本`)
+      const res = await window.lz.checkAllModsUpdates(toCheck)
+      if (res) {
+        setUpdatesMap((prev) => ({ ...prev, ...res }))
+        const found = Object.values(res).filter((r: any) => r?.hasUpdate).length
+        if (found > 0) {
+          toast.success('检查更新完成！', `发现 ${found} 个模组有新版本发布！`)
+        } else {
+          toast.success('检查更新完成', '所检测模组已均为最新版')
+        }
+      }
+    } catch (err: any) {
+      toast.error('检查更新失败', err.message)
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
+
+  // 一键禁用全部失效模组
+  const handleDisableAllBroken = async () => {
+    let brokenToDisable: Array<{ charName: string; modName: string }> = []
+    if (selectedChar === 'all') {
+      for (const [charName, mods] of Object.entries(modsData)) {
+        for (const m of mods || []) {
+          if (m.modBroken && m.enabled) {
+            brokenToDisable.push({ charName, modName: m.name })
+          }
+        }
+      }
+    } else {
+      for (const m of modsData[selectedChar] || []) {
+        if (m.modBroken && m.enabled) {
+          brokenToDisable.push({ charName: selectedChar, modName: m.name })
+        }
+      }
+    }
+
+    if (brokenToDisable.length === 0) return
+
+    try {
+      for (const item of brokenToDisable) {
+        await onToggleMod(item.charName, item.modName, false)
+      }
+      toast.success(`已卸装 ${brokenToDisable.length} 个失效模组`, '已恢复待命状态，防止进游戏报错')
+    } catch (err: any) {
+      toast.error('操作失败', err.message)
+    }
+  }
+
+  const handleToggle = useCallback(async (charName: string, modName: string, currentState: boolean) => {
     const id = `${charName}::${modName}`
     setTogglingId(id)
     try {
@@ -248,7 +659,16 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     } finally {
       setTogglingId(null)
     }
-  }
+  }, [onToggleMod])
+
+  // 以下回调经 useCallback 稳定引用，供 React.memo 的 ModCard 使用
+  const handleCardSelect = useCallback((modFullPath: string) => {
+    onSelectMod(modFullPath)
+  }, [onSelectMod])
+
+  const handleOpenMoveMod = useCallback((mod: any) => {
+    setMoveTargetMod(mod)
+  }, [])
 
   const totalEnabledInAll = useMemo(() => {
     let count = 0
@@ -258,31 +678,35 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     return count
   }, [modsData])
 
+  const totalModsInAll = useMemo(() => {
+    return characters.reduce((acc, c) => acc + c.total, 0)
+  }, [characters])
+
   return (
     <div className="flex-1 flex overflow-hidden relative">
-      {/* Left Sidebar: Character Categories (角色缩略图选项侧边栏) */}
-      <aside className="w-72 bg-white/80 border-r border-blue-100 backdrop-blur-2xl flex flex-col shrink-0 select-none z-10 shadow-sm transition-all duration-300">
-        {/* Roster Header */}
-        <div className="p-3 border-b border-blue-100/80 space-y-2 bg-white/50">
+      {/* 侧边栏：角色列表 (玻璃拟态仅在此局部与弹窗使用，卡片高度压缩到约 56px) */}
+      <aside className="w-72 bg-surface/80 border-r border-border backdrop-blur-xl flex flex-col shrink-0 select-none z-10 shadow-xs transition-all duration-fast">
+        {/* 侧边栏顶部控制器 */}
+        <div className="p-3 border-b border-border space-y-2 bg-surface/40">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800 tracking-wide flex items-center space-x-1.5">
-              <Layers className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-xs font-bold text-text tracking-wide flex items-center space-x-1.5">
+              <Layers className="w-3.5 h-3.5 text-primary" />
               <span>角色分类</span>
-              <span className="text-[10px] font-mono text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+              <Badge variant="primary" size="sm">
                 {filteredCharacters.length} / {characters.length}
-              </span>
+              </Badge>
             </span>
 
-            {/* View Mode Switcher (列表模式 / 缩略图画廊模式) */}
-            <div className="flex items-center bg-slate-100/90 p-0.5 rounded-lg border border-slate-200/80">
+            {/* 列表 / 网格 视图切换 */}
+            <div className="flex items-center bg-surface-2 p-0.5 rounded-control border border-border">
               <button
                 type="button"
                 onClick={() => setSidebarMode('list')}
                 title="图文列表模式"
-                className={`p-1 rounded-md transition ${
+                className={`p-1 rounded-md transition-colors cursor-pointer ${
                   sidebarMode === 'list'
-                    ? 'bg-white text-blue-600 shadow-xs'
-                    : 'text-slate-400 hover:text-slate-600'
+                    ? 'bg-surface text-primary shadow-2xs'
+                    : 'text-text-muted hover:text-text'
                 }`}
               >
                 <LayoutList className="w-3.5 h-3.5" />
@@ -290,11 +714,11 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               <button
                 type="button"
                 onClick={() => setSidebarMode('grid')}
-                title="头像网格模式 (QAQM 风格)"
-                className={`p-1 rounded-md transition ${
+                title="网格头像模式"
+                className={`p-1 rounded-md transition-colors cursor-pointer ${
                   sidebarMode === 'grid'
-                    ? 'bg-white text-blue-600 shadow-xs'
-                    : 'text-slate-400 hover:text-slate-600'
+                    ? 'bg-surface text-primary shadow-2xs'
+                    : 'text-text-muted hover:text-text'
                 }`}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
@@ -302,40 +726,36 @@ export const ModsPage: React.FC<ModsPageProps> = ({
             </div>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="快速检索角色..."
-              value={searchChar}
-              onChange={(e) => setSearchChar(e.target.value)}
-              className="w-full bg-slate-50/90 border border-slate-200 focus:border-blue-400 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition font-sans shadow-2xs"
-            />
-          </div>
+          {/* 角色检索输入框 */}
+          <Input
+            placeholder="快速检索角色..."
+            value={searchChar}
+            onChange={(e) => setSearchChar(e.target.value)}
+            prefixIcon={<Search className="w-3.5 h-3.5" />}
+          />
 
-          {/* Filter & Sort Controls (筛选与排序条，支持“全部/未安装”角色) */}
+          {/* 筛选与排序条：中性灰底色，选中激活主色 */}
           <div className="flex items-center justify-between gap-1 pt-0.5">
-            {/* Display Filter: 全部 / 有Mod / 已装载 */}
-            <div className="flex items-center bg-slate-100/90 p-0.5 rounded-xl border border-slate-200/80 text-[10px] font-semibold">
+            <div className="flex items-center bg-surface-2 p-0.5 rounded-control border border-border text-[10px] font-medium">
               <button
                 type="button"
                 onClick={() => setCharFilter('all')}
-                className={`px-2 py-0.5 rounded-lg transition ${
+                className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
                   charFilter === 'all'
-                    ? 'bg-white text-blue-600 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-800'
+                    ? 'bg-primary/10 text-primary font-bold border border-primary/20 shadow-2xs'
+                    : 'text-text-muted hover:text-text border border-transparent'
                 }`}
-                title="显示所有角色，包含未安装模组的角色"
+                title="显示所有角色"
               >
                 全部
               </button>
               <button
                 type="button"
                 onClick={() => setCharFilter('hasMods')}
-                className={`px-1.5 py-0.5 rounded-lg transition ${
+                className={`px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                   charFilter === 'hasMods'
-                    ? 'bg-white text-blue-600 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-800'
+                    ? 'bg-primary/10 text-primary font-bold border border-primary/20 shadow-2xs'
+                    : 'text-text-muted hover:text-text border border-transparent'
                 }`}
                 title="仅显示已安装模组的角色"
               >
@@ -344,10 +764,10 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               <button
                 type="button"
                 onClick={() => setCharFilter('equipped')}
-                className={`px-1.5 py-0.5 rounded-lg transition ${
+                className={`px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                   charFilter === 'equipped'
-                    ? 'bg-white text-blue-600 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-800'
+                    ? 'bg-primary/10 text-primary font-bold border border-primary/20 shadow-2xs'
+                    : 'text-text-muted hover:text-text border border-transparent'
                 }`}
                 title="仅显示当前已装备模组的角色"
               >
@@ -355,185 +775,181 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               </button>
             </div>
 
-            {/* Sort Toggle: 数量 / 名称 / 常用 */}
+            {/* 排序切换 */}
             <button
               type="button"
               onClick={() => {
-                if (charSort === 'count') setCharSort('name')
-                else if (charSort === 'name') setCharSort('enabled')
-                else setCharSort('count')
+                if (charSort === 'default') setCharSort('count')
+                else if (charSort === 'count') setCharSort('name')
+                else setCharSort('default')
               }}
-              className="flex items-center space-x-1 px-2 py-1 rounded-xl bg-slate-100/90 hover:bg-slate-200/80 border border-slate-200/80 text-[10px] font-medium text-slate-600 transition"
-              title="切换排序规则：按数量 / 按名称 / 按装载优先"
+              className="flex items-center space-x-1 px-2 py-1 rounded-control bg-surface-2 hover:bg-surface border border-border text-[10px] font-medium text-text-muted hover:text-text transition-colors cursor-pointer"
+              title="切换排序规则：默认(已装备优先) / 数量 / 名称"
             >
-              <ArrowUpDown className="w-3 h-3 text-blue-600" />
+              <ArrowUpDown className="w-3 h-3 text-primary" />
               <span>
-                {charSort === 'count' ? '数量' : charSort === 'name' ? '名称' : '常用'}
+                {charSort === 'default' ? '默认' : charSort === 'count' ? '数量' : '名称'}
               </span>
             </button>
           </div>
         </div>
 
-        {/* Character Categories List */}
-        <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 porcelain-scrollbar-light">
-          {/* All Characters Option */}
+        {/* 角色卡片列表 (高度压缩至约 56px) */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {/* 全部角色条目 (高度约 54px) */}
           <button
+            type="button"
             onClick={() => setSelectedChar('all')}
-            className={`w-full flex items-center justify-between p-2 rounded-2xl text-xs font-semibold transition-all group relative border ${
+            className={`w-full h-[54px] flex items-center justify-between px-2.5 rounded-control text-xs font-semibold transition-all duration-fast group border text-left cursor-pointer ${
               selectedChar === 'all'
-                ? 'bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-md shadow-blue-500/25 border-blue-500'
-                : 'bg-white/90 hover:bg-blue-50/80 text-slate-700 hover:text-blue-600 border-slate-200/70 hover:border-blue-200 shadow-xs'
+                ? 'bg-primary/10 border-primary text-primary shadow-xs ring-1 ring-primary/25'
+                : 'bg-surface hover:bg-surface-2 text-text border-border hover:border-primary/40'
             }`}
           >
             <div className="flex items-center space-x-2.5 truncate">
               <div
-                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border transition-transform duration-300 group-hover:scale-105 shadow-sm ${
+                className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border transition-transform duration-fast group-hover:scale-105 shadow-2xs ${
                   selectedChar === 'all'
-                    ? 'bg-white text-blue-600 ring-2 ring-white/90 border-white/50'
-                    : 'bg-gradient-to-br from-blue-600 via-indigo-600 to-sky-500 text-white border-blue-300'
+                    ? 'bg-primary text-primary-fg border-primary'
+                    : 'bg-surface-2 text-text-muted border-border'
                 }`}
               >
-                <LayoutGrid className="w-5 h-5" />
+                <LayoutGrid className="w-4 h-4" />
               </div>
-              <div className="flex flex-col text-left truncate">
-                <span className={`truncate tracking-wide font-bold ${selectedChar === 'all' ? 'text-white' : 'text-slate-800'}`}>
+              <div className="flex flex-col truncate">
+                <span className="truncate font-bold tracking-wide">
                   全部角色
                 </span>
-                <span className={`text-[10px] truncate ${selectedChar === 'all' ? 'text-blue-100' : 'text-slate-400'}`}>
+                <span className="text-[10px] text-text-muted truncate">
                   全库模组汇总
                 </span>
               </div>
             </div>
 
             <div
-              className={`flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 ml-1.5 ${
-                selectedChar === 'all' ? 'bg-white/20 text-white font-bold' : 'bg-slate-100 text-slate-600 font-semibold'
+              className={`flex items-center space-x-0.5 text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 border ${
+                selectedChar === 'all'
+                  ? 'bg-primary/15 text-primary border-primary/30 font-bold'
+                  : 'bg-surface-2 text-text-muted border-border'
               }`}
+              title="已装载 / 总数"
             >
               <span className="font-bold">{totalEnabledInAll}</span>
-              <span className="opacity-50">/</span>
-              <span>{characters.reduce((acc, c) => acc + c.total, 0)}</span>
+              <span className="opacity-40">/</span>
+              <span>{totalModsInAll}</span>
             </div>
           </button>
 
           {sidebarMode === 'list' ? (
-            /* 1. 图文列表视图 (以角色高清头像为核心选项) */
-            <div className="space-y-1.5 pt-1">
+            /* 1. 紧凑型图文列表 (高度约 54px，去重描述，展示 已装载/总数) */
+            <div className="space-y-1 pt-0.5">
               {filteredCharacters.map((c) => {
                 const isSelected = selectedChar === c.name
                 const hasActive = c.enabled > 0
+                const hasMods = c.total > 0
 
                 return (
                   <button
                     key={c.name}
+                    type="button"
                     onClick={() => setSelectedChar(c.name)}
-                    className={`w-full flex items-center justify-between p-2 rounded-2xl text-xs font-semibold transition-all group relative border text-left ${
+                    className={`w-full h-[54px] flex items-center justify-between px-2.5 rounded-control text-xs font-semibold transition-all duration-fast group border text-left cursor-pointer ${
                       isSelected
-                        ? 'bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-md shadow-blue-500/25 border-blue-500'
-                        : 'bg-white/90 hover:bg-blue-50/80 text-slate-700 hover:text-blue-600 border-slate-200/70 hover:border-blue-200 shadow-xs'
+                        ? 'bg-primary/10 border-primary text-primary shadow-xs ring-1 ring-primary/25'
+                        : 'bg-surface hover:bg-surface-2 text-text border-border hover:border-primary/40'
                     }`}
                   >
                     <div className="flex items-center space-x-2.5 truncate">
-                      <CharacterThumbnail
+                      <CompactCharacterAvatar
                         src={c.avatarPath}
                         name={c.name}
                         hasActive={hasActive}
                         isSelected={isSelected}
-                        className="w-11 h-11"
+                        hasMods={hasMods}
+                        className="w-9 h-9"
                       />
                       <div className="flex flex-col truncate">
-                        <span className={`truncate tracking-wide font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                        <span className={`truncate tracking-wide font-title font-bold text-xs ${
+                          !hasMods && !isSelected ? 'text-text-muted' : ''
+                        }`}>
                           {c.name}
                         </span>
-                        <span className={`text-[10px] truncate ${
-                          isSelected
-                            ? 'text-blue-100'
-                            : hasActive
-                            ? 'text-blue-600 font-medium'
-                            : c.total > 0
-                            ? 'text-slate-400'
-                            : 'text-slate-400/80 italic'
-                        }`}>
+                        <span className="text-[10px] text-text-muted truncate">
                           {hasActive
-                            ? `已装载 ${c.enabled} 款`
-                            : c.total > 0
-                            ? `${c.total} 款待命中`
+                            ? '已装备生效'
+                            : hasMods
+                            ? '模组待命中'
                             : '未安装模组'}
                         </span>
                       </div>
                     </div>
 
                     <div
-                      className={`flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 ml-1.5 ${
+                      className={`flex items-center space-x-0.5 text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 border ${
                         isSelected
-                          ? 'bg-white/20 text-white font-bold'
+                          ? 'bg-primary/15 text-primary border-primary/30 font-bold'
                           : hasActive
-                          ? 'bg-blue-50 text-blue-600 border border-blue-200/80 font-bold'
-                          : c.total > 0
-                          ? 'bg-slate-100 text-slate-500'
-                          : 'bg-slate-100/60 text-slate-400'
+                          ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 font-bold'
+                          : hasMods
+                          ? 'bg-surface-2 text-text-muted border-border'
+                          : 'bg-surface-2/60 text-text-muted/60 border-border/50'
                       }`}
+                      title="已装载 / 总数"
                     >
-                      {c.total > 0 ? (
-                        <>
-                          <span className={`font-bold ${isSelected ? 'text-white' : hasActive ? 'text-blue-600' : 'text-slate-600'}`}>
-                            {c.enabled}
-                          </span>
-                          <span className="opacity-50">/</span>
-                          <span>{c.total}</span>
-                        </>
-                      ) : (
-                        <span className="text-[9px] opacity-75 font-mono">0 / 0</span>
-                      )}
+                      <span className={hasActive ? 'font-bold' : ''}>{c.enabled}</span>
+                      <span className="opacity-40">/</span>
+                      <span>{c.total}</span>
                     </div>
                   </button>
                 )
               })}
             </div>
           ) : (
-            /* 2. QAQM 经典头像卡片画廊视图 (2列正方卡片) */
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            /* 2. 紧凑型头像网格视图 */
+            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
               {filteredCharacters.map((c) => {
                 const isSelected = selectedChar === c.name
                 const hasActive = c.enabled > 0
+                const hasMods = c.total > 0
 
                 return (
                   <button
                     key={c.name}
+                    type="button"
                     onClick={() => setSelectedChar(c.name)}
-                    className={`group relative flex flex-col p-1.5 rounded-2xl border transition-all text-left cursor-pointer overflow-hidden ${
+                    className={`group relative flex flex-col p-1.5 rounded-control border transition-all text-left cursor-pointer overflow-hidden ${
                       isSelected
-                        ? 'bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/30 shadow-md shadow-blue-500/10'
-                        : 'bg-white hover:bg-blue-50/60 border-slate-200 hover:border-blue-300 shadow-xs hover:-translate-y-0.5'
+                        ? 'bg-primary/10 border-primary ring-1 ring-primary/25 shadow-xs'
+                        : 'bg-surface hover:bg-surface-2 border-border hover:border-primary/40'
                     }`}
                   >
-                    {/* Square Thumbnail */}
-                    <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-slate-100 border border-slate-200/70 shadow-inner">
-                      <CharacterThumbnail
+                    <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-surface-2 border border-border">
+                      <CompactCharacterAvatar
                         src={c.avatarPath}
                         name={c.name}
                         hasActive={hasActive}
                         isSelected={isSelected}
-                        className="w-full h-full rounded-none border-0 shadow-none"
+                        hasMods={hasMods}
+                        className="w-full h-full rounded-none border-0"
                       />
 
-                      {/* Top-Right Badge (QAQM 经典悬浮角标，未安装模组的角色也标示 0/0) */}
-                      <div className={`absolute top-1 right-1 flex items-center space-x-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full backdrop-blur-md font-bold shadow-xs ${
-                        c.total > 0 ? 'bg-slate-900/75 text-white' : 'bg-slate-900/40 text-slate-300'
-                      }`}>
-                        <span className={hasActive ? 'text-amber-300' : 'text-slate-200'}>{c.enabled}</span>
-                        <span className="text-slate-400">/</span>
+                      {/* 计数指示 */}
+                      <div
+                        className="absolute top-1 right-1 flex items-center space-x-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-slate-900/80 text-white backdrop-blur-xs font-bold"
+                        title="已装载 / 总数"
+                      >
+                        <span className={hasActive ? 'text-amber-300' : ''}>{c.enabled}</span>
+                        <span className="opacity-40">/</span>
                         <span>{c.total}</span>
                       </div>
                     </div>
 
-                    {/* Character Name below thumbnail */}
-                    <div className="mt-1 px-1 flex items-center justify-between">
-                      <span className={`text-xs font-bold truncate ${isSelected ? 'text-blue-600' : 'text-slate-800'}`}>
+                    <div className="mt-1 px-0.5 flex items-center justify-between">
+                      <span className={`text-xs font-title font-bold truncate ${isSelected ? 'text-primary' : 'text-text'}`}>
                         {c.name}
                       </span>
                       {isSelected && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0 ml-1 shadow-xs" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 ml-1" />
                       )}
                     </div>
                   </button>
@@ -544,106 +960,435 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         </div>
       </aside>
 
-      {/* Main Content Area: Mod Grid (白瓷卡片流) */}
-      <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
-        {/* Sub-Header */}
-        <div className="h-14 px-6 border-b border-blue-100 flex items-center justify-between shrink-0 bg-white/70 backdrop-blur-xl">
+      {/* 主展示区：受 --accent 动态强调色驱动，顶部带角色立绘模糊氛围层，列表区纯色底 */}
+      <main
+        style={{ '--accent': characterAccentRgb } as React.CSSProperties}
+        className="flex-1 flex flex-col overflow-hidden bg-transparent relative transition-colors duration-normal"
+      >
+        {/* 氛围背景层：当前角色立绘模糊并压暗，仅作为顶部视觉衬底 */}
+        {selectedChar !== 'all' && (baseSection?.coverUrl || characterAvatars[selectedChar]) && (
+          <div className="absolute top-0 left-0 right-0 h-48 overflow-hidden pointer-events-none z-0">
+            <img
+              src={toFileUrl(baseSection?.coverUrl || characterAvatars[selectedChar])}
+              alt=""
+              className="w-full h-full object-cover object-top filter blur-3xl opacity-20 dark:opacity-30 scale-125 transition-all duration-slow"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-bg/80 to-bg" />
+          </div>
+        )}
+
+        {/* 顶部二级导航 / 角色 Banner (单选互斥保护、搜索与操作) */}
+        <div className="h-16 px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface/70 backdrop-blur-md relative z-20">
           <div className="flex items-center space-x-3.5">
-            <div className="flex items-center space-x-3">
-              {/* 当选中单个角色时，在标题前同步呈现该角色的微缩头像 */}
-              {selectedChar !== 'all' && characterAvatars[selectedChar] && (
-                <div className="w-8 h-8 rounded-xl overflow-hidden border border-blue-200/80 shadow-xs shrink-0 bg-slate-100">
-                  <img
-                    src={`file://${characterAvatars[selectedChar]}`}
-                    alt={selectedChar}
-                    className="w-full h-full object-cover object-top"
-                  />
-                </div>
-              )}
-              <h2 className="text-sm font-bold text-slate-900 flex items-center space-x-2.5 tracking-wide">
-                <span>{selectedChar === 'all' ? '全部角色模组' : `${selectedChar} · 模组列表`}</span>
-                <span className="text-xs font-mono text-blue-600 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 font-semibold">
+            {/* 角色微缩预览 */}
+            {selectedChar !== 'all' && characterAvatars[selectedChar] ? (
+              <div className="w-9 h-9 rounded-control overflow-hidden border border-border shadow-xs shrink-0 bg-surface-2">
+                <img
+                  src={toFileUrl(characterAvatars[selectedChar])}
+                  alt={selectedChar}
+                  className="w-full h-full object-cover object-top"
+                />
+              </div>
+            ) : null}
+
+            <div>
+              <div className="flex items-center space-x-2.5">
+                <h2 className="text-base font-title font-bold text-text tracking-wide">
+                  {selectedChar === 'all' ? '全部角色模组' : selectedChar}
+                </h2>
+                <Badge variant="accent" size="sm">
                   {displayedMods.length} 个项目
-                </span>
-              </h2>
+                </Badge>
+              </div>
+              <p className="text-[11px] text-text-muted mt-0.5">
+                {selectedChar === 'all'
+                  ? '汇集所有角色已安装外观与资源'
+                  : '管理当前角色已加载的专属外观模组'}
+              </p>
             </div>
 
-            {/* Option A Exclusive Tag */}
-            <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-              <span>单选互斥保护</span>
-            </div>
-
-            {/* Conflict Filter Button */}
+            {/* 冲突过滤按钮 */}
             {totalConflictsCount > 0 && (
               <button
+                type="button"
                 onClick={() => setConflictFilterOnly(!conflictFilterOnly)}
-                className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer ${
                   conflictFilterOnly
-                    ? 'bg-rose-600 text-white shadow-md'
-                    : 'bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100'
+                    ? 'bg-danger text-white shadow-xs'
+                    : 'bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20'
                 }`}
               >
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                <AlertTriangle className="w-3.5 h-3.5" />
                 <span>冲突过滤 ({totalConflictsCount})</span>
+              </button>
+            )}
+
+            {/* 失效模组过滤按钮 */}
+            {brokenModsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setBrokenFilterOnly(!brokenFilterOnly)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer ${
+                  brokenFilterOnly
+                    ? 'bg-danger text-white shadow-xs'
+                    : 'bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20'
+                }`}
+              >
+                <AlertOctagon className="w-3.5 h-3.5" />
+                <span>失效 ({brokenModsCount})</span>
+              </button>
+            )}
+
+            {/* 一键卸装失效模组 */}
+            {enabledBrokenModsCount > 0 && (
+              <button
+                type="button"
+                onClick={handleDisableAllBroken}
+                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                title="一键卸下所有已启用的失效模组，防止游戏报错或渲染异常"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>卸装失效 ({enabledBrokenModsCount})</span>
+              </button>
+            )}
+
+            {/* 可更新模组过滤按钮 */}
+            {updatesCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setUpdateFilterOnly(!updateFilterOnly)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer ${
+                  updateFilterOnly
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
+                }`}
+              >
+                <ArrowUpCircle className="w-3.5 h-3.5" />
+                <span>可更新 ({updatesCount})</span>
               </button>
             )}
           </div>
 
-          {/* Search & Actions */}
+          {/* 搜索、模组排序、批量检查更新与目录刷新按钮 */}
           <div className="flex items-center space-x-2.5">
-            <div className="relative w-64">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-              <input
-                type="text"
+            <div className="w-48">
+              <Input
                 placeholder="搜索模组名称..."
                 value={searchMod}
                 onChange={(e) => setSearchMod(e.target.value)}
-                className="w-full bg-white border border-slate-200 focus:border-blue-400 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none font-sans transition shadow-sm"
+                prefixIcon={<Search className="w-3.5 h-3.5" />}
               />
             </div>
 
-            <button
+            {/* 模组排序下拉 */}
+            <div className="w-36">
+              <Select
+                value={modSort}
+                onChange={(val) => setModSort(val as any)}
+                size="md"
+                prefixIcon={<ArrowUpDown className="w-3.5 h-3.5 text-primary" />}
+                options={[
+                  { value: 'status', label: '已装备优先' },
+                  ...(selectedChar === 'all' ? [{ value: 'character', label: '按所属角色' }] : []),
+                  { value: 'time', label: '最新修改' },
+                  { value: 'name', label: '名称 A-Z' },
+                  { value: 'default', label: '默认顺序' }
+                ]}
+                className="w-full text-xs"
+                popupClassName="w-36"
+                title="切换模组列表排序规则"
+              />
+            </div>
+
+            {/* 批量检查线上更新按钮 */}
+            <Button
+              variant="secondary"
+              onClick={handleCheckAllUpdates}
+              disabled={checkingUpdates || loading}
+              title="检查 GameBanana 线上模组是否有新版本发布"
+              className="px-2.5 py-2 text-xs font-medium"
+              icon={
+                <ArrowUpCircle
+                  className={`w-3.5 h-3.5 text-amber-500 ${
+                    checkingUpdates ? 'animate-spin' : ''
+                  }`}
+                />
+              }
+            >
+              <span className="hidden sm:inline">检查更新</span>
+            </Button>
+
+            {/* 全局仅保留此一处 Mod 目录扫描刷新按钮 */}
+            <Button
+              variant="secondary"
               onClick={() => {
                 onRefresh()
                 loadConflicts()
               }}
               disabled={loading}
-              className="p-2 rounded-xl bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-300 transition shadow-sm active:scale-95"
               title="重新扫描 Mod 目录"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+              className="p-2"
+              icon={
+                <RefreshCw
+                  className={`w-3.5 h-3.5 text-text-muted hover:text-primary ${
+                    loading ? 'animate-spin' : ''
+                  }`}
+                />
+              }
+            />
           </div>
         </div>
 
-        {/* Mod Grid Canvas */}
-        <div className="flex-1 overflow-y-auto p-6 porcelain-scrollbar-light">
+        {/* 外观分区栏 (仿 QAQ 1:1 设计，仅在进入具体角色后展示) */}
+        {selectedChar !== 'all' && (
+          <div className="px-6 py-2.5 border-b border-border bg-surface/75 backdrop-blur-md shrink-0 relative z-20 space-y-2">
+            {/* 标题栏与统计提示 */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-text tracking-wide flex items-center space-x-1.5">
+                  <Layers className="w-3.5 h-3.5 text-primary" />
+                  <span>外观分区</span>
+                </span>
+                <span className="text-[11px] text-text-muted">
+                  {officialSections.length} 官方皮肤 · {sections.length} 个分区
+                </span>
+                {selectedSectionId !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSectionId('all')}
+                    className="text-[10px] text-primary hover:underline ml-2.5 font-medium cursor-pointer"
+                  >
+                    显示全部 ({totalCharMods})
+                  </button>
+                )}
+              </div>
+              <span className="text-[11px] text-text-muted">
+                切换仅筛选，不会自动启用
+              </span>
+            </div>
+
+            {/* 分区横向滚动轨道 */}
+            <div className="flex items-center">
+              {/* 向左滚动箭头 */}
+              <button
+                type="button"
+                onClick={() => scrollTrack('left')}
+                className="w-5 h-14 flex items-center justify-center rounded-control bg-surface-2 hover:bg-surface border border-border text-text-muted hover:text-text transition-colors shrink-0 cursor-pointer shadow-2xs mr-1.5"
+                title="向左滚动"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* 滚动容器 */}
+              <div ref={trackRef} className="flex-1 flex items-center space-x-3 overflow-x-auto scrollbar-none py-1">
+                {/* 1. 原角色卡片 */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedSectionId(selectedSectionId === 'base' ? 'all' : 'base')}
+                  className={`relative flex items-center space-x-3 px-3 py-2 rounded-card border transition-all text-left cursor-pointer shrink-0 w-48 select-none ${
+                    selectedSectionId === 'base'
+                      ? 'bg-primary/10 border-primary ring-2 ring-primary/25 shadow-xs text-primary'
+                      : 'bg-surface hover:bg-surface-2 border-border hover:border-primary/40 text-text'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-border bg-surface-2">
+                    {(baseSection?.coverUrl || characterAvatars[selectedChar]) ? (
+                      <img
+                        src={toFileUrl(baseSection?.coverUrl || characterAvatars[selectedChar])}
+                        alt={selectedChar}
+                        className="w-full h-full object-cover object-top"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary">
+                        {selectedChar.slice(0, 1)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="text-xs font-title font-bold truncate">原角色</span>
+                    <span className="text-[10px] text-text-muted">Original</span>
+                    <span className="text-[10px] text-text-muted mt-0.5 font-mono">
+                      <span className={baseSection && (baseSection.enabledCount || 0) > 0 ? 'font-bold text-emerald-600' : ''}>
+                        {baseSection?.enabledCount || 0}
+                      </span> 启用
+                      <span className="mx-1 opacity-40">/</span>
+                      <span>{baseSection?.totalCount || 0} Mod</span>
+                    </span>
+                  </div>
+                </button>
+
+                {/* 2. 官方时装/皮肤卡片列表 */}
+                {officialSections.map((sec) => {
+                  const isSelected = selectedSectionId === sec.sectionId
+                  return (
+                    <div
+                      key={sec.sectionId}
+                      onClick={() => setSelectedSectionId(isSelected ? 'all' : sec.sectionId)}
+                      className={`group/sec relative flex items-center space-x-3 px-3 py-2 rounded-card border transition-all text-left cursor-pointer shrink-0 w-48 select-none ${
+                        isSelected
+                          ? 'bg-primary/10 border-primary ring-2 ring-primary/25 shadow-xs text-primary'
+                          : 'bg-surface hover:bg-surface-2 border-border hover:border-primary/40 text-text'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-border bg-surface-2 flex items-center justify-center">
+                        {sec.coverUrl ? (
+                          <img
+                            src={toFileUrl(sec.coverUrl)}
+                            alt={sec.name}
+                            className="w-full h-full object-cover object-top"
+                          />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-primary" />
+                        )}
+                      </div>
+
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-xs font-title font-bold truncate" title={sec.name}>
+                          {sec.name}
+                        </span>
+                        <div className="flex items-center space-x-1 mt-0.5">
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-primary/15 text-primary font-bold shrink-0">官方皮肤</span>
+                          <span className="text-[10px] text-text-muted truncate">{sec.nameEn || ''}</span>
+                        </div>
+                        <span className="text-[10px] text-text-muted mt-0.5 font-mono">
+                          <span className={(sec.enabledCount || 0) > 0 ? 'font-bold text-emerald-600' : ''}>
+                            {sec.enabledCount || 0}
+                          </span> 启用
+                          <span className="mx-1 opacity-40">/</span>
+                          <span>{sec.totalCount || 0} Mod</span>
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* 3. 自定义分区卡片列表 */}
+                {customSections.map((sec) => {
+                  const isSelected = selectedSectionId === sec.sectionId
+                  return (
+                    <div
+                      key={sec.sectionId}
+                      onClick={() => setSelectedSectionId(isSelected ? 'all' : sec.sectionId)}
+                      className={`group/sec relative flex items-center space-x-3 px-3 py-2 rounded-card border transition-all text-left cursor-pointer shrink-0 w-48 select-none ${
+                        isSelected
+                          ? 'bg-primary/10 border-primary ring-2 ring-primary/25 shadow-xs text-primary'
+                          : 'bg-surface hover:bg-surface-2 border-border hover:border-primary/40 text-text'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-border bg-surface-2 flex items-center justify-center">
+                        {sec.coverUrl ? (
+                          <img
+                            src={toFileUrl(sec.coverUrl)}
+                            alt={sec.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-primary" />
+                        )}
+                      </div>
+
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-xs font-title font-bold truncate" title={sec.name}>
+                          {sec.name}
+                        </span>
+                        <span className="text-[10px] text-text-muted">自定义分区</span>
+                        <span className="text-[10px] text-text-muted mt-0.5 font-mono">
+                          <span className={(sec.enabledCount || 0) > 0 ? 'font-bold text-emerald-600' : ''}>
+                            {sec.enabledCount || 0}
+                          </span> 启用
+                          <span className="mx-1 opacity-40">/</span>
+                          <span>{sec.totalCount || 0} Mod</span>
+                        </span>
+                      </div>
+
+                      {/* 悬浮操作按钮 */}
+                      <div className="absolute top-1.5 right-1.5 opacity-0 group-hover/sec:opacity-100 transition-opacity flex items-center space-x-0.5 bg-surface/90 backdrop-blur-xs p-0.5 rounded border border-border shadow-xs">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingSection(sec)
+                            setEditingName(sec.name)
+                          }}
+                          className="p-1 text-text-muted hover:text-primary transition-colors cursor-pointer"
+                          title="重命名分区"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteSection(sec)
+                          }}
+                          className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
+                          title="删除分区"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* 3. 新增分区卡片 */}
+                <button
+                  type="button"
+                  onClick={() => setIsCreateSectionOpen(true)}
+                  className="flex flex-col items-center justify-center px-4 py-2 rounded-card border-2 border-dashed border-border hover:border-primary/60 hover:bg-primary/5 text-text-muted hover:text-primary transition-all cursor-pointer shrink-0 w-36 h-[58px] select-none group/add"
+                >
+                  <div className="flex items-center space-x-1 font-bold text-xs">
+                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>新增分区</span>
+                  </div>
+                  <span className="text-[9px] text-text-muted mt-0.5">名称与封面自定义</span>
+                </button>
+              </div>
+
+              {/* 向右滚动箭头 */}
+              <button
+                type="button"
+                onClick={() => scrollTrack('right')}
+                className="w-5 h-14 flex items-center justify-center rounded-control bg-surface-2 hover:bg-surface border border-border text-text-muted hover:text-text transition-colors shrink-0 cursor-pointer shadow-2xs ml-1.5"
+                title="向右滚动"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 模组展示流 (纯色底，清晰高效，保证内容高可读性) */}
+        <div className="flex-1 overflow-y-auto p-6 bg-surface/50 relative z-10">
           {displayedMods.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 space-y-4">
-              {selectedChar !== 'all' && characterAvatars[selectedChar] ? (
-                <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-blue-200/80 shadow-lg ring-4 ring-blue-500/10 bg-white">
+            /* 空状态 */
+            <div className="h-full flex flex-col items-center justify-center text-text-muted p-8 space-y-4">
+              {selectedChar !== 'all' && (baseSection?.coverUrl || characterAvatars[selectedChar]) ? (
+                <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-border shadow-md ring-4 ring-primary/10 bg-surface">
                   <img
-                    src={`file://${characterAvatars[selectedChar]}`}
+                    src={toFileUrl(baseSection?.coverUrl || characterAvatars[selectedChar])}
                     alt={selectedChar}
                     className="w-full h-full object-cover object-top"
                   />
                 </div>
               ) : (
-                <div className="p-5 rounded-3xl bg-white border border-blue-100 text-blue-500 shadow-sm">
-                  <FolderOpen className="w-12 h-12 stroke-[1.2]" />
+                <div className="p-4 rounded-2xl bg-surface border border-border text-primary shadow-xs">
+                  <FolderOpen className="w-10 h-10 stroke-[1.2]" />
                 </div>
               )}
 
               <div className="text-center max-w-md space-y-1.5">
-                <div className="text-base font-bold text-slate-800">
+                <div className="text-sm font-bold text-text">
                   {conflictFilterOnly
                     ? '未发现任何资源冲突'
+                    : searchMod
+                    ? `未找到匹配「${searchMod}」的模组`
                     : selectedChar === 'all'
                     ? '未找到匹配的模组'
                     : `【${selectedChar}】尚未安装任何模组`}
                 </div>
-                <p className="text-xs text-slate-500 leading-relaxed">
+                <p className="text-xs text-text-muted leading-relaxed">
                   {conflictFilterOnly
                     ? '当前角色下的所有模组均正常运行，无文件冲突'
                     : selectedChar === 'all'
@@ -652,165 +1397,174 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                 </p>
               </div>
 
-              {/* Action Buttons */}
+              {/* 空状态操作按钮（描边次要样式，去掉多余的重复刷新按键） */}
               <div className="flex items-center gap-3 pt-2">
                 {selectedChar !== 'all' && onNavigateTab && (
-                  <button
+                  <Button
+                    variant="accent"
+                    size="sm"
                     onClick={() => onNavigateTab('gamebanana')}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition active:scale-95 cursor-pointer"
+                    icon={<Globe className="w-3.5 h-3.5" />}
                   >
-                    <Globe className="w-4 h-4" />
-                    <span>前往 Mod 市场查找模组</span>
-                  </button>
+                    前往 Mod 市场查找
+                  </Button>
                 )}
 
                 {selectedChar !== 'all' && (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => window.lz.openCharacterFolder(selectedChar)}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
+                    icon={<Folder className="w-3.5 h-3.5 text-primary" />}
                   >
-                    <Folder className="w-4 h-4 text-blue-600" />
-                    <span>打开角色模组目录</span>
-                  </button>
+                    打开角色模组目录
+                  </Button>
                 )}
-
-                <button
-                  onClick={() => {
-                    onRefresh()
-                    loadConflicts()
-                  }}
-                  className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium transition active:scale-95 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>刷新</span>
-                </button>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-              {displayedMods.map((mod) => {
-                const id = `${mod.charName}::${mod.name}`
-                const isToggling = togglingId === id
-                const conflict = getModConflict(mod.charName, mod.name)
-
-                return (
-                  <div
-                    key={id}
-                    onClick={() => onSelectMod(mod.fullPath)}
-                    className={`group relative rounded-2xl border overflow-hidden transition-all duration-300 flex flex-col cursor-pointer ${
-                      conflict
-                        ? 'bg-rose-50/50 border-rose-300 shadow-sm hover:border-rose-400'
-                        : mod.enabled
-                        ? 'bg-white border-blue-500 shadow-lg shadow-blue-500/10 hover:border-blue-600 ring-2 ring-blue-500/20 hover:-translate-y-1'
-                        : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5'
-                    }`}
-                  >
-                    {/* Cover Showcase */}
-                    <div className="relative aspect-[16/10] bg-slate-100 flex items-center justify-center overflow-hidden">
-                      {mod.coverPath ? (
-                        <img
-                          src={`file://${mod.coverPath}`}
-                          alt={mod.name}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-106"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center text-slate-400">
-                          <ImageIcon className="w-8 h-8 stroke-[1.2] mb-1 text-slate-400" />
-                          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                            无预览图
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Status Capsule */}
-                      <div className="absolute top-2.5 left-2.5 z-10">
-                        {mod.enabled ? (
-                          <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-blue-600 text-white font-semibold text-[10px] shadow-sm">
-                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                            <span>已装备</span>
-                          </div>
-                        ) : (
-                          <div className="px-2.5 py-0.5 rounded-full bg-white/90 backdrop-blur-md border border-slate-200 text-slate-600 text-[10px] font-medium shadow-sm">
-                            待命
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Conflict Alert Tag */}
-                      {conflict && (
-                        <div className="absolute top-2.5 right-2.5 z-20">
-                          <span
-                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white flex items-center space-x-1 shadow-sm border border-rose-300"
-                            title={`与 ${conflict.conflictingMods.join(', ')} 存在 Hash 冲突`}
-                          >
-                            <AlertTriangle className="w-3 h-3" />
-                            <span>冲突 ({conflict.collisions.length})</span>
-                          </span>
-                        </div>
-                      )}
-
-                      {/* INI Tag */}
-                      {mod.hasIni && !conflict && (
-                        <div className="absolute top-2.5 right-2.5 z-10">
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold bg-white/90 text-blue-600 border border-blue-200 shadow-sm">
-                            INI
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Mod Information & Bottom Action */}
-                    <div className="p-3.5 flex-1 flex flex-col justify-between space-y-3 bg-white">
-                      <div>
-                        {selectedChar === 'all' && (
-                          <div className="text-[10px] font-semibold text-blue-600 mb-0.5">
-                            {mod.charName}
-                          </div>
-                        )}
-                        <h3
-                          className="text-xs font-bold text-slate-800 line-clamp-2 leading-relaxed group-hover:text-blue-600 transition"
-                          title={mod.name}
-                        >
-                          {mod.name}
-                        </h3>
-                      </div>
-
-                      {/* Action Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleToggle(mod.charName, mod.name, mod.enabled)
-                        }}
-                        disabled={isToggling}
-                        className={`w-full py-1.5 rounded-xl text-xs font-semibold tracking-wide flex items-center justify-center space-x-1.5 transition-all shadow-sm active:scale-95 ${
-                          mod.enabled
-                            ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200'
-                            : 'bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white shadow-blue-500/20'
-                        } ${isToggling ? 'opacity-50 cursor-wait' : ''}`}
-                      >
-                        {isToggling ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : mod.enabled ? (
-                          <>
-                            <XCircle className="w-3.5 h-3.5 text-rose-500" />
-                            <span>卸下模组</span>
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-3.5 h-3.5 text-white fill-white" />
-                            <span>装备模组</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
+            /* 模组卡片网格 */
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {displayedMods.map((mod) => (
+                <ModCard
+                  key={`${mod.charName}::${mod.name}`}
+                  mod={mod}
+                  isToggling={togglingId === `${mod.charName}::${mod.name}`}
+                  conflict={getModConflict(mod.charName, mod.name)}
+                  updateItem={updatesMap[mod.fullPath]}
+                  selectedChar={selectedChar}
+                  sections={sections}
+                  sectionsById={sectionsById}
+                  onSelect={handleCardSelect}
+                  onToggle={handleToggle}
+                  onMoveSection={handleMoveModSection}
+                  onOpenMove={handleOpenMoveMod}
+                />
+              ))}
             </div>
           )}
         </div>
       </main>
+
+      {/* 新建外观分区模态框 */}
+      <Modal
+        isOpen={isCreateSectionOpen}
+        onClose={() => {
+          setIsCreateSectionOpen(false)
+          setNewSectionName('')
+        }}
+        title={
+          <span className="flex items-center space-x-2">
+            <Layers className="w-4 h-4 text-primary" />
+            <span>为【{selectedChar}】新建外观分区</span>
+          </span>
+        }
+        confirmText="创建分区"
+        cancelText="取消"
+        onConfirm={handleCreateSection}
+      >
+        <div className="space-y-3">
+          <label className="text-xs font-semibold text-text">
+            分区名称
+          </label>
+          <Input
+            placeholder="例如：泳装 / 赛车娘 / 机甲风"
+            value={newSectionName}
+            onChange={(e) => setNewSectionName(e.target.value)}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateSection()
+            }}
+          />
+
+          {/* 常用预设标签推荐 */}
+          <div>
+            <span className="text-[11px] text-text-muted mb-1.5 block">快捷选择标签：</span>
+            <div className="flex flex-wrap gap-1.5">
+              {['泳装', '夏日', '睡衣', '礼服', '机甲风', '兔女郎', '同人二创', '官方改色'].map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setNewSectionName(tag)}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors cursor-pointer ${
+                    newSectionName === tag
+                      ? 'bg-primary text-primary-fg border-primary font-bold shadow-2xs'
+                      : 'bg-surface-2 hover:bg-surface border-border text-text-muted hover:text-text'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[11px] text-text-muted">
+            💡 外观分区用于对角色的不同皮肤或主题外观进行分类，仅做视觉过滤，不影响模组的启用与加载。
+          </p>
+        </div>
+      </Modal>
+
+      {/* 重命名外观分区模态框 */}
+      <Modal
+        isOpen={Boolean(editingSection)}
+        onClose={() => {
+          setEditingSection(null)
+          setEditingName('')
+        }}
+        title={
+          <span className="flex items-center space-x-2">
+            <Edit2 className="w-4 h-4 text-primary" />
+            <span>重命名外观分区</span>
+          </span>
+        }
+        maxWidth="max-w-sm"
+        confirmText="保存"
+        cancelText="取消"
+        onConfirm={handleUpdateSection}
+      >
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-text">
+            新名称
+          </label>
+          <Input
+            placeholder="请输入新分区名称"
+            value={editingName}
+            onChange={(e) => setEditingName(e.target.value)}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleUpdateSection()
+            }}
+          />
+        </div>
+      </Modal>
+
+      {/* 删除外观分区确认模态框 (纯主题定制，杜绝 Win 原生确认框) */}
+      <Modal
+        isOpen={Boolean(deletingSection)}
+        onClose={() => setDeletingSection(null)}
+        title="确认删除外观分区"
+        variant="danger"
+        confirmText="确认删除"
+        cancelText="取消"
+        loading={isDeleting}
+        onConfirm={confirmDeleteSection}
+        description={`确定要删除外观分区【${deletingSection?.name}】吗？\n删除后该分区下的所有模组将自动回退到【原角色】分区，不会删除任何模组文件。`}
+      />
+
+      {/* 模组移动分类弹窗 */}
+      {moveTargetMod && (
+        <MoveModModal
+          isOpen={!!moveTargetMod}
+          onClose={() => setMoveTargetMod(null)}
+          modName={moveTargetMod.name}
+          modFullPath={moveTargetMod.fullPath}
+          currentCharacter={moveTargetMod.charName}
+          onSuccess={() => {
+            onRefresh()
+            loadConflicts()
+          }}
+        />
+      )}
     </div>
   )
 }

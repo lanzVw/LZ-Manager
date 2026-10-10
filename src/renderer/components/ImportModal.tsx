@@ -2,16 +2,20 @@ import React, { useState } from 'react'
 import {
   FileArchive,
   FolderInput,
-  CheckCircle2,
   AlertCircle,
   RefreshCw,
   X,
   FileCode,
   User,
-  Zap,
-  Sparkles
+  Zap
 } from 'lucide-react'
 import { ArchiveInspectionResult } from '../../core/import-engine'
+import { Button } from './ui/Button'
+import { Input } from './ui/Input'
+import { Badge } from './ui/Badge'
+import { Switch } from './ui/Switch'
+import { Select } from './ui/Select'
+import { useEscapeToClose } from '../hooks/useEscape'
 
 interface ImportModalProps {
   archivePath: string
@@ -31,6 +35,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [enableImmediately, setEnableImmediately] = useState<boolean>(true)
   const [importing, setImporting] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // 该弹窗由父级条件渲染，挂载即视为打开；导入进行中不响应 Escape（与禁用关闭按钮保持一致）
+  useEscapeToClose(!importing, onClose)
 
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,26 +67,27 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xl flex items-center justify-center p-4 select-none">
-      <div className="w-full max-w-lg bg-[#0c1426]/90 border border-white/10 rounded-3xl p-6 shadow-2xl backdrop-blur-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 select-none">
+      <div className="w-full max-w-lg bg-surface border border-border rounded-card p-6 shadow-2xl backdrop-blur-xl space-y-5 animate-in fade-in zoom-in-95 duration-fast">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-500/15 text-sky-400 border border-blue-400/20 flex items-center justify-center shadow-sm">
+            <div className="w-10 h-10 rounded-control bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shadow-xs">
               <FileArchive className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">导入 MOD 压缩包</h3>
-              <p className="text-[11px] font-mono text-slate-400 truncate max-w-xs sm:max-w-sm mt-0.5">
+              <h3 className="text-base font-bold text-text">导入 MOD 压缩包</h3>
+              <p className="text-[11px] font-mono text-text-muted truncate max-w-xs sm:max-w-sm mt-0.5">
                 {archivePath}
               </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             disabled={importing}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.08] transition"
+            className="p-1.5 rounded-control text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -87,21 +95,21 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
         {/* Error notification */}
         {errorMsg && (
-          <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-xs text-rose-300 flex items-center space-x-2 animate-in fade-in">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <div className="p-3.5 rounded-control bg-danger/10 border border-danger/30 text-xs text-danger flex items-center space-x-2 animate-in fade-in">
+            <AlertCircle className="w-4 h-4 shrink-0 text-danger" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {/* Inspection Stats */}
-        <div className="grid grid-cols-2 gap-3.5 p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.07] text-xs text-slate-300 font-mono">
+        <div className="grid grid-cols-2 gap-3.5 p-3.5 rounded-control bg-surface-2 border border-border text-xs text-text font-mono">
           <div className="flex items-center space-x-2">
-            <FolderInput className="w-4 h-4 text-sky-400" />
-            <span>格式: <strong className="uppercase text-sky-300">{inspection.format}</strong> ({inspection.fileCount} 个文件)</span>
+            <FolderInput className="w-4 h-4 text-primary" />
+            <span>格式: <strong className="uppercase text-primary">{inspection.format}</strong> ({inspection.fileCount} 个文件)</span>
           </div>
           <div className="flex items-center space-x-2">
-            <FileCode className="w-4 h-4 text-emerald-400" />
-            <span className={inspection.hasIni ? 'text-emerald-400 font-semibold' : 'text-slate-400'}>
+            <FileCode className="w-4 h-4 text-emerald-500" />
+            <span className={inspection.hasIni ? 'text-emerald-600 font-semibold' : 'text-text-muted'}>
               {inspection.hasIni ? '包含 INI 配置文件' : '未检测到独立 INI'}
             </span>
           </div>
@@ -111,85 +119,67 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         <form onSubmit={handleImport} className="space-y-4">
           {/* Target Character */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center space-x-1.5">
-              <User className="w-3.5 h-3.5 text-sky-400" />
+            <label className="block text-xs font-semibold text-text mb-1.5 flex items-center space-x-1.5">
+              <User className="w-3.5 h-3.5 text-primary" />
               <span>目标所属角色</span>
-              <span className="text-[10px] text-emerald-400 font-normal">(智能预测匹配)</span>
+              <span className="text-[10px] text-emerald-600 font-normal">(智能预测匹配)</span>
             </label>
-            <select
+            <Select
               value={targetChar}
-              onChange={(e) => setTargetChar(e.target.value)}
-              className="w-full bg-white/[0.05] border border-white/10 focus:border-sky-400/60 rounded-xl px-3.5 py-2 text-xs text-slate-100 font-sans focus:outline-none transition"
-            >
-              {inspection.availableCharacters.map((c) => (
-                <option key={c.id} value={c.name} className="bg-[#0f172a] text-slate-100">
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setTargetChar(val)}
+              options={inspection.availableCharacters.map((c) => ({
+                value: c.name,
+                label: c.name,
+                icon: <User className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+              }))}
+              className="w-full"
+              popupClassName="w-full"
+            />
           </div>
 
           {/* Mod Folder Name */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-text mb-1.5">
               Mod 文件夹名称
             </label>
-            <input
-              type="text"
+            <Input
               required
               value={modName}
               onChange={(e) => setModName(e.target.value)}
-              className="w-full bg-white/[0.05] border border-white/10 focus:border-sky-400/60 rounded-xl px-3.5 py-2 text-xs text-slate-100 font-mono focus:outline-none transition"
+              className="font-mono"
             />
           </div>
 
           {/* Enable immediately checkbox */}
-          <div className="flex items-center space-x-2 pt-1">
-            <input
-              type="checkbox"
-              id="enableImmediately"
+          <div className="pt-1">
+            <Switch
               checked={enableImmediately}
-              onChange={(e) => setEnableImmediately(e.target.checked)}
-              className="w-4 h-4 rounded bg-white/[0.05] border-white/20 text-blue-600 focus:ring-sky-400 cursor-pointer accent-blue-600"
+              onChange={setEnableImmediately}
+              label="导入后立即装备该 Mod"
+              description="单选互斥生效时自动停用同角色其他Mod"
             />
-            <label
-              htmlFor="enableImmediately"
-              className="text-xs text-slate-300 cursor-pointer select-none flex items-center space-x-1.5"
-            >
-              <span className="font-semibold text-white">导入后立即装备该 Mod</span>
-              <span className="text-[10px] text-slate-400">(单选互斥生效时自动停用同角色其他Mod)</span>
-            </label>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end space-x-3 pt-3 border-t border-white/[0.06]">
-            <button
+          <div className="flex items-center justify-end space-x-3 pt-3 border-t border-border">
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={onClose}
               disabled={importing}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:bg-white/[0.08] hover:text-white transition"
             >
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={importing}
-              className={`flex items-center space-x-2 px-6 py-2.5 rounded-2xl text-xs font-bold bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 hover:from-blue-600 hover:to-sky-500 text-white shadow-md shadow-blue-900/30 transition-all active:scale-95 ${
-                importing ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              variant="primary"
+              size="sm"
+              loading={importing}
+              icon={<Zap className="w-3.5 h-3.5" />}
             >
-              {importing ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>正在规整解压并导入...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5 fill-sky-200 text-sky-200" />
-                  <span>开始解压导入</span>
-                </>
-              )}
-            </button>
+              {importing ? '正在规整解压并导入...' : '开始解压导入'}
+            </Button>
           </div>
         </form>
       </div>

@@ -13,7 +13,10 @@ import {
   Check,
   Image as ImageIcon
 } from 'lucide-react'
+import { Modal } from './ui/Modal'
 import { calculateSmartCrop, calculateCenterCrop } from '../../core/crop-algorithm'
+import { toFileUrl } from '../utils/fileUrl'
+import { useEscapeToClose } from '../hooks/useEscape'
 
 interface CropDialogProps {
   isOpen: boolean
@@ -69,6 +72,10 @@ export const CropDialog: React.FC<CropDialogProps> = ({
   const [statusMsg, setStatusMsg] = useState<string>('')
   const [hasBackup, setHasBackup] = useState<boolean>(false)
   const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [showRollbackModal, setShowRollbackModal] = useState<boolean>(false)
+
+  // Escape 关闭对话框；内嵌回滚确认弹窗打开或保存进行中时不响应，避免误关与双重关闭
+  useEscapeToClose(isOpen && !showRollbackModal && !isSaving, onClose)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
@@ -340,9 +347,9 @@ export const CropDialog: React.FC<CropDialogProps> = ({
     }
   }
 
-  // 恢复历史备份
-  const handleRollback = async () => {
-    if (!confirm('确认恢复到上一个版本的备份封面？')) return
+  // 执行恢复历史备份
+  const handleExecuteRollback = async () => {
+    setShowRollbackModal(false)
     setIsSaving(true)
     setStatusMsg('🔄 正在还原历史封面备份...')
     try {
@@ -350,7 +357,7 @@ export const CropDialog: React.FC<CropDialogProps> = ({
       if (res && res.success) {
         setStatusMsg('✅ 备份封面恢复成功！')
         if (onCoverSaved) {
-          onCoverSaved(`file:///${modFullPath.replace(/\\/g, '/')}/preview.png?t=${Date.now()}`)
+          onCoverSaved(`${toFileUrl(modFullPath)}/preview.png?t=${Date.now()}`)
         }
         setTimeout(() => {
           setIsSaving(false)
@@ -621,7 +628,7 @@ export const CropDialog: React.FC<CropDialogProps> = ({
 
               {hasBackup && (
                 <button
-                  onClick={handleRollback}
+                  onClick={() => setShowRollbackModal(true)}
                   disabled={isSaving}
                   className="w-full flex items-center justify-center gap-2 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded-xl text-xs font-medium border border-amber-500/20 transition disabled:opacity-50"
                 >
@@ -669,6 +676,20 @@ export const CropDialog: React.FC<CropDialogProps> = ({
         </div>
 
       </div>
+
+      <Modal
+        isOpen={showRollbackModal}
+        onClose={() => setShowRollbackModal(false)}
+        onConfirm={handleExecuteRollback}
+        title="还原历史备份封面"
+        variant="warning"
+        confirmText="确认还原"
+        cancelText="取消"
+      >
+        <p className="text-sm text-slate-300">
+          确认恢复到上一个版本的备份封面？当前编辑的裁剪将不会保存。
+        </p>
+      </Modal>
     </div>
   )
 }

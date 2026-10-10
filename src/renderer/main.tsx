@@ -4,6 +4,7 @@ import App from './App'
 import { OverlayApp } from './overlay/OverlayApp'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './components/ui/Toast'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import './index.css'
 
 const isOverlay = window.location.hash.includes('overlay') || window.location.search.includes('overlay')
@@ -17,7 +18,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
       <ToastProvider>
-        {isOverlay ? <OverlayApp /> : <App />}
+        <ErrorBoundary>{isOverlay ? <OverlayApp /> : <App />}</ErrorBoundary>
       </ToastProvider>
     </ThemeProvider>
   </React.StrictMode>
