@@ -107,4 +107,6 @@ npm start
 - 一次只做一件事，改动保持小范围
 - 不要修改 `dist/`（构建产物，已在 `.gitignore`）与 `resources/binaries/*.exe`（由同目录 `.cs` 源码编译产出）；不要提交密钥或 `.env.local`
 - 仓库当前无 CI 配置（无 `.github/workflows/`、无 `.gitlab-ci.yml`），所有检查都在本地手动执行
-- 工作区当前有大量未提交改动（`master` 分支，无 remote），动手前先 `git status` 确认，不要覆盖他人正在进行的修改
+- 仓库无 remote，`master` 为唯一分支，历史只在本地；动手前先 `git status` 确认，不要覆盖未提交的改动
+- 项目说明统一维护在 `AGENTS.md`；`CLAUDE.md` 只有一行 `@AGENTS.md` 转发，**不要在 `CLAUDE.md` 正文写项目说明**——一旦它存在且不含该 import，Claude Code 会改为只读 `CLAUDE.md` 并静默忽略 `AGENTS.md`
+- 唯一长期存在的未跟踪文件是 `resources/binaries/GameFocusHelper.exe.bak`（编译产物的备份，无代码引用）；其余残留如 `debug.log` 属可清理项
