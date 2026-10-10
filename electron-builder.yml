@@ -1,0 +1,44 @@
+# electron-builder 打包配置（Windows 优先）
+# 使用：npm run dist
+appId: com.lz.manager.v1
+productName: LZ Manager
+copyright: Copyright © 2026
+
+directories:
+  output: release/${version}
+  buildResources: resources/icons
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+# resources 目录整体随包携带（7za/UnRAR/游戏角色数据/图标/字体等运行时资源）
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icons/icon.ico
+  # 与现有 rcedit 设置一致的 AppUserModelId
+  artifactName: LZ-Manager-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LZ Manager
+  artifactName: LZ-Manager-Setup-${version}.${ext}
+
+# 发布配置按需启用（当前默认本地打包，不上传）
+publish: null
