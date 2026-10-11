@@ -18,11 +18,12 @@ LZ Manager 是一个面向 Windows 的 3DMigoto / XXMI Mod 管理器（Electron 
   - `gamebanana-service.ts` GameBanana API、压缩包解包/安装（CommonJS + `require` 风格）
   - `import-engine.ts` 本地压缩包导入管线、`persist-bridge.ts` Mod 数值保留、`conflict-detector.ts` hash 冲突检测
   - `environment-deployer.ts` XXMI 环境检查/部署、`text-encoding.ts` GBK/UTF-16 编码探测与回写
+  - `hotkey-dispatch.ts` 按键派发判定/前台校验/回声守卫；`wuwa-fix-engine.ts` 鸣潮 Hash 修复规则引擎、`ini-backup.ts` 修复备份与回滚、`mod-fixer.ts` 修复器解析/安装/拉起（自 QAQ 管理器移植）
 - `src/main/` — Electron 主进程：`index.ts` 为入口并集中注册全部 IPC；`overlay-manager.ts`、`game-focus-service.ts`、`tray-manager.ts`、`controller-service.ts` 为独立服务类
 - `src/preload/index.ts` — 唯一的 IPC 桥，同时挂到 `window.lz` 与 `window.flairx`
 - `src/renderer/` — React 前端；`pages/` 主界面五个页面，`overlay/` 游戏内悬浮窗（同一 bundle，靠 URL hash 分流）
-- `resources/` — 随包携带的运行时资源（`binaries/` 7za/UnRAR/焦点助手、`games/<id>/character-skins/catalog.json`、图标、字体）；打包后从 `process.resourcesPath` 读取
-- `tests/` — vitest 用例，只覆盖三个核心模块（conflict-detector / iniParser / text-encoding）
+- `resources/` — 随包携带的运行时资源（`binaries/` 7za/UnRAR/焦点助手、`fix/` 修复器 exe 与鸣潮修复规则（自 QAQ 管理器随包，含 GPL 许可文件）、`games/<id>/character-skins/catalog.json`、图标、字体）；打包后从 `process.resourcesPath` 读取
+- `tests/` — vitest 用例，覆盖核心引擎（conflict-detector / iniParser / text-encoding / wuwa-fix-engine / ini-backup / restore-persist-bak / hotkey-dispatch / game-visibility）
 
 ## 常用命令
 
@@ -77,7 +78,8 @@ npm start
 - **路径守卫**：`ModEngine` 中所有接受外部路径的文件操作必须先过 `resolveInsideModRoot()` / `sanitizeSegment()`，越界返回 `null`。新增任何以完整路径为参数的 IPC 都必须复用，否则渲染进程可读写删任意磁盘文件
 - **配置白名单**：`config:updateApp` / `config:updateGame` 的 patch 经 `APP_CONFIG_KEYS` / `GAME_CONFIG_KEYS` 白名单过滤（`src/main/index.ts`）。新增配置键必须同时加进白名单，否则写入会被静默丢弃
 - **启用/停用即目录改名**：磁盘上 `DISABLED_<name>` 前缀表示停用，无前缀表示启用。`toggleMod` 的顺序固定为「先 rename 目标 → 再写 Persist Bridge → 最后按 Option-A 互斥停用同角色其他 Mod」，不可调换，否则会产生半失败状态
-- **文本读写必须走 `readTextAuto` / `writeTextWithEncoding`**：Mod 的 ini 大量是 GBK 或 UTF-16LE，按 utf8 读会永久乱码
+- **文本读写必须走 `readTextAuto` / `writeTextWithEncoding`**：Mod 的 ini 大量是 GBK 或 UTF-16LE，按 utf8 读会永久乱码。唯一例外：`wuwa-fix-engine.ts` 的 hash 替换必须按原始字节保真读写（latin1 + UTF-16 BOM 处理），**不要**改成编码探测回写，否则会破坏原文件编码
+- **修复/重置的备份语义**：`*.qaqm-inibak-<stamp>` 是修复前备份，由 `ini-backup.ts` 列出/回滚（部分失败必须保留备份）；`*.qaqm-persistbak` 是 Persist Bridge 留存的原始 ini 备份，`mod-engine.restorePersistBakFiles` 还原即「重置 ini」。`fix:*` 与 `iniBackup:restore` 必须走主进程侧单飞互斥，防止并发互踩备份
 - **切换游戏必须调用 `applyActiveGame()`**：它负责同步 `modEngine.setModFolderPath`、`modEngine.setPersistBridge(envRoot)`、`conflictDetector.setModFolderPath` 并向两个窗口广播。绕过它会留下指向旧游戏的服务状态
 - **Persist Bridge 依赖 envRoot**（Mod 目录的上级 XXMI 运行时目录）；`persistBridgeEnabled` 为 false 或 envRoot 为空时全部持久化逻辑静默跳过
 - `buffer` 必须在 `vite.config.main.ts` 的 `external` 中：`iconv-lite` → `safer-buffer` 会 `require('buffer')`，不 external 会生成坏 shim 导致启动崩溃
@@ -88,7 +90,7 @@ npm start
 ## 已知问题与陷阱
 
 - **TypeScript 7.0.2（原生版）与 typescript-eslint 不兼容**，`eslint.config.mjs` 因此退化为 `@babel/eslint-parser` 的纯语法 lint，没有类型相关规则（详见该文件顶部注释）。`react-hooks/*` 是当前唯一有实质价值的静态检查
-- `npm run lint` 目前退出码为 0，但有 **25 条 warning**（`no-useless-escape`、`preserve-caught-error`、`no-useless-assignment`、`react-hooks/exhaustive-deps`），属已知的历史代码风格问题，被刻意降级为 warn
+- `npm run lint` 目前退出码为 0，但有 **24 条 warning**（`no-useless-escape`、`preserve-caught-error`、`no-useless-assignment`、`react-hooks/exhaustive-deps`），属已知的历史代码风格问题，被刻意降级为 warn
 - 三个 vite 配置都是 `.ts` 且 `package.json` 为 `type: "commonjs"`，每次构建都会打印 `configLoader: 'native'` 的 ESM/CommonJS 警告，可用 `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` 抑制
 - `src/core/characters-data.ts`（2422 行）与 `src/core/mod-translator-dict.ts` 是生成式大文件，手工编辑易冲突。**生成方式待确认**：未找到生成脚本，也未找到读取源，无法判断改数据应该改哪个文件
 - `resources/games/*/character-config.json` 只有各目录的 README 提及，`src/` 下 grep 不到任何读取处（运行时用 `characters-data.ts` 的内嵌数据）。**是否为离线生成 `characters-data.ts` 的输入源待确认**——若无关，改角色数据只需动 `characters-data.ts`
@@ -103,7 +105,9 @@ npm start
 
 - 改代码前先读对应模块本身及其调用方（`src/main/index.ts` 的 IPC 注册处是几乎所有 core 能力的入口地图）
 - 修 bug 先补一个能在 `tests/` 复现的 vitest 用例；测试目录不在 ESLint 与 `tsc` 的覆盖范围内（`tsconfig.json` 只 `include: ["src"]`），需自行保证类型正确
-- 提交前跑 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`；四者当前均通过（lint 有上述 25 条 warning）
+- 提交前跑 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`；四者当前均通过（lint 有上述 24 条 warning）
+- **开发/审查分工（agy 协作模式）**：所有代码改动（含 30 行以内的小修复）一律交由 agy（`agy-staff`）执行，主会话只负责调研、写简报、代码审查、独立复跑验证与交付。移植类简报必须附源码行号映射，并明示"禁止添加简报未列的行为/交互"；行为差异的取舍由用户拍板。执行方的验证自述不作数，提交前由审查方独立复跑上述四条命令
+- 开工前先提交或清理工作区，让执行方从干净树开始，避免改动归属混杂难以审查
 - 一次只做一件事，改动保持小范围
 - 不要修改 `dist/`（构建产物，已在 `.gitignore`）与 `resources/binaries/*.exe`（由同目录 `.cs` 源码编译产出）；不要提交密钥或 `.env.local`
 - 仓库当前无 CI 配置（无 `.github/workflows/`、无 `.gitlab-ci.yml`），所有检查都在本地手动执行
