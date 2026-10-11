@@ -16,6 +16,10 @@ import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpda
 import { translateModDetails } from '../core/translate-service'
 import { PersistBridgeManager } from '../core/persist-bridge'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
+import {
+  evaluateKeyDispatch,
+  sanitizeProcessName
+} from '../core/hotkey-dispatch'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -119,14 +123,24 @@ import { ConflictDetector } from '../core/conflict-detector'
 import { EnvironmentDeployer } from '../core/environment-deployer'
 import { TrayManager } from './tray-manager'
 import { GameFocusService } from './game-focus-service'
+import { ModFixer, getWuwaFixRuleMetadata } from '../core/mod-fixer'
+import { listIniBackupsForMod, restoreIniBackupForMod } from '../core/ini-backup'
 
 const binariesDir = (app && app.isPackaged)
   ? path.join(process.resourcesPath, 'binaries')
   : path.join(__dirname, '../../resources/binaries')
+const resourcesDir = (app && app.isPackaged)
+  ? process.resourcesPath
+  : path.join(__dirname, '../../resources')
 const gameLauncher = new GameLauncher(binariesDir)
 const importEngine = new ImportEngine()
 const conflictDetector = new ConflictDetector(activeGame ? activeGame.modFolderPath : '')
 const environmentDeployer = new EnvironmentDeployer()
+const modFixer = new ModFixer({
+  userDataPath: app ? app.getPath('userData') : undefined,
+  resourcesPath: resourcesDir
+})
+let isFixRunning = false
 let trayManager: TrayManager | null = null
 
 const preloadPath = path.join(__dirname, '../preload/index.cjs')
@@ -134,9 +148,91 @@ const isDev = process.env.NODE_ENV === 'development'
 const overlayManager = new OverlayManager(preloadPath, isDev)
 const controllerService = new ControllerService(binariesDir)
 const gameFocusService = new GameFocusService(binariesDir)
-gameFocusService.setGames(configStore.getConfig().games)
+gameFocusService.setGames(configStore.getConfig().games.filter((g) => !g.hidden))
 gameFocusService.setActiveGame(activeGame)
 overlayManager.setGameFocusService(gameFocusService)
+
+/**
+ * 统一的按键派发闸门：所有会向游戏投递按键的路径都必须经过这里。
+ * 1. 游戏未运行时坚决不发按键，彻底杜绝盲发全局按键导致的死循环自激刷新与乱跳项；
+ * 2. 刷新回声去重；
+ * 3. 投递按键后，若悬浮窗处于打开状态，立即平稳将指针焦点拉回悬浮窗，防止游戏引擎捕获鼠标或丢失光标。
+ */
+async function dispatchKeyAction(
+  action: (procName: string) => Promise<boolean>,
+  opts: { applyEchoGuard: boolean; procName?: string }
+): Promise<{ success: boolean; reason?: string }> {
+  const g = configStore.getActiveGame()
+  const hasGamePath = !!(g && g.gamePath)
+  if (!hasGamePath) {
+    return { success: false, reason: 'no_game' }
+  }
+
+  const procName = opts.procName || path.basename(g!.gamePath)
+  const candidates = gameFocusService.getCandidateProcessNames(g)
+  const gameRunning = await isGameRunningCached(candidates.length > 0 ? candidates : procName)
+
+  const verdict = evaluateKeyDispatch({
+    hasGamePath,
+    gameRunning,
+    applyEchoGuard: opts.applyEchoGuard,
+    msSinceLastDispatch: Date.now() - lastKeyDispatchAt
+  })
+  if (verdict !== 'dispatch') {
+    return { success: false, reason: verdict }
+  }
+
+  lastKeyDispatchAt = Date.now()
+  const success = await action(procName)
+
+  // 关键保护：按键投递完成后，只要悬浮窗正处于打开状态，立即将焦点与置顶平稳拉回，
+  // 彻底防止 3D 动作游戏窗口在获得激活后劫持并锁定系统鼠标光标
+  restoreOverlayFocus()
+
+  return { success }
+}
+
+/** 若悬浮窗处于展示状态，重新平稳拉回置顶与聚焦 */
+function restoreOverlayFocus() {
+  const overlayWin = overlayManager.getWindow()
+  if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
+    overlayWin.focus()
+    setTimeout(() => {
+      if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
+        overlayWin.focus()
+      }
+    }, 60)
+  }
+}
+
+// 与 evaluateKeyDispatch 的 KEY_ECHO_GUARD_MS 成对使用：供按键回声守卫判断间隔
+let lastKeyDispatchAt = 0
+
+// 多档位切换会在一步之内连发数次按键，每次都起一次 tasklist 既慢又无意义；
+// 缓存窗口取短，游戏刚启动/刚退出时最多延迟这么久才反映到判断上
+const PROCESS_CHECK_TTL_MS = 1000
+let processCheckCache: { key: string; running: boolean; at: number } | null = null
+
+async function isGameRunningCached(names: string | string[]): Promise<boolean> {
+  const list = (Array.isArray(names) ? names : [names]).sort()
+  const key = list.join('|').toLowerCase()
+  const now = Date.now()
+  if (processCheckCache && processCheckCache.key === key && now - processCheckCache.at < PROCESS_CHECK_TTL_MS) {
+    return processCheckCache.running
+  }
+  const running = await gameLauncher.isGameRunning(list)
+  processCheckCache = { key, running, at: now }
+  return running
+}
+
+const dispatchReloadF10 = (opts: { applyEchoGuard: boolean }) =>
+  dispatchKeyAction((procName) => gameLauncher.triggerReloadF10(procName), opts)
+
+const dispatchHotkey = (keys: string[], procName?: string) =>
+  dispatchKeyAction((resolved) => gameLauncher.triggerHotkey(keys, resolved), {
+    applyEchoGuard: false,
+    procName
+  })
 
 /**
  * 统一切换激活游戏并同步所有底层服务与窗口
@@ -168,6 +264,13 @@ function applyActiveGame(gameId: string, origin: 'manual' | 'auto-focus' = 'manu
   )
   conflictDetector.setModFolderPath(g.modFolderPath)
 
+  broadcastGameChanged(origin)
+  return true
+}
+
+function broadcastGameChanged(origin: 'manual' | 'auto-focus' | 'fix' = 'manual') {
+  const g = configStore.getActiveGame()
+  if (!g) return
   const payload = { game: g, gameId: g.id, origin }
   try {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -181,8 +284,6 @@ function applyActiveGame(gameId: string, origin: 'manual' | 'auto-focus' = 'manu
       overlayWin.webContents.send('game:changed', payload)
     }
   } catch (_) {}
-
-  return true
 }
 
 overlayManager.setOnAutoSwitchGame((matchedGame: any) => {
@@ -330,7 +431,7 @@ function setupIpc() {
     'theme', 'characterSectionsByGame'
   ])
   const GAME_CONFIG_KEYS = new Set([
-    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'launchMode'
+    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'launchMode', 'hidden'
   ])
   const sanitizePatch = (patch: any, allowed: Set<string>): any => {
     if (!patch || typeof patch !== 'object') return {}
@@ -344,6 +445,7 @@ function setupIpc() {
     }
     if ('persistBridgeCacheSize' in out && typeof out.persistBridgeCacheSize !== 'number') delete out.persistBridgeCacheSize
     if ('overlayHotkey' in out && (typeof out.overlayHotkey !== 'string' || out.overlayHotkey.length > 64)) delete out.overlayHotkey
+    if ('hidden' in out && typeof out.hidden !== 'boolean') delete out.hidden
     return out
   }
 
@@ -370,12 +472,12 @@ function setupIpc() {
     if (!gameId || typeof gameId !== 'string') return { success: false, error: '无效的游戏 ID' }
     const safe = sanitizePatch(patch, GAME_CONFIG_KEYS)
     configStore.updateGameConfig(gameId, safe)
-    gameFocusService.setGames(configStore.getConfig().games)
+    gameFocusService.setGames(configStore.getConfig().games.filter((g) => !g.hidden))
     const g = configStore.getActiveGame()
-    if (g && g.id === gameId) {
-      applyActiveGame(gameId, 'manual')
+    if (g) {
+      applyActiveGame(g.id, 'manual')
     }
-    return { success: true }
+    return { success: true, config: configStore.getConfig() }
   })
 
   // Persist Bridge (Mod 设定数值记忆与保留)
@@ -393,7 +495,7 @@ function setupIpc() {
     const res = persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value)
     if (res.success) {
       // 触发 F10 热刷新让游戏内即时生效
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -405,7 +507,7 @@ function setupIpc() {
     const res = persistBridgeManager.resetModVariables(envRoot, g.modFolderPath, modFullPath)
     if (res.success) {
       // 触发 F10 热刷新让游戏内即时生效
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -416,6 +518,409 @@ function setupIpc() {
     const envRoot = getEnvRootForGame(g)
     return persistBridgeManager.clearCache(envRoot)
   })
+
+  // 重置 Mod ini 为初始备份版本 (*.qaqm-persistbak -> *.ini)
+  const handleResetModIni = async (
+    target: { modFullPath?: string; characterName?: string; modName?: string } | string
+  ) => {
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) return { success: false, error: '未选择游戏或 Mods 路径未配置', restoredCount: 0 }
+
+    let targetModPath = ''
+    if (typeof target === 'string') {
+      targetModPath = target
+    } else if (target?.modFullPath) {
+      targetModPath = target.modFullPath
+    } else if (target?.characterName && target?.modName) {
+      const safeChar = modEngine.sanitizePathSegment(target.characterName)
+      const safeMod = modEngine.sanitizePathSegment(target.modName)
+      const p1 = path.join(g.modFolderPath, safeChar, safeMod)
+      const p2 = path.join(g.modFolderPath, safeChar, `DISABLED_${safeMod}`)
+      targetModPath = fs.existsSync(p1) ? p1 : p2
+    }
+
+    const safeDir = modEngine.resolvePathInsideModRoot(targetModPath)
+    if (!safeDir || !fs.existsSync(safeDir)) {
+      return { success: false, error: 'Mod 目录不存在或超出 Mods 根目录', restoredCount: 0 }
+    }
+
+    const restoredCount = modEngine.restorePersistBakFiles(safeDir)
+    if (restoredCount > 0) {
+      const envRoot = getEnvRootForGame(g)
+      if (configStore.getConfig().persistBridgeEnabled && envRoot) {
+        try {
+          persistBridgeManager.syncAllActiveMods(envRoot, g.modFolderPath)
+        } catch (_) {}
+      }
+      broadcastGameChanged('manual')
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
+    }
+    return { success: true, restoredCount }
+  }
+
+  const handleResetCharacterIni = async (characterName: string) => {
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) return { success: false, error: '未选择游戏或 Mods 路径未配置', restoredCount: 0 }
+    const safeChar = modEngine.sanitizePathSegment(characterName)
+    if (!safeChar) return { success: false, error: '无效的角色名', restoredCount: 0 }
+    const charDir = modEngine.resolvePathInsideModRoot(path.join(g.modFolderPath, safeChar))
+    if (!charDir || !fs.existsSync(charDir)) {
+      return { success: false, error: `角色目录不存在: ${safeChar}`, restoredCount: 0 }
+    }
+    let totalRestored = 0
+    try {
+      const entries = fs.readdirSync(charDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const modDir = path.join(charDir, entry.name)
+        totalRestored += modEngine.restorePersistBakFiles(modDir)
+      }
+    } catch (e: any) {
+      return { success: false, error: e.message || '读取角色目录失败', restoredCount: 0 }
+    }
+    if (totalRestored > 0) {
+      const envRoot = getEnvRootForGame(g)
+      if (configStore.getConfig().persistBridgeEnabled && envRoot) {
+        try {
+          persistBridgeManager.syncAllActiveMods(envRoot, g.modFolderPath)
+        } catch (_) {}
+      }
+      broadcastGameChanged('manual')
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
+    }
+    return { success: true, restoredCount: totalRestored }
+  }
+
+  ipcMain.handle('persist:resetIni', (_, target) => handleResetModIni(target))
+  ipcMain.handle('persist-bridge-reset-mod', (_, target) => handleResetModIni(target))
+  ipcMain.handle('persist:resetIniCharacter', (_, characterName) => handleResetCharacterIni(characterName))
+  ipcMain.handle('persist-bridge-reset-character', (_, characterName) => handleResetCharacterIni(characterName))
+
+  // 修复备份回滚 (Ini Backup)
+  const handleListModBackups = async (
+    target: { modFullPath?: string; characterName?: string; modName?: string } | string
+  ) => {
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) return { success: false, backups: [], error: '未选择游戏' }
+    let targetModPath = ''
+    if (typeof target === 'string') {
+      targetModPath = target
+    } else if (target?.modFullPath) {
+      targetModPath = target.modFullPath
+    } else if (target?.characterName && target?.modName) {
+      const safeChar = modEngine.sanitizePathSegment(target.characterName)
+      const safeMod = modEngine.sanitizePathSegment(target.modName)
+      const p1 = path.join(g.modFolderPath, safeChar, safeMod)
+      const p2 = path.join(g.modFolderPath, safeChar, `DISABLED_${safeMod}`)
+      targetModPath = fs.existsSync(p1) ? p1 : p2
+    }
+    const safeDir = modEngine.resolvePathInsideModRoot(targetModPath)
+    if (!safeDir || !fs.existsSync(safeDir)) {
+      return { success: false, backups: [], error: 'Mod 目录不存在或超出 Mods 根目录' }
+    }
+    try {
+      const isWuwa = g.id === 'wuwa'
+      const backups = listIniBackupsForMod(safeDir, { includeWuwaIndependent: isWuwa })
+      return { success: true, backups }
+    } catch (e: any) {
+      return { success: false, backups: [], error: e.message || '读取备份失败' }
+    }
+  }
+
+  const handleRestoreModBackup = async (target: {
+    modFullPath?: string
+    characterName?: string
+    modName?: string
+    stamp: string
+  }) => {
+    if (isFixRunning) {
+      return { success: false, error: '已有修复或回滚任务正在进行中，请稍后再试' }
+    }
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) return { success: false, error: '未选择游戏' }
+    let targetModPath = ''
+    if (target?.modFullPath) {
+      targetModPath = target.modFullPath
+    } else if (target?.characterName && target?.modName) {
+      const safeChar = modEngine.sanitizePathSegment(target.characterName)
+      const safeMod = modEngine.sanitizePathSegment(target.modName)
+      const p1 = path.join(g.modFolderPath, safeChar, safeMod)
+      const p2 = path.join(g.modFolderPath, safeChar, `DISABLED_${safeMod}`)
+      targetModPath = fs.existsSync(p1) ? p1 : p2
+    }
+    const safeDir = modEngine.resolvePathInsideModRoot(targetModPath)
+    if (!safeDir || !fs.existsSync(safeDir)) {
+      return { success: false, error: 'Mod 目录不存在或超出 Mods 根目录' }
+    }
+    isFixRunning = true
+    try {
+      const isWuwa = g.id === 'wuwa'
+      const result = restoreIniBackupForMod(safeDir, target.stamp, { includeWuwaIndependent: isWuwa })
+      if (result.restoredCount > 0) {
+        const envRoot = getEnvRootForGame(g)
+        if (configStore.getConfig().persistBridgeEnabled && envRoot) {
+          try {
+            persistBridgeManager.syncAllActiveMods(envRoot, g.modFolderPath)
+          } catch (_) {}
+        }
+        broadcastGameChanged('manual')
+        dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
+      }
+      return result
+    } catch (e: any) {
+      return {
+        success: false,
+        restoreSucceeded: false,
+        cleanupAttempted: false,
+        cleanupSucceeded: false,
+        snapshotDeleted: false,
+        cleanupFailed: false,
+        snapshotFileCount: 0,
+        restoredCount: 0,
+        removedBackupCount: 0,
+        errors: [e.message || String(e)],
+        cleanupErrors: [],
+        error: e.message || '回滚失败'
+      }
+    } finally {
+      isFixRunning = false
+    }
+  }
+
+  ipcMain.handle('iniBackup:list', (_, target) => handleListModBackups(target))
+  ipcMain.handle('ini-backup:list-mod', (_, target) => handleListModBackups(target))
+  ipcMain.handle('iniBackup:restore', (_, target) => handleRestoreModBackup(target))
+  ipcMain.handle('ini-backup:restore-mod', (_, target) => handleRestoreModBackup(target))
+
+  // Mod 修复核心 (Fix Engine & External Fixer)
+  const resolveFixRequestGameId = (
+    requestedGameId?: string
+  ): { gameId: string; error?: string } => {
+    if (requestedGameId) {
+      const trimmed = String(requestedGameId).trim()
+      const found = configStore
+        .getConfig()
+        .games.find(
+          (game) =>
+            game.id === trimmed ||
+            (trimmed === 'wuwa' && game.id === 'wuthering-waves') ||
+            (trimmed === 'wuthering-waves' && game.id === 'wuwa')
+        )
+      if (!found) {
+        return { gameId: '', error: `修复请求的游戏无效: ${trimmed}` }
+      }
+      return { gameId: found.id }
+    }
+    const active = configStore.getActiveGame()
+    return { gameId: active?.id || 'wuwa' }
+  }
+
+  const handleFixRunAll = async (options?: { mode?: 'builtin' | 'external'; gameId?: string }) => {
+    if (isFixRunning) {
+      return { success: false, error: '已有修复或回滚任务正在进行中，请稍后再试' }
+    }
+    const gameScope = resolveFixRequestGameId(options?.gameId)
+    if (gameScope.error) return { success: false, error: gameScope.error }
+    const targetGameId = gameScope.gameId
+
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath || !fs.existsSync(g.modFolderPath)) {
+      return { success: false, error: 'Mods 路径未设置或不存在，请先在设置中配置' }
+    }
+    const mode = options?.mode === 'external' ? 'external' : 'builtin'
+    isFixRunning = true
+    try {
+      let result: any
+      if (modFixer.toInternalGameId(targetGameId) === 'wuwa' && mode !== 'external') {
+        result = await modFixer.runWuwaBuiltinFix(g.modFolderPath)
+      } else {
+        const exePath = modFixer.resolveFixExePath(targetGameId)
+        if (!exePath) return { success: false, error: '当前游戏没有对应的修复程序' }
+        result = await modFixer.runExternalFixerForGame(targetGameId, exePath, g.modFolderPath)
+        result = { ...result, exeName: path.basename(exePath) }
+      }
+      broadcastGameChanged('fix')
+      return result
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) }
+    } finally {
+      isFixRunning = false
+    }
+  }
+
+  const handleFixRunCharacter = async (payload: {
+    characterName: string
+    mode?: 'builtin' | 'external'
+    gameId?: string
+  }) => {
+    if (isFixRunning) {
+      return { success: false, error: '已有修复或回滚任务正在进行中，请稍后再试' }
+    }
+    const gameScope = resolveFixRequestGameId(payload?.gameId)
+    if (gameScope.error) return { success: false, error: gameScope.error }
+    const targetGameId = gameScope.gameId
+
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath || !fs.existsSync(g.modFolderPath)) {
+      return { success: false, error: 'Mods 路径未设置或不存在，请先在设置中配置' }
+    }
+    const safeChar = modEngine.sanitizePathSegment(payload?.characterName)
+    if (!safeChar) return { success: false, error: '角色名称无效' }
+    const charDir = modEngine.resolvePathInsideModRoot(path.join(g.modFolderPath, safeChar))
+    if (!charDir || !fs.existsSync(charDir)) {
+      return { success: false, error: `角色目录不存在或超出 Mods 路径: ${safeChar}` }
+    }
+    const mode = payload?.mode === 'external' ? 'external' : 'builtin'
+    isFixRunning = true
+    try {
+      let result: any
+      if (modFixer.toInternalGameId(targetGameId) === 'wuwa' && mode !== 'external') {
+        result = await modFixer.runWuwaBuiltinFix(charDir)
+      } else {
+        const exePath = modFixer.resolveFixExePath(targetGameId)
+        if (!exePath) return { success: false, error: '当前游戏没有对应的修复程序' }
+        result = await modFixer.runExternalFixerForGame(targetGameId, exePath, charDir)
+        result = { ...result, exeName: path.basename(exePath) }
+      }
+      broadcastGameChanged('fix')
+      return result
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) }
+    } finally {
+      isFixRunning = false
+    }
+  }
+
+  const handleFixRunMod = async (payload: {
+    modFullPath?: string
+    characterName?: string
+    modName?: string
+    mode?: 'builtin' | 'external'
+    gameId?: string
+  }) => {
+    if (isFixRunning) {
+      return { success: false, error: '已有修复或回滚任务正在进行中，请稍后再试' }
+    }
+    const gameScope = resolveFixRequestGameId(payload?.gameId)
+    if (gameScope.error) return { success: false, error: gameScope.error }
+    const targetGameId = gameScope.gameId
+
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath || !fs.existsSync(g.modFolderPath)) {
+      return { success: false, error: 'Mods 路径未设置或不存在，请先在设置中配置' }
+    }
+    let targetModPath = ''
+    if (payload?.modFullPath) {
+      targetModPath = payload.modFullPath
+    } else if (payload?.characterName && payload?.modName) {
+      const safeChar = modEngine.sanitizePathSegment(payload.characterName)
+      const safeMod = modEngine.sanitizePathSegment(payload.modName)
+      const p1 = path.join(g.modFolderPath, safeChar, safeMod)
+      const p2 = path.join(g.modFolderPath, safeChar, `DISABLED_${safeMod}`)
+      targetModPath = fs.existsSync(p1) ? p1 : p2
+    }
+    const safeDir = modEngine.resolvePathInsideModRoot(targetModPath)
+    if (!safeDir || !fs.existsSync(safeDir)) {
+      return {
+        success: false,
+        error: `Mod 目录不存在或超出 Mods 根目录: ${payload?.modName || targetModPath}`
+      }
+    }
+    const mode = payload?.mode === 'external' ? 'external' : 'builtin'
+    isFixRunning = true
+    try {
+      let result: any
+      if (modFixer.toInternalGameId(targetGameId) === 'wuwa' && mode !== 'external') {
+        result = await modFixer.runWuwaBuiltinFix(safeDir)
+      } else {
+        const exePath = modFixer.resolveFixExePath(targetGameId)
+        if (!exePath) return { success: false, error: '当前游戏没有对应的修复程序' }
+        result = await modFixer.runExternalFixerForGame(targetGameId, exePath, safeDir)
+        result = { ...result, exeName: path.basename(exePath) }
+      }
+      broadcastGameChanged('fix')
+      return result
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) }
+    } finally {
+      isFixRunning = false
+    }
+  }
+
+  ipcMain.handle('fix:runAll', (_, options) => handleFixRunAll(options))
+  ipcMain.handle('fix:run-all', (_, options) => handleFixRunAll(options))
+  ipcMain.handle('fix:runCharacter', (_, payload) => handleFixRunCharacter(payload))
+  ipcMain.handle('fix:run-character', (_, payload) => handleFixRunCharacter(payload))
+  ipcMain.handle('fix:runMod', (_, payload) => handleFixRunMod(payload))
+  ipcMain.handle('fix:run-mod', (_, payload) => handleFixRunMod(payload))
+
+  const handleFixGetStatus = (_: any, options?: { gameId?: string }) => {
+    const gameScope = resolveFixRequestGameId(options?.gameId)
+    if (gameScope.error) return { success: false, error: gameScope.error }
+    return modFixer.getStatus(gameScope.gameId)
+  }
+  ipcMain.handle('fix:getStatus', handleFixGetStatus)
+  ipcMain.handle('fix:get-exe-path', handleFixGetStatus)
+
+  const handleFixUpdateWuwaRules = async () => {
+    try {
+      const result = await modFixer.updateWuwaFixRules({ force: true })
+      return {
+        success: true,
+        checked: result.checked,
+        updated: result.updated,
+        ruleSource: result.source,
+        ruleVersion: result.manifest?.toolVersion,
+        ruleRevision: result.manifest?.revision,
+        gameVersion: result.manifest?.gameVersion,
+        ...getWuwaFixRuleMetadata(result.manifest)
+      }
+    } catch (error: any) {
+      let local: any = null
+      try {
+        local = modFixer.loadBestLocalWuwaFixRules()
+      } catch (_) {}
+      return {
+        success: false,
+        error: error?.message || String(error),
+        ruleSource: local?.source,
+        ruleVersion: local?.manifest?.toolVersion,
+        ruleRevision: local?.manifest?.revision,
+        gameVersion: local?.manifest?.gameVersion,
+        ...(local?.manifest ? getWuwaFixRuleMetadata(local.manifest) : {})
+      }
+    }
+  }
+  ipcMain.handle('fix:updateWuwaRules', handleFixUpdateWuwaRules)
+  ipcMain.handle('fix:update-wuwa-rules', handleFixUpdateWuwaRules)
+
+  const handleFixSelectCustomExe = async (_: any, options?: { gameId?: string }) => {
+    try {
+      const gameScope = resolveFixRequestGameId(options?.gameId)
+      if (gameScope.error) return { success: false, error: gameScope.error }
+      const targetGameId = gameScope.gameId
+
+      const dialogWindow = mainWindow ?? undefined
+      const dialogOptions = {
+        title: '选择修复程序',
+        filters: [{ name: '修复程序或压缩包', extensions: ['exe', 'zip', 'rar', '7z'] }],
+        properties: ['openFile'] as ['openFile']
+      }
+      const result = dialogWindow
+        ? await dialog.showOpenDialog(dialogWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions)
+      if (result.canceled || !result.filePaths.length) return { canceled: true }
+      const src = result.filePaths[0]
+      console.log(`[mod-fixer] Selecting managed fixer: src=${src}, gameId=${targetGameId}`)
+      const installed = await modFixer.installManagedFixerFromSource(src, targetGameId)
+      return { ...installed, exePath: installed.resolvedExePath }
+    } catch (e: any) {
+      console.error(`[mod-fixer] selectCustomExe failed: ${e.message}`)
+      return { success: false, error: e.message }
+    }
+  }
+  ipcMain.handle('fix:selectCustomExe', handleFixSelectCustomExe)
+  ipcMain.handle('fix:select-custom-exe', handleFixSelectCustomExe)
 
   // Mods
   ipcMain.handle('mods:scan', async () => {
@@ -533,7 +1038,7 @@ function setupIpc() {
     const res = await modEngine.toggleMod(charName, modName, enabled)
     // 切换成功后自动触发 F10 游戏内热刷新
     if (res.success) {
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -627,7 +1132,7 @@ function setupIpc() {
   ipcMain.handle('mods:moveToCharacter', async (_, modFullPath: string, targetCharacterName: string) => {
     const res = await modEngine.moveModToCharacter(modFullPath, targetCharacterName)
     if (res.success) {
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -663,7 +1168,7 @@ function setupIpc() {
   ipcMain.handle('conflicts:resolve', async (_, characterName: string, keepModName: string, conflictingModNames: string[]) => {
     const res = await modEngine.resolveConflicts(characterName, keepModName, conflictingModNames)
     if (res.success) {
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -693,7 +1198,7 @@ function setupIpc() {
       modFolderPath: g ? g.modFolderPath : ''
     })
     if (res.success && params.enableImmediately) {
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -720,7 +1225,7 @@ function setupIpc() {
     if (!g) return { success: false, applied: 0 }
     const res = await presetEngine.applyPreset(g.id, presetId)
     if (res.success) {
-      gameLauncher.triggerReloadF10().catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
     }
     return res
   })
@@ -744,48 +1249,11 @@ function setupIpc() {
     return gameLauncher.launchLoader(g)
   })
 
-  ipcMain.handle('game:reloadModsF10', async () => {
-    const g = configStore.getActiveGame()
-    let procName = ''
-    if (g && g.gamePath) {
-      procName = path.basename(g.gamePath)
-    } else if (g && g.id) {
-      procName = g.id
-    }
-    const res = await gameLauncher.triggerReloadF10(procName)
+  ipcMain.handle('game:reloadModsF10', () => dispatchReloadF10({ applyEchoGuard: true }))
 
-    // 若悬浮窗处于展示状态，重新平稳拉回置顶与聚焦
-    setTimeout(() => {
-      const overlayWin = overlayManager.getWindow()
-      if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
-        overlayWin.focus()
-      }
-    }, 120)
-
-    return res
-  })
-
-  ipcMain.handle('game:triggerHotkey', async (_, keys: string[], targetProcName?: string) => {
-    let procName = targetProcName || ''
-    if (!procName) {
-      const g = configStore.getActiveGame()
-      if (g && g.gamePath) {
-        procName = path.basename(g.gamePath)
-      } else if (g && g.id) {
-        procName = g.id
-      }
-    }
-    const res = await gameLauncher.triggerHotkey(keys, procName)
-
-    // 若悬浮窗处于展示状态，重新平稳拉回置顶与聚焦
-    setTimeout(() => {
-      const overlayWin = overlayManager.getWindow()
-      if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
-        overlayWin.focus()
-      }
-    }, 120)
-
-    return res
+  ipcMain.handle('game:triggerHotkey', (_, keys: string[], targetProcName?: string) => {
+    // 渲染层传入的进程名同样只允许是裸文件名，避免被指定到任意窗口上投递按键
+    return dispatchHotkey(keys, sanitizeProcessName(targetProcName || ''))
   })
 
   // GameBanana
@@ -1039,7 +1507,7 @@ if (app) {
       try {
         trayManager = new TrayManager(mainWindow, {
         onToggleOverlay: () => overlayManager.toggleOverlay(),
-        onReloadModsF10: () => gameLauncher.triggerReloadF10(),
+        onReloadModsF10: () => dispatchReloadF10({ applyEchoGuard: false }),
         onLaunchGame: async () => {
           const g = configStore.getActiveGame()
           if (g) {

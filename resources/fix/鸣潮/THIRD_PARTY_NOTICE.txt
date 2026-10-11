@@ -1,0 +1,19 @@
+Wuwa Mod Fixer v3.5.1
+
+Release binary:
+https://github.com/newaccforananta/Wuwa_Mod_Fixer_Fork/releases/tag/v3.5.1
+
+Corresponding source:
+https://github.com/newaccforananta/Wuwa_Mod_Fixer_Fork/tree/e23df8e152704e2bbd669975b39659670b0c7305
+
+License: GNU General Public License, version 3
+The complete license text is included as LICENSE-GPL-3.0.txt in this directory.
+
+Binary SHA256:
+033D70DE975D4D0471BC70DD2E96CED4E3BE357303DA90ED6526A40145BAB832
+
+Runtime config snapshot:
+https://github.com/newaccforananta/Wuwa_Mod_Fixer_Fork/tree/8c4e40674a225abd82a69800e590b532e8c99acc
+
+Config SHA256:
+134C957519223C7D55148E3C7465792F4B1B18AEC74E1F9625A2BAEA9DBB56D2

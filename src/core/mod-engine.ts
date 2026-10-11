@@ -75,6 +75,29 @@ export class ModEngine {
       .trim()
   }
 
+  /** 对外暴露的安全路径守卫包装 */
+  public resolvePathInsideModRoot(targetPath: string): string | null {
+    return this.resolveInsideModRoot(targetPath)
+  }
+
+  /** 对外暴露的单级字段名称消毒包装 */
+  public sanitizePathSegment(raw: string): string {
+    return this.sanitizeSegment(raw)
+  }
+
+  public getModFolderPath(): string {
+    return this.modFolderPath
+  }
+
+  /**
+   * 还原 Mod 目录下的 *.qaqm-persistbak 备份文件为初始 ini 版本
+   */
+  public restorePersistBakFiles(modDir: string): number {
+    const safeDir = this.resolveInsideModRoot(modDir)
+    if (!safeDir || !fs.existsSync(safeDir)) return 0
+    return restorePersistBakFiles(safeDir)
+  }
+
   /** 让出事件循环，避免大库扫描期间 IPC/窗口消息全部冻结 */
   private yieldToLoop(): Promise<void> {
     return new Promise((resolve) => setImmediate(resolve))
@@ -1329,3 +1352,36 @@ export class ModEngine {
   }
 }
 
+/**
+ * 递归还原指定目录下的 *.qaqm-persistbak 文件为原文件名
+ */
+export function restorePersistBakFiles(modDir: string): number {
+  let count = 0
+  function walk(dir: string) {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch (_) {
+      return
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(fullPath)
+      } else if (entry.isFile() && entry.name.endsWith('.qaqm-persistbak')) {
+        const originalPath = fullPath.slice(0, -'.qaqm-persistbak'.length)
+        try {
+          if (fs.existsSync(originalPath)) fs.unlinkSync(originalPath)
+          fs.renameSync(fullPath, originalPath)
+          count++
+        } catch (e: any) {
+          console.warn(
+            `[mod-engine] Failed to restore persist bak: ${fullPath} -> ${originalPath}: ${e?.message || e}`
+          )
+        }
+      }
+    }
+  }
+  walk(modDir)
+  return count
+}

@@ -18,7 +18,9 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertOctagon,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Wrench,
+  RotateCcw
 } from 'lucide-react'
 import { CharacterConflictReport, ModConflictSummary, AppearanceSection } from '../../core/types'
 import { useTheme } from '../contexts/ThemeContext'
@@ -32,6 +34,7 @@ import { Modal } from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
 import { MoveModModal } from '../components/MoveModModal'
 import { ModCard } from '../components/mods/ModCard'
+import { FixResultModal } from '../components/mods/FixResultModal'
 
 interface ModsPageProps {
   modsData: Record<string, any[]>
@@ -130,6 +133,13 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const [characterAccentRgb, setCharacterAccentRgb] = useState<string>(
     theme === 'dark' ? DEFAULT_DARK_PRIMARY_RGB : DEFAULT_PRIMARY_RGB
   )
+
+  // 模组修复与 ini 重置
+  const [isFixing, setIsFixing] = useState(false)
+  const [fixResult, setFixResult] = useState<any>(null)
+  const [showFixResultModal, setShowFixResultModal] = useState(false)
+  const [showResetCharacterModal, setShowResetCharacterModal] = useState(false)
+  const [isResettingCharacter, setIsResettingCharacter] = useState(false)
 
   // 外观分区状态 (仿 QAQ 体验)
   const [sections, setSections] = useState<AppearanceSection[]>([])
@@ -651,6 +661,63 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     }
   }
 
+  // 运行模组修复（支持全量或指定角色）
+  const handleFixMods = async (mode: 'builtin' | 'external' = 'builtin') => {
+    if (isFixing) return
+    setIsFixing(true)
+    try {
+      let res: any
+      if (selectedChar && selectedChar !== 'all') {
+        res = await window.flairx.fixRunCharacter({
+          characterName: selectedChar,
+          mode
+        })
+      } else {
+        res = await window.flairx.fixRunAll({ mode })
+      }
+      if (res) {
+        setFixResult(res)
+        setShowFixResultModal(true)
+        if (res.success && res.stats?.modifiedFiles > 0) {
+          onRefresh()
+        }
+      }
+    } catch (err: any) {
+      toast.error('修复异常', err?.message || String(err))
+    } finally {
+      setIsFixing(false)
+    }
+  }
+
+  // 重置选定角色分类下的所有 Mod ini 为初始备份版本
+  const handleResetCharacterIni = async () => {
+    if (!selectedChar || selectedChar === 'all' || isResettingCharacter) return
+    setIsResettingCharacter(true)
+    try {
+      const res = await window.flairx.resetCharacterIni({
+        characterName: selectedChar
+      })
+      setShowResetCharacterModal(false)
+      if (res && res.success) {
+        if (res.restoredCount > 0) {
+          toast.success(
+            '重置完成',
+            `已还原 ${res.restoredCount} 个 ini 文件为初始版本，请按 F10 刷新重载`
+          )
+          onRefresh()
+        } else {
+          toast.info('无需重置', '该角色分类下没有找到 *.qaqm-persistbak 备份文件')
+        }
+      } else {
+        toast.error('重置失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('重置异常', err?.message || String(err))
+    } finally {
+      setIsResettingCharacter(false)
+    }
+  }
+
   const handleToggle = useCallback(async (charName: string, modName: string, currentState: boolean) => {
     const id = `${charName}::${modName}`
     setTogglingId(id)
@@ -1065,6 +1132,38 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               >
                 <ArrowUpCircle className="w-3.5 h-3.5" />
                 <span>可更新 ({updatesCount})</span>
+              </button>
+            )}
+
+            {/* 修复 Mod 按钮 */}
+            <button
+              type="button"
+              onClick={() => handleFixMods('builtin')}
+              disabled={isFixing}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 ${
+                isFixing ? 'opacity-50 pointer-events-none' : ''
+              }`}
+              title={
+                selectedChar === 'all'
+                  ? '一键修复所有 Mod（鸣潮自动应用最新 Hash 规则，其他游戏拉起修复工具）'
+                  : `修复【${selectedChar}】下的所有 Mod`
+              }
+            >
+              <Wrench className={`w-3.5 h-3.5 ${isFixing ? 'animate-spin' : ''}`} />
+              <span>{selectedChar === 'all' ? '一键修复' : '修复角色 Mod'}</span>
+            </button>
+
+            {/* 重置分类 ini 按钮（仅在选中特定角色时显示） */}
+            {selectedChar !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setShowResetCharacterModal(true)}
+                disabled={isResettingCharacter}
+                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer bg-surface-2 border border-border/80 text-text-muted hover:text-text hover:bg-surface-3"
+                title={`重置【${selectedChar}】分类下所有 Mod 的 ini 文件为初始版本`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>重置分类 ini</span>
               </button>
             )}
           </div>
@@ -1565,6 +1664,35 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           }}
         />
       )}
+
+      {/* 修复结果弹窗 */}
+      <FixResultModal
+        isOpen={showFixResultModal}
+        result={fixResult}
+        onClose={() => setShowFixResultModal(false)}
+        onOpenIndependent={() => handleFixMods('external')}
+      />
+
+      {/* 重置角色分类 ini 确认弹窗 */}
+      <Modal
+        isOpen={showResetCharacterModal}
+        onClose={() => !isResettingCharacter && setShowResetCharacterModal(false)}
+        onConfirm={handleResetCharacterIni}
+        loading={isResettingCharacter}
+        confirmText="确认重置"
+        cancelText="取消"
+        title={`重置【${selectedChar}】分类的 Mod 配置 (ini)`}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-3 py-2 text-sm text-text-secondary">
+          <p>
+            将还原【<span className="text-primary font-bold">{selectedChar}</span>】分类下所有模组的初始配置（通过 <code className="text-primary font-mono text-xs">*.qaqm-persistbak</code> 备份文件）。
+          </p>
+          <p className="text-xs text-amber-400 bg-amber-500/10 p-2.5 rounded border border-amber-500/20">
+            ⚠️ 提示：清除所有被修改的数值与开关，未经过持久化配置的 Mod 将自动忽略。重置后请按 F10 刷新重载。
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }

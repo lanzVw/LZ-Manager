@@ -36,14 +36,17 @@ import {
   Languages,
   Edit3,
   Keyboard,
-  Play,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Wrench,
+  History,
+  Play
 } from 'lucide-react'
 import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
 import { toFileUrl } from '../utils/fileUrl'
 import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
 import { MoveModModal } from '../components/MoveModModal'
+import { FixResultModal } from '../components/mods/FixResultModal'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -214,6 +217,26 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   // 移动模组到其他角色分类弹窗
   const [showMoveModal, setShowMoveModal] = useState<boolean>(false)
 
+  // Mod 修复、重置与回滚状态
+  const [fixingMod, setFixingMod] = useState<boolean>(false)
+  const [fixResult, setFixResult] = useState<any>(null)
+  const [showFixResultModal, setShowFixResultModal] = useState<boolean>(false)
+  const [showResetIniConfirm, setShowResetIniConfirm] = useState<boolean>(false)
+  const [resettingIni, setResettingIni] = useState<boolean>(false)
+  const [showRollbackModal, setShowRollbackModal] = useState<boolean>(false)
+  const [loadingBackups, setLoadingBackups] = useState<boolean>(false)
+  const [backupsList, setBackupsList] = useState<
+    Array<{
+      stamp: string
+      format: 'qaqm' | 'wuwa-independent'
+      sortKey: string
+      label: string
+      fileCount: number
+    }>
+  >([])
+  const [selectedBackupStamp, setSelectedBackupStamp] = useState<string | null>(null)
+  const [restoringBackup, setRestoringBackup] = useState<boolean>(false)
+
   const loadSections = async (charName: string) => {
     try {
       const list = await window.lz.getAppearanceSections(charName)
@@ -373,6 +396,24 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     try {
       const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal)
       if (res && res.success) {
+        // 若该变量关联了快捷键，同时通过按键步进将 3DMigoto 内存变量同步拨到目标值
+        const matchedH = parsedHotkeys.find(
+          (item) =>
+            (item.variable && item.variable.toLowerCase() === v.canonicalName.toLowerCase()) ||
+            item.name.toLowerCase() === v.name.toLowerCase()
+        )
+        if (matchedH && matchedH.keys && matchedH.keys.length > 0 && matchedH.allowedValues && matchedH.allowedValues.length > 1) {
+          const currVal = matchedH.currentValue || v.currentValue || matchedH.allowedValues[0]
+          const currIdx = matchedH.allowedValues.indexOf(currVal)
+          const targetIdx = matchedH.allowedValues.indexOf(nextVal!)
+          if (currIdx >= 0 && targetIdx >= 0 && currIdx !== targetIdx) {
+            const steps = (targetIdx - currIdx + matchedH.allowedValues.length) % matchedH.allowedValues.length
+            for (let s = 0; s < steps; s++) {
+              await window.lz.triggerHotkey(matchedH.keys)
+              if (s < steps - 1) await new Promise((r) => setTimeout(r, 60))
+            }
+          }
+        }
         showPersistToast(`已成功设定 $${v.name} = ${nextVal} (已热刷新)`)
       } else {
         showPersistToast(`修改失败: ${res?.error || '未知错误'}`)
@@ -419,6 +460,117 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     }
   }
 
+  // Mod 修复处理 (优先内置规则，也可拉起独立修复器)
+  const handleFixMod = async (mode: 'builtin' | 'external' = 'builtin') => {
+    if (!details?.fullPath || fixingMod) return
+    setFixingMod(true)
+    try {
+      const res = await window.flairx.fixRunMod({
+        modFullPath: details.fullPath,
+        characterName: details.characterName,
+        modName: details.name,
+        mode
+      })
+      if (res) {
+        setFixResult(res)
+        setShowFixResultModal(true)
+        if (res.success && res.stats?.modifiedFiles > 0) {
+          await loadDetails()
+        }
+      }
+    } catch (err: any) {
+      toast.error('修复异常', err?.message || String(err))
+    } finally {
+      setFixingMod(false)
+    }
+  }
+
+  // 重置该 Mod 的 INI 文件为初始备份版本 (*.qaqm-persistbak)
+  const handleResetIni = async () => {
+    if (!details?.fullPath || resettingIni) return
+    setResettingIni(true)
+    try {
+      const res = await window.flairx.resetModIni({
+        modFullPath: details.fullPath,
+        characterName: details.characterName,
+        modName: details.name
+      })
+      setShowResetIniConfirm(false)
+      if (res && res.success) {
+        if (res.restoredCount > 0) {
+          toast.success(
+            '重置完成',
+            `已还原 ${res.restoredCount} 个 ini 文件为初始版本，请按 F10 刷新重载`
+          )
+          await loadDetails()
+        } else {
+          toast.info('无需重置', '当前 Mod 目录下没有找到 *.qaqm-persistbak 备份文件')
+        }
+      } else {
+        toast.error('重置失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('重置异常', err?.message || String(err))
+    } finally {
+      setResettingIni(false)
+    }
+  }
+
+  // 打开回滚备份弹窗并读取备份列表
+  const handleOpenRollbackModal = async () => {
+    if (!details?.fullPath) return
+    setShowRollbackModal(true)
+    setLoadingBackups(true)
+    setSelectedBackupStamp(null)
+    try {
+      const res = await window.flairx.listModIniBackups({
+        modFullPath: details.fullPath,
+        characterName: details.characterName,
+        modName: details.name
+      })
+      if (res && res.success) {
+        setBackupsList(res.backups || [])
+        if (res.backups && res.backups.length > 0) {
+          setSelectedBackupStamp(res.backups[0].stamp)
+        }
+      } else {
+        toast.error('读取备份失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('读取备份异常', err?.message || String(err))
+    } finally {
+      setLoadingBackups(false)
+    }
+  }
+
+  // 确认执行回滚
+  const handleConfirmRestoreBackup = async () => {
+    if (!details?.fullPath || !selectedBackupStamp || restoringBackup) return
+    setRestoringBackup(true)
+    try {
+      const res = await window.flairx.restoreModIniBackup({
+        modFullPath: details.fullPath,
+        characterName: details.characterName,
+        modName: details.name,
+        stamp: selectedBackupStamp
+      })
+      if (res && (res.success || res.restoreSucceeded)) {
+        toast.success(
+          '回滚成功',
+          `已恢复 ${res.restoredCount || 0} 个文件，请按 F10 重载生效`
+        )
+        setShowRollbackModal(false)
+        await loadDetails()
+      } else {
+        toast.error('回滚失败', res?.error || '未能完成回滚')
+      }
+    } catch (err: any) {
+      toast.error('回滚异常', err?.message || String(err))
+    } finally {
+      setRestoringBackup(false)
+    }
+  }
+
   // 保存用户自定义变量中文别名
   const handleSaveVarAlias = async () => {
     if (!editingVar || !details || !editingAliasName.trim()) return
@@ -446,9 +598,11 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   const handleTriggerHotkey = async (h: ParsedHotkey) => {
     setTriggeringHotkey(h.name)
     try {
-      const ok = await window.lz.triggerHotkey(h.keys)
-      if (ok) {
+      const res = await window.lz.triggerHotkey(h.keys)
+      if (res && res.success) {
         toast.success('已触发快捷键', `向游戏发送了 [${h.keys.join(' + ')}]`)
+      } else if (res && res.reason === 'game_not_running') {
+        toast.warning('游戏未启动', '按键未发送，请先启动游戏')
       } else {
         toast.warning('未触发', '请确保游戏已在前台运行')
       }
@@ -461,33 +615,62 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
 
   // 点击直选按键档位
   const handleSelectHotkeyVal = async (h: ParsedHotkey, targetVal: string) => {
-    // 1. 若此快捷键已绑定 PersistBridge 变量，优先直接走内存桥接持久化设定
     const hVar = h.variable?.toLowerCase()
     const pv = persistInfo?.variables?.find(
       (v) => (hVar && (v.canonicalName || '').toLowerCase() === hVar) || (v.name || '').toLowerCase() === h.name.toLowerCase()
     )
+
+    // 1. 如果匹配到可调度的快捷键组合，优先通过模拟按键步进将 3DMigoto 内存变量拨至目标值
+    const canUseKeys = h.keys && h.keys.length > 0 && !h.keys.some((k) => k.includes('🎮') || k.includes('鼠标') || k.includes('Button'))
+    const vals = h.allowedValues || []
+    if (canUseKeys && vals.length > 1) {
+      const currIdx = vals.indexOf(h.currentValue ?? pv?.currentValue ?? vals[0])
+      const targetIdx = vals.indexOf(targetVal)
+      if (currIdx !== -1 && targetIdx !== -1) {
+        const steps = (targetIdx - currIdx + vals.length) % vals.length
+        let sent = 0
+        for (let i = 0; i < steps; i++) {
+          const res = await window.lz.triggerHotkey(h.keys)
+          if (res && res.success === false) break
+          sent++
+          if (i < steps - 1) await new Promise((r) => setTimeout(r, 60))
+        }
+
+        // 如果同时存在持久化变量，同步落盘写回文件确保游戏重启后依然生效
+        if (pv && details) {
+          await window.lz.updateModVariable(details.fullPath, pv.name, targetVal)
+          setPersistInfo((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              variables: prev.variables.map((v) =>
+                v.name === pv.name ? { ...v, currentValue: targetVal } : v
+              )
+            }
+          })
+        }
+
+        const reachedVal = vals[(currIdx + sent) % vals.length]
+        setParsedHotkeys((prev) =>
+          prev.map((item) => (item.name === h.name ? { ...item, currentValue: reachedVal } : item))
+        )
+        if (sent < steps) {
+          toast.warning('档位未生效', '游戏未启动或未在前台，按键未送达')
+        } else {
+          toast.success('已切换档位', `${h.chineseName || h.name} 已选定为: ${targetVal}`)
+        }
+        return
+      }
+    }
+
+    // 2. 若纯 PersistBridge 变量无快捷键：直接走持久化通道写入并热刷新
     if (pv) {
       await handleUpdateVariable(pv, targetVal)
+      setParsedHotkeys((prev) =>
+        prev.map((item) => (item.name === h.name ? { ...item, currentValue: targetVal } : item))
+      )
       return
     }
-
-    // 2. 若纯 3DMigoto 按键，根据当前档位步进差自动模拟连按
-    const vals = h.allowedValues || []
-    if (vals.length === 0) return
-    const currIdx = vals.indexOf(h.currentValue ?? vals[0])
-    const targetIdx = vals.indexOf(targetVal)
-    if (currIdx === -1 || targetIdx === -1 || currIdx === targetIdx) return
-
-    const steps = (targetIdx - currIdx + vals.length) % vals.length
-    for (let i = 0; i < steps; i++) {
-      await window.lz.triggerHotkey(h.keys)
-      if (i < steps - 1) await new Promise((r) => setTimeout(r, 60))
-    }
-    // 更新本地显示
-    setParsedHotkeys((prev) =>
-      prev.map((item) => (item.name === h.name ? { ...item, currentValue: targetVal } : item))
-    )
-    toast.success('已切换档位', `${h.chineseName || h.name} 已选定为: ${targetVal}`)
   }
 
   // 检测冲突（isCancelled 同样作为竞态守卫，避免过期响应回写）
@@ -1535,6 +1718,40 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 汉化说明
               </Button>
 
+              {/* 修复 Mod */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleFixMod('builtin')}
+                loading={fixingMod}
+                icon={<Wrench className="w-3.5 h-3.5 text-primary" />}
+                title="修复此 Mod 的 Hash 规则或运行外部修复工具"
+              >
+                修复 Mod
+              </Button>
+
+              {/* 回滚修复备份 */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleOpenRollbackModal}
+                icon={<History className="w-3.5 h-3.5 text-primary" />}
+                title="查看并回滚修复前创建的备份快照"
+              >
+                回滚备份
+              </Button>
+
+              {/* 重置 ini */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowResetIniConfirm(true)}
+                icon={<RotateCcw className="w-3.5 h-3.5 text-primary" />}
+                title="将 ini 还原为初始备份版本 (*.qaqm-persistbak)"
+              >
+                重置 ini
+              </Button>
+
               {/* 重置默认值 */}
               {persistInfo && persistInfo.hasPersist && persistInfo.variables.length > 0 && (
                 <Button
@@ -1935,6 +2152,92 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               if (e.key === 'Enter') handleSaveVarAlias()
             }}
           />
+        </div>
+      </Modal>
+
+      {/* 鸣潮修复结果展示弹窗 */}
+      <FixResultModal
+        isOpen={showFixResultModal}
+        result={fixResult}
+        onClose={() => setShowFixResultModal(false)}
+        onOpenIndependent={() => handleFixMod('external')}
+      />
+
+      {/* 重置 Mod ini 确认弹窗 */}
+      <Modal
+        isOpen={showResetIniConfirm}
+        onClose={() => !resettingIni && setShowResetIniConfirm(false)}
+        onConfirm={handleResetIni}
+        loading={resettingIni}
+        confirmText="确认重置"
+        cancelText="取消"
+        title="重置 Mod 配置 (ini)"
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-3 py-2 text-sm text-text-secondary">
+          <p>
+            将从备份文件（<code className="text-primary font-mono text-xs">*.qaqm-persistbak</code>）中还原初始配置，清除所有被修改的数值与开关。
+          </p>
+          <p className="text-xs text-amber-400 bg-amber-500/10 p-2.5 rounded border border-amber-500/20">
+            ⚠️ 提示：若该 Mod 从未经过持久化配置，可能不存在备份文件。重置后请按 F10 重新加载生效。
+          </p>
+        </div>
+      </Modal>
+
+      {/* 回滚修复备份弹窗 */}
+      <Modal
+        isOpen={showRollbackModal}
+        onClose={() => !restoringBackup && setShowRollbackModal(false)}
+        onConfirm={handleConfirmRestoreBackup}
+        loading={restoringBackup}
+        confirmText="回滚至选中备份"
+        cancelText="取消"
+        title="回滚 Mod 修复备份"
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-3 py-2 text-sm text-text-secondary">
+          <p className="text-xs text-text-muted">
+            选择一次修复时自动生成的 ini 备份快照进行恢复：
+          </p>
+          {loadingBackups ? (
+            <div className="py-8 text-center text-xs text-text-muted">正在读取备份记录...</div>
+          ) : backupsList.length === 0 ? (
+            <div className="py-8 text-center text-xs text-text-muted bg-surface-secondary/30 rounded border border-border/50">
+              未找到该 Mod 的任何 ini 修复备份记录
+            </div>
+          ) : (
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {backupsList.map((b) => {
+                const isSelected = selectedBackupStamp === b.stamp
+                return (
+                  <div
+                    key={b.stamp}
+                    onClick={() => setSelectedBackupStamp(b.stamp)}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-primary/10 border-primary text-text-primary'
+                        : 'bg-surface-secondary/40 border-border/60 hover:bg-surface-secondary text-text-secondary'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-medium text-xs text-text-primary flex items-center gap-2">
+                        <span>{b.label}</span>
+                        {b.format === 'wuwa-independent' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">独立修复器</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-text-muted mt-0.5 font-mono">
+                        标识: {b.stamp}
+                      </div>
+                    </div>
+                    <div className="text-xs font-mono px-2 py-1 rounded bg-surface-primary/50 text-text-muted">
+                      {b.fileCount} 个文件
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

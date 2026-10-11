@@ -22,7 +22,8 @@ import {
   Palette,
   ArrowDownToLine,
   LogOut,
-  Monitor
+  Monitor,
+  Gamepad2
 } from 'lucide-react'
 import { EnvironmentStatus } from '../../core/types'
 import { useTheme } from '../contexts/ThemeContext'
@@ -36,11 +37,36 @@ import { Modal } from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
 import { Logo } from '../components/Logo'
 
+import zzzLogo from '../assets/games/zzz_logo.png'
+import endfieldLogo from '../assets/games/endfield_logo.png'
+import wuwaLogo from '../assets/games/wuwa_logo.png'
+import yihuanLogo from '../assets/games/yihuan_logo.png'
+import starrailLogo from '../assets/games/starrail_logo.png'
+import genshinLogo from '../assets/games/genshin_logo.png'
+
+const GAME_LOGOS: Record<string, string> = {
+  zzz: zzzLogo,
+  endfield: endfieldLogo,
+  'wuthering-waves': wuwaLogo,
+  wuwa: wuwaLogo,
+  'neverness-to-everness': yihuanLogo,
+  yihuan: yihuanLogo,
+  'honkai-star-rail': starrailLogo,
+  starrail: starrailLogo,
+  genshin: genshinLogo
+}
+
+function getGameLogo(gameId?: string): string | undefined {
+  if (!gameId) return undefined
+  return GAME_LOGOS[gameId.toLowerCase()]
+}
+
 interface SettingsPageProps {
   activeGame: any
   onSaveGameConfig: (patch: any) => Promise<void>
   config?: any
   onUpdateAppConfig?: (patch: any) => Promise<void>
+  onSelectGame?: (gameId: string) => Promise<void>
 }
 
 // 启动模式派生默认值：与显示兜底逻辑保持同一份三元，保证「显示值 = 保存值」
@@ -50,7 +76,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   activeGame,
   onSaveGameConfig,
   config,
-  onUpdateAppConfig
+  onUpdateAppConfig,
+  onSelectGame
 }) => {
   const toast = useToast()
   const { theme, setTheme } = useTheme()
@@ -76,12 +103,74 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [closeAction, setCloseAction] = useState<'quit' | 'minimize_to_tray'>(
     config?.closeAction || 'quit'
   )
+  const [appConfig, setAppConfig] = useState<any>(config)
 
   // 运行环境检测与一键部署状态
   const [envStatus, setEnvStatus] = useState<EnvironmentStatus | null>(null)
   const [envChecking, setEnvChecking] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [deployResult, setDeployResult] = useState<string | null>(null)
+
+  // Mod 修复工具状态与管理
+  const [fixStatus, setFixStatus] = useState<any>(null)
+  const [loadingFixStatus, setLoadingFixStatus] = useState<boolean>(false)
+  const [updatingRules, setUpdatingRules] = useState<boolean>(false)
+  const [selectingFixer, setSelectingFixer] = useState<boolean>(false)
+
+  const loadFixStatus = async () => {
+    setLoadingFixStatus(true)
+    try {
+      const status = await window.flairx.fixGetStatus(activeGame?.id)
+      if (status) setFixStatus(status)
+    } catch (err) {
+      console.error('Failed to get fix status:', err)
+    } finally {
+      setLoadingFixStatus(false)
+    }
+  }
+
+  const handleUpdateRules = async () => {
+    setUpdatingRules(true)
+    try {
+      const res = await window.flairx.fixUpdateWuwaRules()
+      if (res && res.success) {
+        if (res.updated) {
+          toast.success('规则更新成功', `已更新至 revision ${res.revision}，包含 ${res.ruleCount} 条规则`)
+        } else {
+          toast.info('规则无需更新', res.message || '本地 Hash 规则已是最新版本')
+        }
+        await loadFixStatus()
+      } else {
+        toast.error('更新失败', res?.error || '无法拉取线上规则')
+      }
+    } catch (err: any) {
+      toast.error('更新异常', err?.message || String(err))
+    } finally {
+      setUpdatingRules(false)
+    }
+  }
+
+  const handleSelectCustomFixer = async () => {
+    setSelectingFixer(true)
+    try {
+      const res = await window.flairx.fixSelectCustomExe(activeGame?.id)
+      if (res && !res.canceled) {
+        if (res.success) {
+          toast.success(
+            '修复程序已安装',
+            `已成功配置修复程序: ${res.resolvedExePath ? res.resolvedExePath.split(/[/\\]/).pop() : '自定义程序'}`
+          )
+          await loadFixStatus()
+        } else {
+          toast.error('安装修复程序失败', res.error || '未能成功校验或安装该修复程序')
+        }
+      }
+    } catch (err: any) {
+      toast.error('选择异常', err?.message || String(err))
+    } finally {
+      setSelectingFixer(false)
+    }
+  }
 
   const loadEnvironmentStatus = async () => {
     setEnvChecking(true)
@@ -99,6 +188,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     try {
       const cfg = config || (await window.lz.getConfig())
       if (cfg) {
+        setAppConfig(cfg)
         setPersistBridgeEnabled(cfg.persistBridgeEnabled ?? true)
         setPersistBridgeCacheSize(
           typeof cfg.persistBridgeCacheSize === 'number' ? cfg.persistBridgeCacheSize : 12
@@ -114,9 +204,52 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setModLoaderPath(activeGame?.modLoaderPath || '')
     setLaunchMode(activeGame?.launchMode || getDerivedLaunchMode(activeGame))
     setLaunchArgs(activeGame?.launchArgs || '')
+    if (config) setAppConfig(config)
     loadEnvironmentStatus()
     loadAppConfig()
+    loadFixStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGame, config])
+
+  // 切换单款游戏的显示/隐藏状态
+  const handleToggleGameVisibility = async (targetGame: any, nextVisible: boolean) => {
+    const games = appConfig?.games || config?.games || []
+    const visibleGames = games.filter((g: any) => !g.hidden)
+
+    // 防空守卫：如果当前仅剩 1 款游戏可见，且用户试图隐藏它，禁止操作
+    if (!nextVisible && visibleGames.length <= 1 && !targetGame.hidden) {
+      toast.warning('无法隐藏', '请至少保留一款可见游戏！')
+      return
+    }
+
+    try {
+      const res = await window.lz.updateGameConfig(targetGame.id, { hidden: !nextVisible })
+      if (res && res.success) {
+        if (res.config) {
+          setAppConfig(res.config)
+        } else {
+          await loadAppConfig()
+        }
+
+        if (!nextVisible && activeGame?.id === targetGame.id) {
+          const remainingVisible = games.filter((g: any) => g.id !== targetGame.id && !g.hidden)
+          if (remainingVisible.length > 0 && onSelectGame) {
+            await onSelectGame(remainingVisible[0].id)
+            toast.info('已自动切换当前游戏', `原游戏已隐藏，已自动切至【${remainingVisible[0].name}】`)
+          }
+        } else {
+          toast.success(
+            '游戏显示设置已更新',
+            `已${nextVisible ? '启用显示' : '隐藏'}【${targetGame.name}】`
+          )
+        }
+      } else {
+        toast.error('设置失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('设置异常', err?.message || '未知错误')
+    }
+  }
 
   const handleCloseActionChange = async (action: 'quit' | 'minimize_to_tray') => {
     setCloseAction(action)
@@ -202,6 +335,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   }
 
+  const allGames = appConfig?.games || config?.games || []
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 select-none bg-surface/40">
       <div className="max-w-3xl mx-auto w-full space-y-6">
@@ -278,6 +413,82 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
               )}
             </button>
+          </div>
+        </Card>
+
+        {/* 0.5. 目标游戏显示与管理 */}
+        <Card className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+                <Gamepad2 className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-text">游戏显示管理</h3>
+                  <Badge variant="primary" className="text-[10px] px-1.5 py-0 font-mono">
+                    可见: {allGames.filter((g: any) => !g.hidden).length} / {allGames.length}
+                  </Badge>
+                </div>
+                <p className="text-xs text-text-muted mt-0.5">
+                  控制主界面顶栏与悬浮窗展示的目标游戏；隐藏的游戏将同时移出前台运行识别列表
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {allGames.map((g: any) => {
+              const isVisible = !g.hidden
+              const isCurrent = activeGame?.id === g.id
+              const logo = getGameLogo(g.id)
+              const visibleCount = allGames.filter((item: any) => !item.hidden).length
+              const isLastVisible = isVisible && visibleCount <= 1
+
+              return (
+                <div
+                  key={g.id}
+                  className={`p-3 rounded-control border flex items-center justify-between transition-all duration-fast ${
+                    isCurrent
+                      ? 'bg-primary/5 border-primary/40 shadow-xs ring-1 ring-primary/20'
+                      : isVisible
+                      ? 'bg-surface border-border hover:border-primary/30'
+                      : 'bg-surface-2/40 border-border/50 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-9 h-9 rounded-control bg-surface-2 border border-border/80 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                      {logo ? (
+                        <img src={logo} alt="" className="w-6 h-6 object-contain" />
+                      ) : (
+                        <Gamepad2 className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs font-bold text-text truncate max-w-[120px]">{g.name}</span>
+                        {isCurrent && (
+                          <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-primary text-primary-fg leading-tight">
+                            使用中
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-text-muted truncate mt-0.5">
+                        {isVisible ? '前台识别与切换已启用' : '已隐藏 (不参与识别与切换)'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0 ml-2" title={isLastVisible ? '至少需保留一款可见游戏' : undefined}>
+                    <Switch
+                      checked={isVisible}
+                      disabled={isLastVisible}
+                      onChange={(checked) => handleToggleGameVisibility(g, checked)}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </Card>
 
@@ -501,6 +712,122 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 {clearResult}
               </div>
             )}
+          </div>
+        </Card>
+
+        {/* Mod 修复工具与 Hash 规则 */}
+        <Card className="p-5 space-y-4">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+              <Wrench className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-text">
+                Mod 修复工具与 Hash 规则引擎
+              </h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                自动化 Hash 规则替换与外部独立修复程序集成，解决游戏版本更新后的 Mod 报错或模型缺失
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-1">
+            {/* 鸣潮内置 Hash 规则引擎状态 */}
+            {(activeGame?.id === 'wuthering-waves' || activeGame?.id === 'wuwa' || fixStatus?.engine === 'builtin-wuwa') && (
+              <div className="p-4 rounded-control bg-surface-2 border border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-text">鸣潮内置 Hash 规则引擎</span>
+                    <Badge variant="primary">内置引擎</Badge>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={updatingRules}
+                    onClick={handleUpdateRules}
+                    icon={<RefreshCw className={`w-3.5 h-3.5 text-primary ${updatingRules ? 'animate-spin' : ''}`} />}
+                  >
+                    更新 Hash 规则
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 text-xs">
+                  <div className="p-2.5 rounded bg-surface border border-border/60">
+                    <div className="text-[10px] text-text-muted">规则版本 (Revision)</div>
+                    <div className="font-mono font-bold text-text mt-0.5">
+                      {fixStatus?.ruleVersion ? `v${fixStatus.ruleVersion}` : 'v3.5'}
+                      <span className="text-primary text-[11px] ml-1">
+                        (Rev {fixStatus?.ruleRevision ?? 1})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-surface border border-border/60">
+                    <div className="text-[10px] text-text-muted">匹配游戏版本</div>
+                    <div className="font-mono font-bold text-text mt-0.5">
+                      {fixStatus?.gameVersion || '全版本兼容'}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-surface border border-border/60">
+                    <div className="text-[10px] text-text-muted">规则与映射统计</div>
+                    <div className="font-mono font-bold text-text mt-0.5">
+                      {fixStatus?.ruleCount ?? 0} 条 / {fixStatus?.totalReplacements ?? 0} 映射
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-surface border border-border/60">
+                    <div className="text-[10px] text-text-muted">数据源</div>
+                    <div className="font-mono font-bold text-text mt-0.5">
+                      {fixStatus?.ruleSource === 'cache'
+                        ? '在线更新缓存'
+                        : fixStatus?.ruleSource === 'cache-backup'
+                        ? '本地回退备份'
+                        : '随包内置'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 外部独立修复程序配置与安装 */}
+            <div className="p-4 rounded-control bg-surface-2 border border-border space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-text flex items-center space-x-2">
+                    <span>外部独立修复程序 ({activeGame?.name || '当前游戏'})</span>
+                    {(fixStatus?.externalExePath || fixStatus?.exePath) ? (
+                      <Badge variant="primary">已就绪</Badge>
+                    ) : (
+                      <Badge variant="default">未配置</Badge>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-text-muted mt-0.5 font-mono truncate max-w-[320px]">
+                    {fixStatus?.externalExeName || fixStatus?.exeName || '未检测到可执行修复器'}
+                  </div>
+                </div>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={selectingFixer}
+                  onClick={handleSelectCustomFixer}
+                  icon={<Folder className="w-3.5 h-3.5 text-primary" />}
+                >
+                  选择自定义程序
+                </Button>
+              </div>
+
+              {(fixStatus?.externalExeSha256 || fixStatus?.exeSha256) && (
+                <div className="p-2.5 rounded bg-surface border border-border/60 text-[11px] font-mono text-text-muted flex items-center justify-between">
+                  <span>SHA256 校验指纹:</span>
+                  <span className="text-text select-all">
+                    {fixStatus?.externalExeSha256 || fixStatus?.exeSha256}
+                  </span>
+                </div>
+              )}
+
+              <div className="text-[11px] text-text-muted">
+                支持直接选取 .exe 文件、或选择包含修复工具的 zip / rar / 7z 压缩包及目录，程序将自动解包、校验并管理安装。
+              </div>
+            </div>
           </div>
         </Card>
 

@@ -19,7 +19,10 @@ const flairxApi = {
     ipcRenderer.invoke('config:updateApp', patch),
   setActiveGame: (gameId: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('config:setActiveGame', gameId),
-  updateGameConfig: (gameId: string, patch: any): Promise<{ success: boolean; error?: string }> =>
+  updateGameConfig: (
+    gameId: string,
+    patch: any
+  ): Promise<{ success: boolean; error?: string; config?: AppConfig }> =>
     ipcRenderer.invoke('config:updateGame', gameId, patch),
 
   // Mods
@@ -76,6 +79,90 @@ const flairxApi = {
   resetModVariables: (modFullPath: string) =>
     ipcRenderer.invoke('persist:resetVariables', modFullPath),
   clearPersistCache: () => ipcRenderer.invoke('persist:clearCache'),
+  resetModIni: (
+    params: { modFullPath?: string; characterName?: string; modName?: string } | string
+  ): Promise<{ success: boolean; restoredCount: number; error?: string }> =>
+    ipcRenderer.invoke(
+      'persist:resetIni',
+      typeof params === 'string' ? { modFullPath: params } : params
+    ),
+  resetCharacterIni: (
+    params: string | { characterName: string }
+  ): Promise<{ success: boolean; restoredCount: number; error?: string }> => {
+    const characterName = typeof params === 'string' ? params : params.characterName
+    return ipcRenderer.invoke('persist:resetIniCharacter', characterName)
+  },
+
+  // Mod Fix & Ini Backup
+  fixRunAll: (
+    modeOrOptions?: 'builtin' | 'external' | { mode?: 'builtin' | 'external'; gameId?: string },
+    gameId?: string
+  ): Promise<any> => {
+    let mode: 'builtin' | 'external' = 'builtin'
+    let gid = gameId
+    if (typeof modeOrOptions === 'object' && modeOrOptions !== null) {
+      mode = modeOrOptions.mode || 'builtin'
+      gid = modeOrOptions.gameId || gid
+    } else if (typeof modeOrOptions === 'string') {
+      mode = modeOrOptions
+    }
+    return ipcRenderer.invoke('fix:runAll', { mode, gameId: gid })
+  },
+  fixRunCharacter: (
+    characterNameOrParams:
+      | string
+      | { characterName: string; mode?: 'builtin' | 'external'; gameId?: string },
+    mode: 'builtin' | 'external' = 'builtin',
+    gameId?: string
+  ): Promise<any> => {
+    const charName = typeof characterNameOrParams === 'string' ? characterNameOrParams : characterNameOrParams.characterName
+    const m = typeof characterNameOrParams === 'object' && characterNameOrParams ? (characterNameOrParams.mode || mode) : mode
+    const gid = typeof characterNameOrParams === 'object' && characterNameOrParams ? (characterNameOrParams.gameId || gameId) : gameId
+    return ipcRenderer.invoke('fix:runCharacter', { characterName: charName, mode: m, gameId: gid })
+  },
+  fixRunMod: (
+    params:
+      | {
+          modFullPath?: string
+          characterName?: string
+          modName?: string
+          mode?: 'builtin' | 'external'
+          gameId?: string
+        }
+      | string,
+    mode: 'builtin' | 'external' = 'builtin'
+  ): Promise<any> => {
+    const payload = typeof params === 'string' ? { modFullPath: params, mode } : { mode, ...params }
+    return ipcRenderer.invoke('fix:runMod', payload)
+  },
+  fixGetStatus: (gameId?: string): Promise<any> => ipcRenderer.invoke('fix:getStatus', { gameId }),
+  fixGetExePath: (gameId?: string): Promise<any> => ipcRenderer.invoke('fix:getStatus', { gameId }),
+  fixUpdateWuwaRules: (): Promise<any> => ipcRenderer.invoke('fix:updateWuwaRules'),
+  fixSelectCustomExe: (gameId?: string): Promise<any> =>
+    ipcRenderer.invoke('fix:selectCustomExe', { gameId }),
+
+  listModIniBackups: (
+    params: { modFullPath?: string; characterName?: string; modName?: string } | string
+  ): Promise<{
+    success: boolean
+    backups: Array<{
+      stamp: string
+      format: 'qaqm' | 'wuwa-independent'
+      sortKey: string
+      label: string
+      fileCount: number
+    }>
+    error?: string
+  }> =>
+    ipcRenderer.invoke(
+      'iniBackup:list',
+      typeof params === 'string' ? { modFullPath: params } : params
+    ),
+  restoreModIniBackup: (
+    params:
+      | { modFullPath?: string; characterName?: string; modName?: string; stamp: string }
+      | { characterName: string; modName: string; stamp: string }
+  ): Promise<any> => ipcRenderer.invoke('iniBackup:restore', params),
 
   // Conflicts
   detectConflicts: (
