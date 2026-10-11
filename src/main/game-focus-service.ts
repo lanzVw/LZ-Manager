@@ -184,6 +184,26 @@ export class GameFocusService extends EventEmitter {
   }
 
   /**
+   * 列出判断"该游戏是否正在运行"时值得检查的进程名。
+   * 配置里的 gamePath 对 XXMI 系游戏常常不是真正运行的进程（如鸣潮实际是
+   * Client-Win64-Shipping.exe），只看它会把"正在运行"误判为"未运行"，
+   * 进而吞掉本该发出的按键。
+   */
+  public getCandidateProcessNames(game: GameConfig | null): string[] {
+    const names = new Set<string>()
+    if (game) {
+      if (game.gamePath) names.add(path.basename(game.gamePath))
+      const canonicalKey = this.getCanonicalGameKey(game.id)
+      for (const p of KNOWN_GAME_PROCESSES[canonicalKey] || []) names.add(p)
+    }
+    if (this.activeGame && this.activeGame.id !== game?.id) {
+      const activeKey = this.getCanonicalGameKey(this.activeGame.id)
+      for (const p of KNOWN_GAME_PROCESSES[activeKey] || []) names.add(p)
+    }
+    return Array.from(names).filter(Boolean)
+  }
+
+  /**
    * 判断指定进程是否是当前游戏（或任意已知游戏）
    */
   public isTargetGameProcess(processName: string, game?: GameConfig | null): boolean {

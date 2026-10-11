@@ -27,7 +27,12 @@ export default function App() {
     try {
       const cfg = await window.flairx.getConfig()
       setConfig(cfg)
-      const current = cfg.games.find((g: any) => g.id === cfg.activeGameId) || cfg.games[0]
+      const visibleGames = (cfg.games || []).filter((g: any) => !g.hidden)
+      const current =
+        visibleGames.find((g: any) => g.id === cfg.activeGameId) ||
+        visibleGames[0] ||
+        cfg.games.find((g: any) => g.id === cfg.activeGameId) ||
+        cfg.games[0]
       setActiveGame(current)
     } catch (err) {
       console.error('Failed to load config:', err)
@@ -307,6 +312,7 @@ export default function App() {
             activeGame={activeGame}
             onSaveGameConfig={handleSaveGameConfig}
             config={config}
+            onSelectGame={handleSelectGame}
             onUpdateAppConfig={async (patch) => {
               await window.lz.updateAppConfig(patch)
               await loadConfig()

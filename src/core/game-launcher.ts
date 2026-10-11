@@ -14,80 +14,49 @@ export class GameLauncher {
    * 触发 3DMigoto 游戏内重载 (按 F10)
    */
   public triggerReloadF10(targetProcName?: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      // 1. 优先使用专属重载辅助程序 ReloadHelper.exe (精确定位游戏 HWND、发送 PostMessage 与底层 Input 击键)
-      const reloadHelperExe = path.join(this.binariesDir, 'ReloadHelper.exe')
-      if (fs.existsSync(reloadHelperExe)) {
-        const args = targetProcName ? [targetProcName] : []
-        try {
-          execFile(reloadHelperExe, args, { windowsHide: true, timeout: 2000 }, (err, stdout) => {
-            if (!err) {
-              // ReloadHelper 成功即已发送 F10（源码自带 PostMessage+keybd_event），
-              // 不再调用 triggerQaqmF10 全局补发，否则 F10 双发等于两次 reload
-              console.log('[GameLauncher] ReloadHelper succeeded:', stdout?.trim())
-              return resolve(true)
-            }
-            console.warn('[GameLauncher] ReloadHelper failed, falling back:', err)
-            this.triggerQaqmF10().then(resolve)
-          })
-          return
-        } catch (_) {}
-      }
-
-      this.triggerQaqmF10().then(resolve)
-    })
+    return this.triggerHotkey(['VK_F10'], targetProcName)
   }
 
   /**
-   * 触发 Mod 专属自定义快捷键组合 (通过 ReloadHelper + QaqmKeyHelper + press_hotkey.ps1 组合调度)
+   * 触发 Mod 专属自定义快捷键组合 (对齐原版 QAQMAN：直接调用 QaqmKeyHelper.exe 发送系统级 keybd_event)
    */
-  public triggerHotkey(keys: string[], targetProcName?: string): Promise<boolean> {
+  public triggerHotkey(
+    keys: string[],
+    _targetProcName?: string
+  ): Promise<boolean> {
     if (!keys || keys.length === 0) return Promise.resolve(false)
 
     // 过滤掉无法自动调度的鼠标与手柄按键
     const cleanKeys = keys.filter((k) => !k.includes('🎮') && !k.includes('鼠标') && !k.includes('Button'))
     if (cleanKeys.length === 0) return Promise.resolve(false)
 
-    return new Promise((resolve) => {
-      // 1. 将按键转换为标准 VK 字符串
-      const vkTokens = cleanKeys.map((k) => this.normalizeToVkToken(k)).filter(Boolean) as Array<{ vkCode: number; codeStr: string }>
-      if (vkTokens.length === 0) return resolve(false)
+    // 1. 将按键转换为标准 VK 字符串
+    const vkTokens = cleanKeys.map((k) => this.normalizeToVkToken(k)).filter(Boolean) as Array<{ vkCode: number; codeStr: string }>
+    if (vkTokens.length === 0) return Promise.resolve(false)
 
-      const vkCommaList = vkTokens.map((t) => t.codeStr).join(',')
+    // 2. 构造与原版 QAQMAN 官方结构 100% 对齐的 Base64url Payload
+    const modifierSet = new Set(['VK_CONTROL', 'VK_SHIFT', 'VK_MENU', 'VK_LWIN', 'VK_RWIN'])
+    const pressedTokens = vkTokens.map((t) => ({
+      code: t.codeStr,
+      display: t.codeStr.replace(/^VK_/, ''),
+      device: 'keyboard',
+      isModifier: modifierSet.has(t.codeStr),
+      commandToken: t.codeStr.replace(/^VK_/, '')
+    }))
+    const displayKeys = vkTokens.map((t) => t.codeStr.replace(/^VK_/, ''))
+    const payload = {
+      original: cleanKeys.join(' '),
+      pressed: pressedTokens,
+      released: [],
+      displayKeys,
+      commandKeys: displayKeys,
+      devices: ['keyboard'],
+      canAutoApply: true
+    }
+    const hotkeyBase64 = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64url')
 
-      // 2. 构造 QAQMAN 兼容的 Base64 Payload
-      const payload = {
-        pressed: vkTokens.map((t) => ({ code: t.codeStr, device: 'keyboard' }))
-      }
-      const hotkeyBase64 = Buffer.from(JSON.stringify(payload), 'utf-8')
-        .toString('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '')
-
-      // 3. 优先使用专属 ReloadHelper.exe (精确定位游戏 HWND、置顶并发送击键)
-      const reloadHelperExe = path.join(this.binariesDir, 'ReloadHelper.exe')
-      if (fs.existsSync(reloadHelperExe)) {
-        const args = ['--keys', vkCommaList]
-        if (targetProcName) args.push(targetProcName)
-
-        try {
-          execFile(reloadHelperExe, args, { windowsHide: true, timeout: 2000 }, (err, stdout) => {
-            if (!err) {
-              // ReloadHelper 成功即已按 vkCommaList 发送击键（PostMessage+keybd_event），
-              // 再全局补发一次会让 toggle 类热键状态回退
-              console.log('[GameLauncher] ReloadHelper hotkey succeeded:', stdout?.trim())
-              return resolve(true)
-            }
-            console.warn('[GameLauncher] ReloadHelper hotkey failed, falling back:', err)
-            this.triggerQaqmHotkey(hotkeyBase64).then(resolve)
-          })
-          return
-        } catch (_) {}
-      }
-
-      this.triggerQaqmHotkey(hotkeyBase64).then(resolve)
-    })
+    // 3. 直接通过原版 QaqmKeyHelper 发送击键（基于系统级 keybd_event，无需跨进程找 HWND）
+    return this.triggerQaqmHotkey(hotkeyBase64)
   }
 
   /**
@@ -293,7 +262,29 @@ export class GameLauncher {
         }
       }
 
-      // Fallback: PowerShell key send
+      // Fallback 1: press_f10.ps1 (系统级 keybd_event)
+      const f10Script = path.join(this.binariesDir, 'press_f10.ps1')
+      if (fs.existsSync(f10Script)) {
+        try {
+          const child = spawn('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            f10Script
+          ], {
+            detached: true,
+            stdio: 'ignore'
+          })
+          child.unref()
+          return resolve(true)
+        } catch (err) {
+          console.warn('[GameLauncher] press_f10.ps1 error:', err)
+        }
+      }
+
+      // Fallback 2: PowerShell key send
       const psCommand = `powershell -NoProfile -Command "$wshell = New-Object -ComObject wscript.shell; $wshell.SendKeys('{F10}')"`
       exec(psCommand, (err) => {
         if (err) {
@@ -551,15 +542,24 @@ export class GameLauncher {
   }
 
   /**
-   * 检查常见游戏进程是否正在运行
+   * 检查游戏进程是否正在运行。
+   * 接受多个候选进程名并在一次 tasklist 调用内匹配：XXMI 系游戏真正运行的进程名
+   * 常常与配置的 gamePath 不同（如鸣潮是 Client-Win64-Shipping.exe），
+   * 逐个名字起一次 tasklist 会明显拖慢按键派发。
    */
-  public isGameRunning(gameExeName: string): Promise<boolean> {
+  public isGameRunning(gameExeName: string | string[]): Promise<boolean> {
+    const candidates = (Array.isArray(gameExeName) ? gameExeName : [gameExeName])
+      .map((n) => path.basename(String(n || '')))
+      .filter(Boolean)
+      .map((n) => n.toLowerCase())
+    if (candidates.length === 0) return Promise.resolve(false)
+
     return new Promise((resolve) => {
-      if (!gameExeName) return resolve(false)
-      const baseName = path.basename(gameExeName)
-      exec(`tasklist /FI "IMAGENAME eq ${baseName}" /NH`, (err, stdout) => {
+      // 不加 /FI 过滤列出全部进程：进程多时输出可能超过默认 1MB，需放宽 maxBuffer
+      exec('tasklist /NH', { maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
         if (err || !stdout) return resolve(false)
-        resolve(stdout.toLowerCase().includes(baseName.toLowerCase()))
+        const lower = stdout.toLowerCase()
+        resolve(candidates.some((name) => lower.includes(name)))
       })
     })
   }

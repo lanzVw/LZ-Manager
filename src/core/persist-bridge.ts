@@ -107,27 +107,55 @@ export class PersistBridgeManager {
       }
 
       const includerPath = path.join(qaqmDir, 'qaqm_includer.ini')
+      const targetIncluder = [
+        '[IncludeKeypress]',
+        'include = qaqm_keypress.ini',
+        '',
+        '[IncludePersistBridgeActive]',
+        'include = qaqm_persist_active.ini',
+        ''
+      ].join('\n')
+
       if (!fs.existsSync(includerPath)) {
-        const defaultIncluder = [
-          '[IncludeKeypress]',
-          'include = qaqm_keypress.ini',
-          '',
-          '[IncludePersistBridgeActive]',
-          'include = qaqm_persist_active.ini',
-          ''
-        ].join('\n')
-        fs.writeFileSync(includerPath, defaultIncluder, 'utf8')
+        fs.writeFileSync(includerPath, targetIncluder, 'utf8')
+      } else {
+        let content = fs.readFileSync(includerPath, 'utf8')
+        let changed = false
+        if (/include\s*=\s*qaqm\\qaqm_keypress\.ini/i.test(content)) {
+          content = content.replace(/include\s*=\s*qaqm\\qaqm_keypress\.ini/gi, 'include = qaqm_keypress.ini')
+          changed = true
+        }
+        if (/include\s*=\s*qaqm\\qaqm_persist_active\.ini/i.test(content)) {
+          content = content.replace(/include\s*=\s*qaqm\\qaqm_persist_active\.ini/gi, 'include = qaqm_persist_active.ini')
+          changed = true
+        }
+        if (changed) {
+          fs.writeFileSync(includerPath, content, 'utf8')
+        }
       }
 
-      // qaqm_includer.ini 引用的 keypress 文件必须存在，否则 3DMigoto 报 include 缺失
+      // qaqm_includer.ini 引用的 keypress 文件必须存在并写入 check_foreground_window = 0，
+      // 允许 3DMigoto 在悬浮窗处于前台时接收后台模拟按键与 F10 刷新（对齐原版 setBackgroundKeypressEnabled）
       const keypressPath = path.join(qaqmDir, 'qaqm_keypress.ini')
+      const targetKeypress = '[System]\ncheck_foreground_window = 0\n'
       if (!fs.existsSync(keypressPath)) {
-        fs.writeFileSync(keypressPath, '', 'utf8')
+        fs.writeFileSync(keypressPath, targetKeypress, 'utf8')
+      } else {
+        const currentKeypress = fs.readFileSync(keypressPath, 'utf8')
+        if (!/check_foreground_window\s*=\s*0/i.test(currentKeypress)) {
+          fs.writeFileSync(keypressPath, targetKeypress, 'utf8')
+        }
       }
 
       const activeIniPath = path.join(qaqmDir, 'qaqm_persist_active.ini')
       if (!fs.existsSync(activeIniPath)) {
         fs.writeFileSync(activeIniPath, '', 'utf8')
+      } else {
+        const activeContent = fs.readFileSync(activeIniPath, 'utf8')
+        if (/include\s*=\s*qaqm\\cache\\/i.test(activeContent)) {
+          const normalized = activeContent.replace(/include\s*=\s*qaqm\\cache\\/gi, 'include = cache\\')
+          fs.writeFileSync(activeIniPath, normalized, 'utf8')
+        }
       }
 
       // 检查 d3dx.ini 是否已包含 qaqm_includer.ini
@@ -144,6 +172,12 @@ export class PersistBridgeManager {
           }
           writeTextWithEncoding(d3dxPath, content, encoding)
         }
+      }
+
+      // 自动自愈同步当前处于启用状态的 Mod 持久化桥接（对齐原版 QAQ rebuildActivePersistBridgeIncludes）
+      const modsRoot = path.join(envRoot, 'Mods')
+      if (fs.existsSync(modsRoot)) {
+        this.syncAllActiveMods(envRoot, modsRoot)
       }
 
       return true
@@ -509,7 +543,9 @@ export class PersistBridgeManager {
       fs.writeFileSync(stateFilePath, stateContent, 'utf8')
 
       // 从 active.ini 中移除 include
-      this.removeIncludeFromActiveFile(activeIniPath, info.stateFileName)
+      // 对齐原版 QAQ 缓存池体系：停用时保持在 active.ini 缓存池内，防止 3DMigoto 热刷新丢弃 d3dx_user.ini 持久化变量；
+      // 最大缓存容量与淘汰统一由 pruneCache 控制
+      this.addIncludeToActiveFile(activeIniPath, info.stateFileName)
       return true
     }
   }
@@ -520,9 +556,21 @@ export class PersistBridgeManager {
   private addIncludeToActiveFile(activeIniPath: string, stateFileName: string) {
     let content = fs.existsSync(activeIniPath) ? fs.readFileSync(activeIniPath, 'utf8') : ''
     const secName = `IncludePersistBridge_${stateFileName.replace(/\.ini$/i, '')}`
-    if (content.includes(secName)) return
+    const targetInclude = `include = cache\\${stateFileName}`
 
-    const block = `[${secName}]\ninclude = cache\\${stateFileName}\n\n`
+    if (content.includes(`[${secName}]`)) {
+      // 确保包含路径为正确的 cache\，修复可能残留的历史 qaqm\cache\ 错误路径
+      const secRegex = new RegExp(`\\[${secName}\\][\\r\\n]+include\\s*=[^\\r\\n]*`, 'i')
+      if (secRegex.test(content)) {
+        const updated = content.replace(secRegex, `[${secName}]\n${targetInclude}`)
+        if (updated !== content) {
+          fs.writeFileSync(activeIniPath, updated, 'utf8')
+        }
+      }
+      return
+    }
+
+    const block = `[${secName}]\n${targetInclude}\n\n`
     content = content.trim() + (content.trim() ? '\n\n' : '') + block
     fs.writeFileSync(activeIniPath, content, 'utf8')
   }
@@ -629,6 +677,9 @@ export class PersistBridgeManager {
       ].join('\n')
       fs.writeFileSync(stateFilePath, stateContent, 'utf8')
 
+      // 确保激活包含到 qaqm_persist_active.ini
+      this.addIncludeToActiveFile(path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini'), info.stateFileName)
+
       return { success: true }
     } catch (err: any) {
       return { success: false, error: err.message }
@@ -669,9 +720,48 @@ export class PersistBridgeManager {
       ].join('\n')
       fs.writeFileSync(stateFilePath, stateContent, 'utf8')
 
+      // 确保激活包含到 qaqm_persist_active.ini
+      this.addIncludeToActiveFile(path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini'), info.stateFileName)
+
       return { success: true, resetCount: info.variables.length }
     } catch (err: any) {
       return { success: false, resetCount: 0, error: err.message }
+    }
+  }
+
+  /**
+   * 扫描并同步当前所有启用 Mod 的持久化桥接配置（对齐 QAQMAN rebuildActivePersistBridgeIncludes 自愈体系）
+   */
+  public syncAllActiveMods(envRoot: string, modsRoot: string) {
+    if (!envRoot || !modsRoot || !fs.existsSync(modsRoot)) return
+    const activeIniPath = path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini')
+    const d3dxUserPath = path.join(envRoot, 'd3dx_user.ini')
+    const { prefixLines, constantsMap, suffixLines } = fs.existsSync(d3dxUserPath)
+      ? this.readD3dxUserConstants(d3dxUserPath)
+      : { prefixLines: [], constantsMap: new Map(), suffixLines: [] }
+
+    try {
+      const charDirs = fs.readdirSync(modsRoot, { withFileTypes: true }).filter((d) => d.isDirectory())
+      for (const cd of charDirs) {
+        const charPath = path.join(modsRoot, cd.name)
+        const modDirs = fs.readdirSync(charPath, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('DISABLED_'))
+        for (const md of modDirs) {
+          const modPath = path.join(charPath, md.name)
+          const info = this.getModPersistInfo(modPath, modsRoot, envRoot)
+          if (info.hasPersist && info.stateFileName) {
+            this.addIncludeToActiveFile(activeIniPath, info.stateFileName)
+            for (const v of info.variables) {
+              const bridgeKey = `$\\${info.namespace}\\${v.name}`
+              if (!constantsMap.has(bridgeKey.toLowerCase())) {
+                constantsMap.set(bridgeKey.toLowerCase(), { key: bridgeKey, value: v.currentValue })
+              }
+            }
+          }
+        }
+      }
+      this.writeD3dxUserConstants(d3dxUserPath, constantsMap, prefixLines, suffixLines)
+    } catch (err) {
+      console.warn('syncAllActiveMods error:', err)
     }
   }
 

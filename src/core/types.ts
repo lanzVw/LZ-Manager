@@ -11,6 +11,7 @@ export interface GameConfig {
   supportedLaunchModes?: string[]
   launchArgs?: string
   characters?: string[]
+  hidden?: boolean
 }
 
 export interface AppConfig {

@@ -25,17 +25,41 @@ public class ReloadHelper {
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr OpenWindowStation(string lpszWinSta, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessWindowStation(IntPtr hWinSta);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll")]
+    public static extern bool CloseDesktop(IntPtr hDesktop);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumWindowsProc lpfn, IntPtr lParam);
+
+    [DllImport("user32.dll")]
     public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
-    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-
-    [DllImport("user32.dll")]
     public static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
     public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
@@ -43,11 +67,63 @@ public class ReloadHelper {
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
 
-    private const uint WM_KEYDOWN = 0x0100;
-    private const uint WM_KEYUP = 0x0101;
-    private const byte VK_F10 = 0x79;
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint SendInput(uint nInputs, [MarshalAs(UnmanagedType.LPArray), In] INPUT[] pInputs, int cbSize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT {
+        public uint type;
+        public InputUnion u;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct InputUnion {
+        [FieldOffset(0)]
+        public MOUSEINPUT mi;
+        [FieldOffset(0)]
+        public KEYBDINPUT ki;
+        [FieldOffset(0)]
+        public HARDWAREINPUT hi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HARDWAREINPUT {
+        public uint uMsg;
+        public ushort wParamL;
+        public ushort wParamH;
+    }
+
+    private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const byte VK_F10 = 0x79;
     private const int SW_RESTORE = 9;
 
     private static readonly string[] KNOWN_GAME_PROCESSES = new string[] {
@@ -126,6 +202,102 @@ public class ReloadHelper {
         return 0;
     }
 
+    private class WindowCandidate {
+        public IntPtr Hwnd;
+        public string ProcessName;
+        public uint Pid;
+        public string Title;
+        public string ClassName;
+        public int Width;
+        public int Height;
+        public int Score;
+    }
+
+    private const uint WM_KEYDOWN = 0x0100;
+    private const uint WM_KEYUP = 0x0101;
+    private const uint WM_SYSKEYDOWN = 0x0104;
+    private const uint WM_SYSKEYUP = 0x0105;
+
+    private static void SendKeySequence(IntPtr targetHwnd, List<byte> vkList, int holdMs) {
+        if (vkList.Count == 0) return;
+
+        // 1. 发送 PostMessage 消息（直接投递至目标窗口消息队列；F10 在 Win32 属于系统键 WM_SYSKEYDOWN）
+        if (targetHwnd != IntPtr.Zero) {
+            foreach (byte vk in vkList) {
+                uint scan = MapVirtualKey(vk, 0);
+                long lparamVal = 1 | (scan << 16);
+                if (IsExtendedKey(vk)) lparamVal |= (1 << 24);
+                if (vk == VK_F10) {
+                    PostMessage(targetHwnd, WM_SYSKEYDOWN, (IntPtr)vk, (IntPtr)lparamVal);
+                }
+                PostMessage(targetHwnd, WM_KEYDOWN, (IntPtr)vk, (IntPtr)lparamVal);
+            }
+        }
+
+        // 2. 依次按下硬件级按键 (SendInput)
+        INPUT[] downInputs = new INPUT[vkList.Count];
+        for (int i = 0; i < vkList.Count; i++) {
+            byte vk = vkList[i];
+            ushort scan = (ushort)MapVirtualKey(vk, 0);
+            uint flags = 0;
+            if (IsExtendedKey(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
+
+            downInputs[i] = new INPUT {
+                type = INPUT_KEYBOARD,
+                u = new InputUnion {
+                    ki = new KEYBDINPUT {
+                        wVk = (ushort)vk,
+                        wScan = scan,
+                        dwFlags = flags,
+                        time = 0,
+                        dwExtraInfo = UIntPtr.Zero
+                    }
+                }
+            };
+        }
+        SendInput((uint)downInputs.Length, downInputs, Marshal.SizeOf(typeof(INPUT)));
+
+        // 3. 保持指定毫秒（确保 3DMigoto 与游戏渲染帧检测到按键并命中 $active == 1）
+        Thread.Sleep(holdMs);
+
+        // 4. 发送 PostMessage KEYUP
+        if (targetHwnd != IntPtr.Zero) {
+            for (int i = vkList.Count - 1; i >= 0; i--) {
+                byte vk = vkList[i];
+                uint scan = MapVirtualKey(vk, 0);
+                long lparamVal = 1 | (scan << 16) | (1 << 30) | (1 << 31);
+                if (IsExtendedKey(vk)) lparamVal |= (1 << 24);
+                if (vk == VK_F10) {
+                    PostMessage(targetHwnd, WM_SYSKEYUP, (IntPtr)vk, (IntPtr)lparamVal);
+                }
+                PostMessage(targetHwnd, WM_KEYUP, (IntPtr)vk, (IntPtr)lparamVal);
+            }
+        }
+
+        // 5. 逆序松开按键 (SendInput)
+        INPUT[] upInputs = new INPUT[vkList.Count];
+        for (int i = 0; i < vkList.Count; i++) {
+            byte vk = vkList[vkList.Count - 1 - i];
+            ushort scan = (ushort)MapVirtualKey(vk, 0);
+            uint flags = KEYEVENTF_KEYUP;
+            if (IsExtendedKey(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
+
+            upInputs[i] = new INPUT {
+                type = INPUT_KEYBOARD,
+                u = new InputUnion {
+                    ki = new KEYBDINPUT {
+                        wVk = (ushort)vk,
+                        wScan = scan,
+                        dwFlags = flags,
+                        time = 0,
+                        dwExtraInfo = UIntPtr.Zero
+                    }
+                }
+            };
+        }
+        SendInput((uint)upInputs.Length, upInputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+
     public static void Main(string[] args) {
         string targetProc = "";
         List<byte> vkList = new List<byte>();
@@ -160,12 +332,9 @@ public class ReloadHelper {
             vkList.Add(VK_F10);
         }
 
-        IntPtr gameHwnd = IntPtr.Zero;
-        string foundProcName = "";
-        uint foundPid = 0;
+        List<WindowCandidate> candidates = new List<WindowCandidate>();
 
-        // 1. 查找游戏主窗口
-        EnumWindows((hWnd, lParam) => {
+        EnumWindowsProc enumCallback = (hWnd, lParam) => {
             if (!IsWindowVisible(hWnd)) return true;
 
             uint pid;
@@ -176,99 +345,120 @@ public class ReloadHelper {
                 var proc = Process.GetProcessById((int)pid);
                 string pName = proc.ProcessName;
 
-                // 若指定了目标进程，优先匹配
-                if (!string.IsNullOrEmpty(targetProc)) {
-                    if (string.Equals(pName, targetProc, StringComparison.OrdinalIgnoreCase)) {
-                        gameHwnd = hWnd;
-                        foundProcName = pName;
-                        foundPid = pid;
-                        return false;
+                bool matchesTarget = !string.IsNullOrEmpty(targetProc) && string.Equals(pName, targetProc, StringComparison.OrdinalIgnoreCase);
+                bool matchesKnown = false;
+                if (!matchesTarget) {
+                    foreach (var kg in KNOWN_GAME_PROCESSES) {
+                        if (string.Equals(pName, kg, StringComparison.OrdinalIgnoreCase)) {
+                            matchesKnown = true;
+                            break;
+                        }
                     }
                 }
 
-                // 匹配已知主流游戏进程
-                foreach (var kg in KNOWN_GAME_PROCESSES) {
-                    if (string.Equals(pName, kg, StringComparison.OrdinalIgnoreCase)) {
-                        gameHwnd = hWnd;
-                        foundProcName = pName;
-                        foundPid = pid;
-                        return false;
-                    }
-                }
+                if (!matchesTarget && !matchesKnown) return true;
+
+                RECT rect;
+                GetClientRect(hWnd, out rect);
+                int w = rect.Right - rect.Left;
+                int h = rect.Bottom - rect.Top;
+
+                // 排除小于 150x150 的微缩/隐藏工具窗口（如 IME 等辅助窗口）
+                if (w < 150 || h < 150) return true;
+
+                StringBuilder sbTitle = new StringBuilder(256);
+                GetWindowText(hWnd, sbTitle, 256);
+                string title = sbTitle.ToString();
+
+                StringBuilder sbClass = new StringBuilder(256);
+                GetClassName(hWnd, sbClass, 256);
+                string className = sbClass.ToString();
+
+                int score = matchesTarget ? 1000 : 500;
+                if (className.IndexOf("UnityWndClass", StringComparison.OrdinalIgnoreCase) >= 0) score += 300;
+                if (!string.IsNullOrEmpty(title)) score += 100;
+                if (!IsIconic(hWnd)) score += 50;
+                score += Math.Min((w * h) / 10000, 200);
+
+                candidates.Add(new WindowCandidate {
+                    Hwnd = hWnd,
+                    ProcessName = pName,
+                    Pid = pid,
+                    Title = title,
+                    ClassName = className,
+                    Width = w,
+                    Height = h,
+                    Score = score
+                });
             } catch {}
 
             return true;
-        }, IntPtr.Zero);
+        };
 
-        if (gameHwnd != IntPtr.Zero) {
+        // 1. 优先挂载交互桌面 WinSta0\default 进行跨桌面枚举（解决 Node.js 子进程 EnumWindows 隔离返回 0 的问题）
+        try {
+            IntPtr hWinsta = OpenWindowStation("WinSta0", false, 0x037F);
+            if (hWinsta != IntPtr.Zero) SetProcessWindowStation(hWinsta);
+            IntPtr hDesk = OpenDesktop("default", 0, false, 0x01FF);
+            if (hDesk != IntPtr.Zero) {
+                EnumDesktopWindows(hDesk, enumCallback, IntPtr.Zero);
+                CloseDesktop(hDesk);
+            }
+        } catch {}
+
+        // 2. 若 Desktop 枚举无结果，降级使用标准 EnumWindows
+        if (candidates.Count == 0) {
+            EnumWindows(enumCallback, IntPtr.Zero);
+        }
+
+        WindowCandidate best = null;
+        if (candidates.Count > 0) {
+            candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+            best = candidates[0];
+        }
+
+        if (best != null && best.Hwnd != IntPtr.Zero) {
+            IntPtr gameHwnd = best.Hwnd;
+
+            // 关键：挂钩当前持有前台锁的窗口线程（通常为悬浮窗），以解锁 SetForegroundWindow 权限
+            IntPtr fgHwnd = GetForegroundWindow();
+            uint fgThread = 0;
+            if (fgHwnd != IntPtr.Zero) {
+                GetWindowThreadProcessId(fgHwnd, out fgThread);
+            }
             uint curThread = GetCurrentThreadId();
-            uint gameThread = 0;
-            GetWindowThreadProcessId(gameHwnd, out gameThread);
 
-            try {
-                if (gameThread != 0 && curThread != 0) {
-                    AttachThreadInput(curThread, gameThread, true);
-                }
-            } catch {}
+            bool attached = false;
+            if (fgThread != 0 && fgThread != curThread) {
+                try {
+                    attached = AttachThreadInput(curThread, fgThread, true);
+                } catch {}
+            }
 
-            // 将游戏窗口置为前台焦点
+            // 将游戏主窗口置为前台焦点
             ShowWindow(gameHwnd, SW_RESTORE);
-            SetForegroundWindow(gameHwnd);
             BringWindowToTop(gameHwnd);
+            SetForegroundWindow(gameHwnd);
 
-            // 1. 依次按下所有组合按键
-            for (int i = 0; i < vkList.Count; i++) {
-                byte vk = vkList[i];
-                byte scan = (byte)MapVirtualKey(vk, 0);
-                uint flags = IsExtendedKey(vk) ? KEYEVENTF_EXTENDEDKEY : 0u;
-
-                PostMessage(gameHwnd, WM_KEYDOWN, (IntPtr)vk, IntPtr.Zero);
-                keybd_event(vk, scan, flags, UIntPtr.Zero);
-                Thread.Sleep(15);
+            if (attached) {
+                try {
+                    AttachThreadInput(curThread, fgThread, false);
+                } catch {}
             }
 
-            // 保持按下状态 50ms
-            Thread.Sleep(50);
+            // 给游戏渲染引擎 25ms 响应前台切换
+            Thread.Sleep(25);
 
-            // 2. 逆序松开所有按键
-            for (int i = vkList.Count - 1; i >= 0; i--) {
-                byte vk = vkList[i];
-                byte scan = (byte)MapVirtualKey(vk, 0);
-                uint flags = (IsExtendedKey(vk) ? KEYEVENTF_EXTENDEDKEY : 0u) | KEYEVENTF_KEYUP;
+            // 双重保险：通过底层 SendInput + PostMessage 投递硬件与消息级按键，并保持 110ms 以可靠跨多帧命中 condition = $active == 1
+            SendKeySequence(gameHwnd, vkList, 110);
 
-                PostMessage(gameHwnd, WM_KEYUP, (IntPtr)vk, (IntPtr)0xC0000001);
-                keybd_event(vk, scan, flags, UIntPtr.Zero);
-                Thread.Sleep(15);
-            }
-
-            try {
-                if (gameThread != 0 && curThread != 0) {
-                    AttachThreadInput(curThread, gameThread, false);
-                }
-            } catch {}
-
-            Console.WriteLine("{{\"success\":true,\"process\":\"{0}\",\"pid\":{1},\"hwnd\":\"{2}\",\"keysCount\":{3}}}", foundProcName, foundPid, gameHwnd.ToInt64(), vkList.Count);
+            Console.WriteLine("{{\"success\":true,\"process\":\"{0}\",\"pid\":{1},\"hwnd\":\"{2}\",\"keysCount\":{3}}}",
+                best.ProcessName, best.Pid, gameHwnd.ToInt64(), vkList.Count);
+            Environment.Exit(0);
         } else {
-            // 降级兜底：未匹配到具体游戏窗口时，发送全局前台击键
-            for (int i = 0; i < vkList.Count; i++) {
-                byte vk = vkList[i];
-                byte scan = (byte)MapVirtualKey(vk, 0);
-                uint flags = IsExtendedKey(vk) ? KEYEVENTF_EXTENDEDKEY : 0u;
-                keybd_event(vk, scan, flags, UIntPtr.Zero);
-                Thread.Sleep(15);
-            }
-
-            Thread.Sleep(50);
-
-            for (int i = vkList.Count - 1; i >= 0; i--) {
-                byte vk = vkList[i];
-                byte scan = (byte)MapVirtualKey(vk, 0);
-                uint flags = (IsExtendedKey(vk) ? KEYEVENTF_EXTENDEDKEY : 0u) | KEYEVENTF_KEYUP;
-                keybd_event(vk, scan, flags, UIntPtr.Zero);
-                Thread.Sleep(15);
-            }
-
-            Console.WriteLine("{{\"success\":true,\"fallback\":true,\"keysCount\":{0}}}", vkList.Count);
+            // 未找到对应游戏窗口：输出明确错误并返回非零退出码，触发 Node 端优雅降级
+            Console.WriteLine("{{\"success\":false,\"error\":\"game_window_not_found\",\"targetProc\":\"{0}\"}}", targetProc);
+            Environment.Exit(1);
         }
     }
 }

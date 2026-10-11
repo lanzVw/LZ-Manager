@@ -98,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Select
             value={activeGame?.id || ''}
             onChange={(val) => onSelectGame(val)}
-            options={games.map((g) => {
+            options={games.filter((g) => !g.hidden).map((g) => {
               const logo = getGameLogo(g.id)
               return {
                 value: g.id,

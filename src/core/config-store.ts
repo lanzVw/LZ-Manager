@@ -39,8 +39,9 @@ export class ConfigStore {
   }
 
   public getActiveGame(): GameConfig | null {
-    const game = this.config.games.find(g => g.id === this.config.activeGameId)
-    return game || (this.config.games.length > 0 ? this.config.games[0] : null)
+    const visibleGames = this.config.games.filter(g => !g.hidden)
+    const game = visibleGames.find(g => g.id === this.config.activeGameId)
+    return game || (visibleGames.length > 0 ? visibleGames[0] : (this.config.games[0] || null))
   }
 
   public getGameById(gameId: string): GameConfig | null {
@@ -57,6 +58,13 @@ export class ConfigStore {
     const idx = this.config.games.findIndex(g => g.id === gameId)
     if (idx !== -1) {
       this.config.games[idx] = { ...this.config.games[idx], ...patch }
+      // 如果隐藏了当前激活游戏，自动将 activeGameId 顺移至首个可见游戏
+      if (patch.hidden && this.config.activeGameId === gameId) {
+        const visible = this.config.games.filter(g => !g.hidden)
+        if (visible.length > 0) {
+          this.config.activeGameId = visible[0].id
+        }
+      }
       this.saveConfig()
     }
   }
@@ -159,7 +167,11 @@ export class ConfigStore {
             games = this.getDefaultGames(data)
           }
 
-          const activeGameId = data.activeGameId || (games.length > 0 ? games[0].id : 'zzz')
+          const visibleGames = games.filter((g) => !g.hidden)
+          const validActive = visibleGames.some((g) => g.id === data.activeGameId)
+          const activeGameId = validActive
+            ? data.activeGameId
+            : (visibleGames.length > 0 ? visibleGames[0].id : (games.length > 0 ? games[0].id : 'zzz'))
 
           return {
             activeGameId,

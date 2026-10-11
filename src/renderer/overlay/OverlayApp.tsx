@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowLeft,
+  ArrowUpDown,
   Command,
   SlidersHorizontal,
   Settings,
@@ -45,7 +46,7 @@ export const OverlayApp: React.FC = () => {
   const [modsData, setModsData] = useState<Record<string, any[]>>({})
   const [characters, setCharacters] = useState<string[]>([])
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
-  const [selectedCharIndex, setSelectedCharIndex] = useState<number>(0)
+  const [selectedCharName, setSelectedCharName] = useState<string | null>(null)
   const [focusedModIndex, setFocusedModIndex] = useState<number>(0)
   const [presets, setPresets] = useState<any[]>([])
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
@@ -74,7 +75,29 @@ export const OverlayApp: React.FC = () => {
   // QAQ 核心模式与过滤状态
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
-  const [isReverseOrder, setIsReverseOrder] = useState<boolean>(false)
+  type ModSortMode = 'default' | 'time' | 'name'
+  const [modSortMode, setModSortMode] = useState<ModSortMode>(() => {
+    return (localStorage.getItem('lz-overlay-mod-sort-mode') as ModSortMode) || 'default'
+  })
+  const [isReverseOrder, setIsReverseOrder] = useState<boolean>(() => {
+    return localStorage.getItem('lz-overlay-mod-sort-reverse') === 'true'
+  })
+
+  const cycleSortMode = () => {
+    setModSortMode((prev) => {
+      const next: ModSortMode = prev === 'default' ? 'time' : prev === 'time' ? 'name' : 'default'
+      localStorage.setItem('lz-overlay-mod-sort-mode', next)
+      return next
+    })
+  }
+
+  const toggleReverseOrder = () => {
+    setIsReverseOrder((prev) => {
+      const next = !prev
+      localStorage.setItem('lz-overlay-mod-sort-reverse', String(next))
+      return next
+    })
+  }
   const [filterFavoritesOnly, setFilterFavoritesOnly] = useState<boolean>(false)
   const [filterOnlyWithMods, setFilterOnlyWithMods] = useState<boolean>(true)
   const [exclusiveMode, setExclusiveMode] = useState<boolean>(true)
@@ -109,6 +132,7 @@ export const OverlayApp: React.FC = () => {
   const loadSeqRef = useRef<number>(0)
   const detailLoadSeqRef = useRef<number>(0)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSelfDispatchTime = useRef<number>(0)
   const [isDraggingStrip, setIsDraggingStrip] = useState<boolean>(false)
 
   // 角色胶囊条鼠标滚轮横向滚动（将滚轮 deltaY 转换为横向 scrollLeft）
@@ -146,16 +170,16 @@ export const OverlayApp: React.FC = () => {
     setIsDraggingStrip(false)
   }
 
-  // 当选中角色改变时（快捷键/手柄LB-RB/点击），自动平滑滚动居中当前角色胶囊
+  // 严格杜绝 window / document 级滚动，防止任何子元素导致悬浮窗整体布局外移
   useEffect(() => {
-    if (selectedCharBtnRef.current) {
-      selectedCharBtnRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-        inline: 'center'
-      })
+    const lockWindowScroll = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0)
+      }
     }
-  }, [selectedCharIndex])
+    window.addEventListener('scroll', lockWindowScroll)
+    return () => window.removeEventListener('scroll', lockWindowScroll)
+  }, [])
 
   const showToast = (msg: string) => {
     // 先清掉上一次的定时器，避免每次提示各自起 timer 互相掐灭
@@ -193,7 +217,12 @@ export const OverlayApp: React.FC = () => {
       if (seq !== loadSeqRef.current) return
       setConfig(cfg)
       const targetId = forcedGameId || cfg.activeGameId
-      const current = cfg.games.find((g: any) => g.id === targetId) || cfg.games[0]
+      const visibleGames = (cfg.games || []).filter((g: any) => !g.hidden)
+      const current =
+        visibleGames.find((g: any) => g.id === targetId) ||
+        visibleGames[0] ||
+        (cfg.games || []).find((g: any) => g.id === targetId) ||
+        cfg.games?.[0]
       setActiveGame(current)
 
       const mods = await window.lz.scanMods()
@@ -221,7 +250,7 @@ export const OverlayApp: React.FC = () => {
 
     const unsubGame = window.lz.onGameChanged?.(async (data: any) => {
       if (data && data.gameId) {
-        setSelectedCharIndex(0)
+        setSelectedCharName(null)
         setFocusedModIndex(0)
         setCharSearchQuery('')
         setStatusFilter('all')
@@ -241,38 +270,119 @@ export const OverlayApp: React.FC = () => {
     }
   }, [loadData])
 
-  // 显示的角色列表（支持过滤只看有 Mod 角色）
-  const displayCharacters = useMemo(() => {
-    if (!filterOnlyWithMods) return characters
-    return characters.filter((c) => (modsData[c] || []).length > 0)
-  }, [characters, modsData, filterOnlyWithMods])
+  // 智能三梯队角色排序：已装配(enabledCount > 0) -> 有Mod(total > 0) -> 空角色(total === 0)，同梯队按拼音A-Z排序
+  const sortedCharacters = useMemo(() => {
+    const list = [...characters]
+    list.sort((a, b) => {
+      const modsA = modsData[a] || []
+      const modsB = modsData[b] || []
+      const enabledA = modsA.filter((m) => m.enabled).length
+      const enabledB = modsB.filter((m) => m.enabled).length
 
-  // 当前选中的角色及其 Mod 列表
-  const currentChar = displayCharacters[selectedCharIndex] || characters[0] || null
+      const tierA = enabledA > 0 ? 0 : modsA.length > 0 ? 1 : 2
+      const tierB = enabledB > 0 ? 0 : modsB.length > 0 ? 1 : 2
+      if (tierA !== tierB) return tierA - tierB
+
+      return a.localeCompare(b, 'zh-Hans-CN')
+    })
+    return list
+  }, [characters, modsData])
+
+  // 显示的角色列表（结合 filterOnlyWithMods 过滤）
+  const displayCharacters = useMemo(() => {
+    if (!filterOnlyWithMods) return sortedCharacters
+    return sortedCharacters.filter((c) => (modsData[c] || []).length > 0)
+  }, [sortedCharacters, modsData, filterOnlyWithMods])
+
+  // 当前选中的角色：以 selectedCharName 作为不可动摇的核心锚点，只要该角色还在列表中就绝不更换！
+  const currentChar = useMemo(() => {
+    if (displayCharacters.length === 0) {
+      return sortedCharacters[0] || null
+    }
+    if (selectedCharName && displayCharacters.includes(selectedCharName)) {
+      return selectedCharName
+    }
+    return displayCharacters[0]
+  }, [displayCharacters, sortedCharacters, selectedCharName])
+
+  // 当前选中角色在 displayCharacters 中的实际索引（派生计算，永远与 currentChar 实时同步，无延迟无撕裂）
+  const selectedCharIndex = useMemo(() => {
+    if (!currentChar) return 0
+    const idx = displayCharacters.indexOf(currentChar)
+    return idx >= 0 ? idx : 0
+  }, [displayCharacters, currentChar])
+
+  // 当选中角色改变或列表重排时，只在横向胶囊容器内部平滑居中滚动当前角色胶囊，绝不触发 window / 页面级抖动
+  useEffect(() => {
+    const container = charStripRef.current
+    const btn = selectedCharBtnRef.current
+    if (!container || !btn || isDraggingCharStrip.current) return
+
+    const containerWidth = container.clientWidth
+    const btnLeft = btn.offsetLeft
+    const btnWidth = btn.offsetWidth
+    const targetLeft = btnLeft - containerWidth / 2 + btnWidth / 2
+
+    container.scrollTo({
+      left: Math.max(0, targetLeft),
+      behavior: 'smooth'
+    })
+  }, [currentChar])
 
   const currentMods = useMemo(() => {
     if (!currentChar) return []
     let list = [...(modsData[currentChar] || [])]
 
-    // 状态过滤 (全部 / 装配 / 停用)
+    // 1. 状态过滤 (全部 / 装配 / 停用)
     if (statusFilter === 'enabled') {
       list = list.filter((m) => m.enabled)
     } else if (statusFilter === 'disabled') {
       list = list.filter((m) => !m.enabled)
     }
 
-    // 收藏过滤 (♥)
+    // 2. 收藏过滤 (♥)
     if (filterFavoritesOnly) {
       list = list.filter((m) => markedMods[m.fullPath])
     }
 
-    // 倒序
+    // 3. 核心排序计算
+    list.sort((a, b) => {
+      if (modSortMode === 'default') {
+        // 复合装配优先：已装配(enabled) > 收藏标记(marked) > 修改时间(mtime 降序) > 名称拼音
+        const enabledDiff = (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
+        if (enabledDiff !== 0) return enabledDiff
+
+        const markA = markedMods[a.fullPath] ? 1 : 0
+        const markB = markedMods[b.fullPath] ? 1 : 0
+        const markDiff = markB - markA
+        if (markDiff !== 0) return markDiff
+
+        const timeA = a.mtime || 0
+        const timeB = b.mtime || 0
+        if (timeB !== timeA) return timeB - timeA
+
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      } else if (modSortMode === 'time') {
+        // 最新修改/添加优先 (mtime 降序)
+        const timeA = a.mtime || 0
+        const timeB = b.mtime || 0
+        if (timeB !== timeA) return timeB - timeA
+
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      } else if (modSortMode === 'name') {
+        // 严格按名称拼音字母正序
+        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      }
+      return 0
+    })
+
+    // 4. 升/降序翻转 (在排序好的基础上一键倒序)
     if (isReverseOrder) {
       list.reverse()
     }
 
     return list
-  }, [currentChar, modsData, statusFilter, filterFavoritesOnly, isReverseOrder, markedMods])
+  }, [currentChar, modsData, statusFilter, filterFavoritesOnly, modSortMode, isReverseOrder, markedMods])
 
   // 整个悬浮窗窗口大小缩放调节 (A- / 100% / A+)
   const handleScaleChange = async (delta: number) => {
@@ -334,15 +444,22 @@ export const OverlayApp: React.FC = () => {
 
   // 切换单个 Mod 状态
   const handleToggleMod = async (mod: any) => {
-    if (!currentChar) return
+    const targetChar = mod.characterName || mod.character || currentChar
+    if (!targetChar) return
     const nextState = !mod.enabled
+    lastSelfDispatchTime.current = Date.now()
+
+    // 详情抽屉内同步响应开关状态
+    if (activeDetailMod && (activeDetailMod.name === mod.name || activeDetailMod.id === mod.id)) {
+      setActiveDetailMod((prev: any) => (prev ? { ...prev, enabled: nextState } : null))
+    }
 
     // 单选互斥逻辑
     if (exclusiveMode && nextState) {
       setModsData((prev) => {
         const copy = { ...prev }
-        if (copy[currentChar]) {
-          copy[currentChar] = copy[currentChar].map((m) =>
+        if (copy[targetChar]) {
+          copy[targetChar] = copy[targetChar].map((m) =>
             m.name === mod.name ? { ...m, enabled: true } : { ...m, enabled: false }
           )
         }
@@ -351,8 +468,8 @@ export const OverlayApp: React.FC = () => {
     } else {
       setModsData((prev) => {
         const copy = { ...prev }
-        if (copy[currentChar]) {
-          copy[currentChar] = copy[currentChar].map((m) =>
+        if (copy[targetChar]) {
+          copy[targetChar] = copy[targetChar].map((m) =>
             m.name === mod.name ? { ...m, enabled: nextState } : m
           )
         }
@@ -361,7 +478,7 @@ export const OverlayApp: React.FC = () => {
     }
 
     try {
-      const res = await window.lz.toggleMod(currentChar, mod.name, nextState)
+      const res = await window.lz.toggleMod(targetChar, mod.name, nextState)
       if (res && res.success) {
         showToast(`${mod.name} ${nextState ? '已装配' : '已停用'}`)
         const updated = await window.lz.scanMods()
@@ -376,10 +493,22 @@ export const OverlayApp: React.FC = () => {
 
   // 触发 F10 热刷新
   const handleReloadF10 = async () => {
+    // 派发出去的 F10 会落回本窗口的全局快捷键监听，若此时游戏未运行，
+    // 主进程会拒绝派发；这里再加一道重入锁，避免连点堆起一串刷新
+    if (reloading) return
     setReloading(true)
+    lastSelfDispatchTime.current = Date.now()
     showToast('正在发送热刷新信号 (F10)...')
     try {
-      await window.lz.reloadModsF10()
+      const res = await window.lz.reloadModsF10()
+      if (res && res.success === false) {
+        if (res.reason === 'echo_suppressed') {
+          // 刚已执行过热刷新，回声守卫正常吸收，静默视为已执行
+          return
+        }
+        showToast(res.reason === 'game_not_running' ? '游戏未启动，已跳过热刷新' : '热刷新未执行')
+        return
+      }
       const updated = await window.lz.scanMods()
       setModsData(updated || {})
       showToast('F10 热刷新成功！')
@@ -413,9 +542,11 @@ export const OverlayApp: React.FC = () => {
     const idx = currentMods.findIndex((m) => m.enabled)
     if (idx !== -1) {
       setFocusedModIndex(idx)
+      const container = modListContainerRef.current
       const el = document.getElementById(`mod-card-${idx}`)
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (container && el) {
+        const targetTop = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2
+        container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
         el.classList.add('ring-4', 'ring-primary')
         setTimeout(() => el.classList.remove('ring-4', 'ring-primary'), 1000)
       }
@@ -526,6 +657,7 @@ export const OverlayApp: React.FC = () => {
   // 调节 Persist Bridge 参数
   const handleUpdatePersistVar = async (v: ModPersistVariable, targetVal?: string) => {
     if (!activeModDetails) return
+    lastSelfDispatchTime.current = Date.now()
     const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
     let nextVal = targetVal
     if (nextVal === undefined) {
@@ -534,7 +666,11 @@ export const OverlayApp: React.FC = () => {
     }
 
     try {
-      await window.lz.updateModVariable(activeModDetails.fullPath, v.name, nextVal)
+      const res = await window.lz.updateModVariable(activeModDetails.fullPath, v.name, nextVal)
+      if (res && res.success === false) {
+        showToast(`更新失败: ${res.error || '未知错误'}`)
+        return
+      }
       setActiveModDetails((prev) => {
         if (!prev || !prev.persistInfo) return prev
         return {
@@ -548,7 +684,7 @@ export const OverlayApp: React.FC = () => {
         }
       })
 
-      // 同时联动同步 parsedHotkeys 对应变量的当前值
+      // 同步更新 parsedHotkeys 列表中对应变量的当前显示值（通过持久化与 F10 刷新，无需冗余按键模拟）
       setParsedHotkeys((prev) =>
         prev.map((item) => {
           const isMatch =
@@ -566,12 +702,64 @@ export const OverlayApp: React.FC = () => {
 
   // 直接选择快捷键的设定数值（免去盲目多次单步循环点击）
   const handleSelectHotkeyVal = async (h: ParsedHotkey, targetVal: string) => {
-    // 1. 如果匹配到 Persist Bridge 持久化变量，优先直接通过持久化通道精准写入并热刷新
+    lastSelfDispatchTime.current = Date.now()
     const hVar = h.variable?.toLowerCase()
     const pv = activeModDetails?.persistInfo?.variables?.find(
       (v) => (hVar && v.canonicalName.toLowerCase() === hVar) || v.name.toLowerCase() === h.name.toLowerCase()
     )
 
+    // 1. 如果匹配到可调度的快捷键组合，优先通过模拟按键步进将 3DMigoto 内存变量拨至目标值
+    const canUseKeys = h.keys && h.keys.length > 0 && !h.keys.some((k) => k.includes('🎮') || k.includes('鼠标') || k.includes('Button'))
+    if (canUseKeys && h.allowedValues && h.allowedValues.length > 1) {
+      const currVal = h.currentValue || pv?.currentValue || h.allowedValues[0]
+      const currIdx = h.allowedValues.indexOf(currVal)
+      const targetIdx = h.allowedValues.indexOf(targetVal)
+
+      if (currIdx >= 0 && targetIdx >= 0) {
+        const steps = (targetIdx - currIdx + h.allowedValues.length) % h.allowedValues.length
+        let sent = 0
+        if (steps > 0) {
+          showToast(`正在切换至设定值 ${targetVal}...`)
+          for (let s = 0; s < steps; s++) {
+            const res = await window.lz.triggerHotkey(h.keys)
+            if (res && res.success === false) break
+            sent++
+            if (s < steps - 1) await new Promise((r) => setTimeout(r, 60))
+          }
+        }
+
+        // 如果同时存在持久化变量，同步落盘写回文件确保游戏重启后依然生效
+        if (pv && activeModDetails) {
+          await window.lz.updateModVariable(activeModDetails.fullPath, pv.name, targetVal)
+          setActiveModDetails((prev) => {
+            if (!prev || !prev.persistInfo) return prev
+            return {
+              ...prev,
+              persistInfo: {
+                ...prev.persistInfo,
+                variables: prev.persistInfo.variables.map((item) =>
+                  item.name === pv.name ? { ...item, currentValue: targetVal } : item
+                )
+              }
+            }
+          })
+        }
+
+        const reachedIdx = (currIdx + sent) % h.allowedValues.length
+        const reachedVal = h.allowedValues[reachedIdx]
+        setParsedHotkeys((prev) =>
+          prev.map((item) => (item === h || item.name === h.name ? { ...item, currentValue: reachedVal } : item))
+        )
+        if (sent < steps) {
+          showToast('游戏未启动，档位切换未生效')
+        } else {
+          showToast(`已切换 [${h.name}] 至设定值: ${targetVal}`)
+        }
+        return
+      }
+    }
+
+    // 2. 若无对应按键而是纯持久化变量：走持久化写入 + F10 热刷新通道
     if (pv) {
       await handleUpdatePersistVar(pv, targetVal)
       setParsedHotkeys((prev) =>
@@ -581,30 +769,7 @@ export const OverlayApp: React.FC = () => {
       return
     }
 
-    // 2. 如果非持久化变量，而是通过游戏内快捷键循环切换：计算步进差额并连续触发按键
-    if (h.allowedValues && h.allowedValues.length > 1) {
-      const currVal = h.currentValue || h.allowedValues[0]
-      const currIdx = h.allowedValues.indexOf(currVal)
-      const targetIdx = h.allowedValues.indexOf(targetVal)
-
-      if (currIdx >= 0 && targetIdx >= 0) {
-        const steps = (targetIdx - currIdx + h.allowedValues.length) % h.allowedValues.length
-        if (steps > 0) {
-          showToast(`正在切换至设定值 ${targetVal}...`)
-          for (let s = 0; s < steps; s++) {
-            await window.lz.triggerHotkey(h.keys, activeGame?.processName)
-            if (s < steps - 1) await new Promise((r) => setTimeout(r, 60))
-          }
-        }
-        setParsedHotkeys((prev) =>
-          prev.map((item) => (item === h || item.name === h.name ? { ...item, currentValue: targetVal } : item))
-        )
-        showToast(`已切换 [${h.name}] 至设定值: ${targetVal}`)
-        return
-      }
-    }
-
-    // 兜底直接发送一次按键
+    // 3. 兜底直接发送一次按键
     await handleTriggerHotkey(h)
   }
 
@@ -621,12 +786,14 @@ export const OverlayApp: React.FC = () => {
 
     try {
       showToast(`正在发送 [${h.keys.join(' + ')}]...`)
-      const procName = activeGame?.processName || ''
-      const ok = await window.lz.triggerHotkey(h.keys, procName)
-      if (ok) {
+      // 不传进程名：主进程统一从当前游戏配置推导，避免这里猜错窗口
+      const res = await window.lz.triggerHotkey(h.keys)
+      if (res && res.success) {
         showToast(`已触发快捷键 [${h.keys.join(' + ')}]`)
+      } else if (res && res.reason === 'game_not_running') {
+        showToast('游戏未启动，按键未发送')
       } else {
-        showToast(`已向系统发送 [${h.keys.join(' + ')}]`)
+        showToast('按键发送失败')
       }
     } catch (err) {
       console.error('Trigger hotkey error:', err)
@@ -645,11 +812,21 @@ export const OverlayApp: React.FC = () => {
   }
 
 
-  // 当上下键或手柄聚焦选中 Mod 改变时，确保其平滑滚动进入视野
+  // 当上下键或手柄聚焦选中 Mod 改变时，确保其在列表容器内平滑滚动进入视野（绝不影响页面主体）
   useEffect(() => {
+    const container = modListContainerRef.current
     const el = document.getElementById(`mod-card-${focusedModIndex}`)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    if (container && el) {
+      const cTop = container.scrollTop
+      const cHeight = container.clientHeight
+      const elTop = el.offsetTop
+      const elHeight = el.offsetHeight
+
+      if (elTop < cTop) {
+        container.scrollTo({ top: elTop, behavior: 'smooth' })
+      } else if (elTop + elHeight > cTop + cHeight) {
+        container.scrollTo({ top: elTop + elHeight - cHeight, behavior: 'smooth' })
+      }
     }
   }, [focusedModIndex])
 
@@ -681,10 +858,16 @@ export const OverlayApp: React.FC = () => {
       } else if (e.key === 'PageUp') {
         modListContainerRef.current?.scrollBy({ top: -320, behavior: 'smooth' })
       } else if (e.key === 'ArrowLeft') {
-        setSelectedCharIndex((prev) => (prev > 0 ? prev - 1 : displayCharacters.length - 1))
+        const prevIdx = selectedCharIndex > 0 ? selectedCharIndex - 1 : displayCharacters.length - 1
+        if (displayCharacters[prevIdx]) {
+          setSelectedCharName(displayCharacters[prevIdx])
+        }
         setFocusedModIndex(0)
       } else if (e.key === 'ArrowRight') {
-        setSelectedCharIndex((prev) => (prev < displayCharacters.length - 1 ? prev + 1 : 0))
+        const nextIdx = selectedCharIndex < displayCharacters.length - 1 ? selectedCharIndex + 1 : 0
+        if (displayCharacters[nextIdx]) {
+          setSelectedCharName(displayCharacters[nextIdx])
+        }
         setFocusedModIndex(0)
       } else if (e.key === 'Enter') {
         if (currentMods[focusedModIndex]) {
@@ -692,13 +875,17 @@ export const OverlayApp: React.FC = () => {
         }
       } else if (e.key === 'F10') {
         e.preventDefault()
+        if (Date.now() - lastSelfDispatchTime.current < 800) {
+          // 忽略刚发出的 F10 模拟按键在当前窗口触发的自激回声
+          return
+        }
         handleReloadF10()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentMods, focusedModIndex, displayCharacters.length, activeDetailMod, isCharDrawerOpen, isSettingsOpen])
+  }, [currentMods, focusedModIndex, displayCharacters, selectedCharIndex, activeDetailMod, isCharDrawerOpen, isSettingsOpen])
 
   // 手柄 Gamepad API 轮询
   useEffect(() => {
@@ -734,11 +921,17 @@ export const OverlayApp: React.FC = () => {
             setFocusedModIndex((prev) => Math.min(currentMods.length - 1, prev + 1))
             lastGamepadInputTime.current = now
           } else if (dpadLeft) {
-            setSelectedCharIndex((prev) => (prev > 0 ? prev - 1 : displayCharacters.length - 1))
+            const prevIdx = selectedCharIndex > 0 ? selectedCharIndex - 1 : displayCharacters.length - 1
+            if (displayCharacters[prevIdx]) {
+              setSelectedCharName(displayCharacters[prevIdx])
+            }
             setFocusedModIndex(0)
             lastGamepadInputTime.current = now
           } else if (dpadRight) {
-            setSelectedCharIndex((prev) => (prev < displayCharacters.length - 1 ? prev + 1 : 0))
+            const nextIdx = selectedCharIndex < displayCharacters.length - 1 ? selectedCharIndex + 1 : 0
+            if (displayCharacters[nextIdx]) {
+              setSelectedCharName(displayCharacters[nextIdx])
+            }
             setFocusedModIndex(0)
             lastGamepadInputTime.current = now
           } else if (btnA) {
@@ -773,7 +966,7 @@ export const OverlayApp: React.FC = () => {
       window.removeEventListener('gamepadconnected', onConnect)
       window.removeEventListener('gamepaddisconnected', onDisconnect)
     }
-  }, [currentMods, focusedModIndex, displayCharacters.length, activeDetailMod, isCharDrawerOpen, isSettingsOpen])
+  }, [currentMods, focusedModIndex, displayCharacters, selectedCharIndex, activeDetailMod, isCharDrawerOpen, isSettingsOpen])
 
   return (
     <div
@@ -944,7 +1137,7 @@ export const OverlayApp: React.FC = () => {
             onMouseMove={handleCharStripMouseMove}
             onMouseUp={handleCharStripMouseUp}
             onMouseLeave={handleCharStripMouseLeave}
-            className={`flex items-center space-x-1 flex-1 overflow-x-auto scrollbar-none scroll-smooth ${
+            className={`flex items-center space-x-1 flex-1 overflow-x-auto scrollbar-none relative ${
               isDraggingStrip ? 'cursor-grabbing' : 'cursor-grab'
             }`}
           >
@@ -960,7 +1153,7 @@ export const OverlayApp: React.FC = () => {
                   type="button"
                   onClick={() => {
                     if (dragDistance.current > 6) return
-                    setSelectedCharIndex(idx)
+                    setSelectedCharName(charName)
                     setFocusedModIndex(0)
                   }}
                   className={`px-2.5 py-1 rounded-[6px] text-[11px] font-semibold shrink-0 flex items-center space-x-1.5 transition-all border ${
@@ -1069,17 +1262,31 @@ export const OverlayApp: React.FC = () => {
             >
               停用
             </button>
+            <div className="w-[1px] h-3 bg-border/60 mx-0.5" />
+            {/* 排序维度循环切换 (装配 ⇄ 最新 ⇄ 名称) */}
             <button
               type="button"
-              onClick={() => setIsReverseOrder(!isReverseOrder)}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-all ${
+              onClick={cycleSortMode}
+              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-surface/60 hover:bg-surface text-[10px] font-semibold text-text-muted hover:text-text border border-border/50 cursor-pointer transition-all"
+              title={`当前排序: ${
+                modSortMode === 'default' ? '装配优先' : modSortMode === 'time' ? '最新修改' : '名称拼音'
+              } (点击循环切换)`}
+            >
+              <ArrowUpDown className="w-2.5 h-2.5 text-primary" />
+              <span>{modSortMode === 'default' ? '装配' : modSortMode === 'time' ? '最新' : '名称'}</span>
+            </button>
+            {/* 独立升降序翻转 */}
+            <button
+              type="button"
+              onClick={toggleReverseOrder}
+              className={`p-1 rounded text-[10px] cursor-pointer transition-all ${
                 isReverseOrder
                   ? 'bg-primary/20 text-primary border border-primary/40 font-bold'
                   : 'bg-surface/60 text-text-muted hover:text-text border border-border/50'
               }`}
-              title="切换倒序排列"
+              title={isReverseOrder ? '当前: 倒序 (点击切为正序)' : '当前: 正序 (点击切为倒序)'}
             >
-              倒序
+              {isReverseOrder ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
           </div>
 
@@ -1657,7 +1864,7 @@ export const OverlayApp: React.FC = () => {
             <div className="h-11 px-3 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/70">
               <div className="flex items-center space-x-1.5">
                 <Menu className="w-3.5 h-3.5 text-primary" />
-                <h3 className="text-xs font-bold text-text">角色全览 ({characters.length})</h3>
+                <h3 className="text-xs font-bold text-text">角色全览 ({sortedCharacters.length})</h3>
               </div>
               <button
                 type="button"
@@ -1684,7 +1891,7 @@ export const OverlayApp: React.FC = () => {
 
             {/* 3 列角色头像气泡网格 (QAQ bubble-grid) */}
             <div className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-3 gap-2.5 overlay-scroll">
-              {characters
+              {sortedCharacters
                 .filter((name) => !charSearchQuery || name.toLowerCase().includes(charSearchQuery.toLowerCase()))
                 .map((name) => {
                   const isSelected = currentChar === name
@@ -1697,8 +1904,10 @@ export const OverlayApp: React.FC = () => {
                       key={name}
                       type="button"
                       onClick={() => {
-                        const realIdx = displayCharacters.indexOf(name)
-                        if (realIdx >= 0) setSelectedCharIndex(realIdx)
+                        setSelectedCharName(name)
+                        if (filterOnlyWithMods && (!modsData[name] || modsData[name].length === 0)) {
+                          setFilterOnlyWithMods(false)
+                        }
                         setIsCharDrawerOpen(false)
                         setFocusedModIndex(0)
                       }}
@@ -1801,7 +2010,9 @@ export const OverlayApp: React.FC = () => {
                   <span className="text-[10px] text-text-muted">前台智能识别跟随</span>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {(config?.games || []).map((g: any) => {
+                  {(config?.games || [])
+                    .filter((g: any) => !g.hidden)
+                    .map((g: any) => {
                     const isCur = activeGame?.id === g.id
                     return (
                       <button
