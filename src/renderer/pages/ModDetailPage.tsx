@@ -1736,7 +1736,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 size="sm"
                 onClick={handleOpenRollbackModal}
                 icon={<History className="w-3.5 h-3.5 text-primary" />}
-                title="查看并回滚修复前创建的备份快照"
+                title="撤销某一次修复 Mod 的改动：按时间点把 ini 恢复到该次修复前的状态（依据修复时自动创建的 .qaqm-inibak 备份）"
               >
                 回滚备份
               </Button>
@@ -1747,7 +1747,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 size="sm"
                 onClick={() => setShowResetIniConfirm(true)}
                 icon={<RotateCcw className="w-3.5 h-3.5 text-primary" />}
-                title="将 ini 还原为初始备份版本 (*.qaqm-persistbak)"
+                title="把 ini 一步还原为 Mod 最初的原始版本，撤销全部 ini 改动（手动编辑、修复残留、桥接改写），比重置默认值更彻底"
               >
                 重置 ini
               </Button>
@@ -1760,6 +1760,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   onClick={handleResetVariables}
                   disabled={resettingVars}
                   icon={<RotateCcw className={`w-3.5 h-3.5 text-primary ${resettingVars ? 'animate-spin' : ''}`} />}
+                  title="只把调过的持久化数值拨回默认值，不改动任何 ini 文件（比重置 ini 轻量）"
                 >
                   重置默认值
                 </Button>
@@ -1793,14 +1794,14 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                       key={v.name}
                       className="p-4 rounded-control bg-surface-2 border border-border hover:border-primary/40 transition-colors flex flex-col justify-between space-y-3.5"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm font-bold text-text tracking-wide">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="text-sm font-bold text-text tracking-wide break-all">
                               {v.alias || v.name}
                             </span>
                             {v.alias && v.alias !== v.name && (
-                              <span className="text-[11px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border">
+                              <span className="text-[11px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border break-all max-w-full">
                                 ${v.name}
                               </span>
                             )}
@@ -1821,12 +1822,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                               </span>
                             )}
                           </div>
-                          <div className="text-[10.5px] text-text-muted font-mono mt-0.5">
+                          <div className="text-[10.5px] text-text-muted font-mono mt-0.5 break-all">
                             来源: {v.iniFile} · 默认值: {v.defaultValue}
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-1.5">
+                        <div className="flex items-center space-x-1.5 shrink-0 ml-auto">
                           <span className="text-[11px] text-text-muted font-mono">当前:</span>
                           <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-md bg-surface text-primary border border-border shadow-xs">
                             {v.currentValue}
