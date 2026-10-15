@@ -31,16 +31,20 @@ import {
   Plus,
   ChevronUp,
   ChevronDown,
-  FolderInput
+  FolderInput,
+  LayoutGrid,
+  List
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from '../components/Logo'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
 import { ModDetailedInfo, ModPersistVariable } from '../../core/types'
 import { MoveModModal } from '../components/MoveModModal'
 
 export const OverlayApp: React.FC = () => {
-  const { theme, toggleTheme } = useTheme()
+  const { theme, toggleTheme, palette } = useTheme()
   const [config, setConfig] = useState<any>(null)
   const [activeGame, setActiveGame] = useState<any>(null)
   const [modsData, setModsData] = useState<Record<string, any[]>>({})
@@ -972,56 +976,56 @@ export const OverlayApp: React.FC = () => {
     <div
       className="w-full h-full p-2 flex flex-col select-none antialiased overflow-hidden font-sans text-text relative bg-transparent box-border"
     >
-      {/* 悬浮窗面板卡片主体 (QAQ overlay-panel) */}
+      {/* 悬浮窗面板卡片主体 (CDS Popover Shell) */}
       <div
-        className="w-full h-full min-h-0 flex flex-col rounded-[16px] border border-white/60 dark:border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.2)] overflow-hidden relative box-border"
+        className="w-full h-full min-h-0 flex flex-col rounded-2xl border border-border/80 dark:border-white/10 shadow-popover overflow-hidden relative box-border"
         style={{
           backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 100)}%, transparent)`,
-          backdropFilter: `blur(${Math.max(4, Math.round(opacity * 28))}px)`,
-          WebkitBackdropFilter: `blur(${Math.max(4, Math.round(opacity * 28))}px)`
+          backdropFilter: `blur(${Math.max(8, Math.round(opacity * 28))}px)`,
+          WebkitBackdropFilter: `blur(${Math.max(8, Math.round(opacity * 28))}px)`
         }}
       >
         {/* Toast 提示浮条 */}
         {toastMsg && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 rounded-full bg-primary text-primary-fg text-xs font-semibold shadow-lg animate-in fade-in zoom-in-95 duration-fast pointer-events-none whitespace-nowrap">
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-full bg-primary text-primary-fg text-xs font-semibold shadow-cds-md animate-in fade-in zoom-in-95 duration-fast pointer-events-none whitespace-nowrap">
             {toastMsg}
           </div>
         )}
 
-        {/* 1. 顶栏：QAQ 风格功能操作 (🎮 Mod 切换 | A- 100% A+ ⚙️ 📌 🌗 🔄 ✕) */}
+        {/* 1. 顶栏：CDS 风格紧凑控制 (Logo + 游戏名 | 缩放 ⚙️ 📌 🌗 🔄 ✕) */}
         <div
           className="h-12 px-3.5 border-b border-border/60 flex items-center justify-between shrink-0 backdrop-blur-md drag-region"
           style={{
             backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 70)}%, transparent)`
           }}
         >
-          <div className="flex items-center space-x-2 no-drag min-w-0">
-            <div className="rounded-[6px] shadow-xs overflow-hidden shrink-0">
+          <div className="flex items-center space-x-2.5 no-drag min-w-0">
+            <div className="rounded-lg shadow-2xs overflow-hidden shrink-0 border border-border/40">
               <Logo size={20} />
             </div>
             <div className="flex items-center min-w-0">
-              <span className="font-title font-extrabold text-xs tracking-tight text-text truncate max-w-[160px]" title={activeGame?.name || 'Mod 切换'}>
+              <span className="font-title font-bold text-xs tracking-tight text-text truncate max-w-[160px]" title={activeGame?.name || 'Mod 切换'}>
                 {activeGame?.name || 'Mod 切换'}
               </span>
             </div>
           </div>
 
           {/* 右侧操作按钮组 */}
-          <div className="flex items-center space-x-1 no-drag">
-            {/* 窗口大小缩放 (A- / 100% / A+) */}
-            <div className="flex items-center bg-surface-2/80 rounded-md border border-border/80 p-0.5 text-[10px]">
+          <div className="flex items-center space-x-1.5 no-drag">
+            {/* 窗口大小缩放 */}
+            <div className="flex items-center bg-surface-2/80 rounded-full border border-border/80 px-1 py-0.5 text-[10px] shadow-2xs">
               <button
                 type="button"
                 onClick={() => handleScaleChange(-0.1)}
-                className="px-1.5 py-0.5 rounded text-text-muted hover:text-text hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
+                className="w-5 h-5 flex items-center justify-center rounded-full text-text-muted hover:text-text hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
                 title="缩小窗口大小 (A-)"
               >
-                A-
+                -
               </button>
               <button
                 type="button"
                 onClick={handleResetScale}
-                className="px-1.5 py-0.5 rounded text-primary hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
+                className="px-1 text-primary hover:underline font-mono font-bold cursor-pointer transition-colors tabular-nums-strict"
                 title="重置窗口大小 (100%)"
               >
                 {Math.round(windowScale * 100)}%
@@ -1029,10 +1033,10 @@ export const OverlayApp: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleScaleChange(0.1)}
-                className="px-1.5 py-0.5 rounded text-text-muted hover:text-text hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
+                className="w-5 h-5 flex items-center justify-center rounded-full text-text-muted hover:text-text hover:bg-surface font-mono font-bold cursor-pointer transition-colors"
                 title="放大窗口大小 (A+)"
               >
-                A+
+                +
               </button>
             </div>
 
@@ -1040,38 +1044,38 @@ export const OverlayApp: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              className={`p-1.5 rounded-md border transition-colors cursor-pointer text-[11px] ${
+              className={`w-7 h-7 aspect-square rounded-lg flex items-center justify-center border transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
                 isSettingsOpen
-                  ? 'bg-primary text-primary-fg border-primary shadow-xs'
-                  : 'bg-surface-2/80 text-text-muted hover:text-text border-border/80'
+                  ? 'bg-primary text-primary-fg border-primary shadow-cds-sm'
+                  : 'bg-surface-2/80 text-text-muted hover:text-text hover:bg-surface border-border/80'
               }`}
-              title="设置"
+              title="悬浮窗设置"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Settings className="w-3.5 h-3.5 align-neg-125" />
             </button>
 
             {/* 📌 锁定置顶按钮 */}
             <button
               type="button"
               onClick={handleTogglePinned}
-              className={`p-1.5 rounded-md border transition-colors cursor-pointer text-[11px] ${
+              className={`w-7 h-7 aspect-square rounded-lg flex items-center justify-center border transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
                 isPinned
                   ? 'bg-primary/15 text-primary border-primary/40 shadow-2xs font-bold'
-                  : 'bg-surface-2/80 text-text-muted border-border/80 hover:text-text'
+                  : 'bg-surface-2/80 text-text-muted hover:text-text hover:bg-surface border-border/80'
               }`}
-              title="置顶窗口"
+              title={isPinned ? '取消置顶' : '置顶窗口'}
             >
-              <Pin className="w-3.5 h-3.5" />
+              <Pin className="w-3.5 h-3.5 align-neg-125" />
             </button>
 
             {/* 🌗 亮暗主题切换 */}
             <button
               type="button"
               onClick={toggleTheme}
-              className="p-1.5 rounded-md bg-surface-2/80 hover:bg-surface border border-border/80 text-text-muted hover:text-primary transition-colors cursor-pointer text-[11px]"
+              className="w-7 h-7 aspect-square rounded-lg bg-surface-2/80 hover:bg-surface border border-border/80 text-text-muted hover:text-primary transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center"
               title={theme === 'dark' ? '切换浅色模式' : '切换深色模式'}
             >
-              {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-primary" />}
+              {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400 align-neg-125" /> : <Moon className="w-3.5 h-3.5 text-primary align-neg-125" />}
             </button>
 
             {/* 🔄 F10 热刷新 */}
@@ -1079,25 +1083,25 @@ export const OverlayApp: React.FC = () => {
               type="button"
               onClick={handleReloadF10}
               disabled={reloading}
-              className="p-1.5 rounded-md bg-surface-2/80 hover:bg-surface border border-border/80 text-text-muted hover:text-primary transition-colors cursor-pointer text-[11px]"
+              className="w-7 h-7 aspect-square rounded-lg bg-surface-2/80 hover:bg-surface border border-border/80 text-text-muted hover:text-primary transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center disabled:opacity-40"
               title="向游戏发送热刷新信号 (F10)"
             >
-              <RotateCw className={`w-3.5 h-3.5 ${reloading ? 'animate-spin' : ''}`} />
+              <RotateCw className={`w-3.5 h-3.5 align-neg-125 ${reloading ? 'animate-spin' : ''}`} />
             </button>
 
             {/* ✕ 关闭 */}
             <button
               type="button"
               onClick={() => window.lz.hideOverlay()}
-              className="p-1.5 rounded-md bg-surface-2/80 hover:bg-danger text-text-muted hover:text-white transition-colors cursor-pointer text-[11px]"
+              className="w-7 h-7 aspect-square rounded-lg bg-surface-2/80 hover:bg-danger hover:border-danger text-text-muted hover:text-white transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center"
               title="隐藏悬浮窗 (Esc)"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5 align-neg-125" />
             </button>
           </div>
         </div>
 
-        {/* 2. 角色胶囊滚动条 (QAQ char-strip: ☰ 气泡按钮 + ◀ 横向胶囊条 ▶ + ♥ 收藏 + 🎯 过滤) */}
+        {/* 2. 角色胶囊滚动条 (CDS 跑道胶囊滑块) */}
         <div
           onWheel={handleCharStripWheel}
           className="px-2.5 py-1.5 border-b border-border/50 flex items-center space-x-1 shrink-0 select-none"
@@ -1109,27 +1113,27 @@ export const OverlayApp: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsCharDrawerOpen(!isCharDrawerOpen)}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all shrink-0 cursor-pointer shadow-2xs mr-0.5 ${
+            className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all duration-100 shrink-0 cursor-pointer shadow-2xs mr-0.5 active:scale-95 ${
               isCharDrawerOpen
-                ? 'bg-primary text-primary-fg border-primary shadow-xs'
-                : 'bg-surface-2/80 text-text hover:bg-surface border-border/80'
+                ? 'bg-primary text-primary-fg border-primary shadow-cds-sm'
+                : 'bg-surface-2/80 text-text-muted hover:text-text hover:bg-surface border-border/80'
             }`}
             title="全部角色头像菜单"
           >
-            <Menu className="w-3.5 h-3.5" />
+            <Menu className="w-3.5 h-3.5 align-neg-125" />
           </button>
 
           {/* ◀ 左滚动微调按钮 */}
           <button
             type="button"
             onClick={() => charStripRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
-            className="w-4 h-7 rounded hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+            className="w-5 h-7 rounded-md hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors"
             title="向左滚动角色列表"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-3.5 h-3.5 align-neg-125" />
           </button>
 
-          {/* 角色横向滚动胶囊容器 (支持鼠标滚轮横滑 + 按住抓取平滑拖动) */}
+          {/* 角色横向滚动胶囊容器 */}
           <div
             ref={charStripRef}
             onWheel={handleCharStripWheel}
@@ -1137,7 +1141,7 @@ export const OverlayApp: React.FC = () => {
             onMouseMove={handleCharStripMouseMove}
             onMouseUp={handleCharStripMouseUp}
             onMouseLeave={handleCharStripMouseLeave}
-            className={`flex items-center space-x-1 flex-1 overflow-x-auto scrollbar-none relative ${
+            className={`flex items-center space-x-1.5 flex-1 overflow-x-auto scrollbar-none relative py-0.5 ${
               isDraggingStrip ? 'cursor-grabbing' : 'cursor-grab'
             }`}
           >
@@ -1156,19 +1160,19 @@ export const OverlayApp: React.FC = () => {
                     setSelectedCharName(charName)
                     setFocusedModIndex(0)
                   }}
-                  className={`px-2.5 py-1 rounded-[6px] text-[11px] font-semibold shrink-0 flex items-center space-x-1.5 transition-all border ${
+                  className={`px-3 py-1 rounded-full text-xs font-medium shrink-0 flex items-center space-x-1.5 transition-all duration-150 border cursor-pointer select-none ${
                     isSelected
-                      ? 'bg-surface text-primary border-primary/50 shadow-xs ring-1 ring-primary/20 font-bold'
-                      : 'bg-surface-2/60 text-text-muted hover:text-text hover:bg-surface border-transparent'
+                      ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-semibold'
+                      : 'bg-surface-2/70 text-text-muted hover:text-text hover:bg-surface border-border/60 shadow-2xs'
                   }`}
                 >
-                  <span className="font-title font-bold tracking-wide truncate max-w-[80px] pointer-events-none">{charName}</span>
+                  <span className="font-title tracking-wide truncate max-w-[80px] pointer-events-none">{charName}</span>
                   <span
-                    className={`text-[9px] font-mono px-1 py-0.2 rounded-full font-bold pointer-events-none ${
+                    className={`text-[10px] font-mono tabular-nums-strict px-1.5 py-0.2 rounded-full font-bold pointer-events-none ${
                       isSelected
-                        ? 'bg-primary text-primary-fg'
+                        ? 'bg-white/20 text-white'
                         : enabledCount > 0
-                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                         : 'bg-surface/80 text-text-muted'
                     }`}
                   >
@@ -1183,10 +1187,10 @@ export const OverlayApp: React.FC = () => {
           <button
             type="button"
             onClick={() => charStripRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
-            className="w-4 h-7 rounded hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors mr-0.5"
+            className="w-5 h-7 rounded-md hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors mr-0.5"
             title="向右滚动角色列表"
           >
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3.5 h-3.5 align-neg-125" />
           </button>
 
           {/* ♥ 收藏过滤按钮 */}
@@ -1196,14 +1200,14 @@ export const OverlayApp: React.FC = () => {
               setFilterFavoritesOnly(!filterFavoritesOnly)
               showToast(filterFavoritesOnly ? '已显示全部 Mod' : '仅查看已标记 Mod')
             }}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-2xs ${
+            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
               filterFavoritesOnly
-                ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
-                : 'bg-surface-2/80 text-text-muted hover:text-amber-500 border-border/80'
+                ? 'bg-amber-500 text-white border-amber-500 shadow-cds-sm'
+                : 'bg-surface-2/80 text-text-muted hover:text-amber-500 border-border/80 hover:bg-surface'
             }`}
             title="只显示已标记 Mod"
           >
-            <Heart className={`w-3.5 h-3.5 ${filterFavoritesOnly ? 'fill-current' : ''}`} />
+            <Heart className={`w-3.5 h-3.5 align-neg-125 ${filterFavoritesOnly ? 'fill-current' : ''}`} />
           </button>
 
           {/* 🎯 只显示有 Mod 角色过滤 */}
@@ -1213,93 +1217,70 @@ export const OverlayApp: React.FC = () => {
               setFilterOnlyWithMods(!filterOnlyWithMods)
               showToast(filterOnlyWithMods ? '显示所有角色' : '仅显示有 Mod 角色')
             }}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-2xs ${
+            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
               filterOnlyWithMods
-                ? 'bg-primary/20 text-primary border-primary/40'
-                : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80'
+                ? 'bg-primary/20 text-primary border-primary/40 font-bold'
+                : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
             }`}
             title="只显示有 Mod 的角色"
           >
-            <Filter className="w-3.5 h-3.5" />
+            <Filter className="w-3.5 h-3.5 align-neg-125" />
           </button>
         </div>
 
-        {/* 3. 过滤与实用工具条 (QAQ sort-bar: 状态[全部/装配/停用/倒序] + 🎯定位 + 🔘单选 + ⊞画廊) */}
-        <div className="px-3 py-1.5 border-b border-border/50 bg-surface-2/50 flex items-center justify-between text-xs shrink-0">
-          {/* 状态过滤胶囊行 */}
-          <div className="flex items-center space-x-1">
-            <span className="text-[10px] text-text-muted mr-0.5">状态:</span>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('all')}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-all ${
-                statusFilter === 'all'
-                  ? 'bg-primary text-primary-fg font-bold shadow-2xs'
-                  : 'bg-surface/60 text-text-muted hover:text-text border border-border/50'
-              }`}
-            >
-              全部
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('enabled')}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-all ${
-                statusFilter === 'enabled'
-                  ? 'bg-primary text-primary-fg font-bold shadow-2xs'
-                  : 'bg-surface/60 text-text-muted hover:text-text border border-border/50'
-              }`}
-            >
-              装配
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('disabled')}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-all ${
-                statusFilter === 'disabled'
-                  ? 'bg-primary text-primary-fg font-bold shadow-2xs'
-                  : 'bg-surface/60 text-text-muted hover:text-text border border-border/50'
-              }`}
-            >
-              停用
-            </button>
-            <div className="w-[1px] h-3 bg-border/60 mx-0.5" />
-            {/* 排序维度循环切换 (装配 ⇄ 最新 ⇄ 名称) */}
+        {/* 3. 过滤与实用工具条 (SegmentedControl + 排序 + 互斥 + 视图) */}
+        <div className="px-3 py-1.5 border-b border-border/50 bg-surface-2/40 flex items-center justify-between text-xs shrink-0">
+          {/* 状态过滤胶囊滑块 + 排序 */}
+          <div className="flex items-center space-x-1.5">
+            <SegmentedControl
+              size="sm"
+              items={[
+                { id: 'all', label: '全部' },
+                { id: 'enabled', label: '已装配' },
+                { id: 'disabled', label: '待命' }
+              ]}
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as any)}
+            />
+
+            {/* 排序维度循环切换 */}
             <button
               type="button"
               onClick={cycleSortMode}
-              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-surface/60 hover:bg-surface text-[10px] font-semibold text-text-muted hover:text-text border border-border/50 cursor-pointer transition-all"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface text-[11px] font-medium text-text-muted hover:text-text border border-border/70 cursor-pointer transition shadow-2xs ml-1"
               title={`当前排序: ${
                 modSortMode === 'default' ? '装配优先' : modSortMode === 'time' ? '最新修改' : '名称拼音'
               } (点击循环切换)`}
             >
-              <ArrowUpDown className="w-2.5 h-2.5 text-primary" />
+              <ArrowUpDown className="w-3 h-3 text-primary align-neg-125" />
               <span>{modSortMode === 'default' ? '装配' : modSortMode === 'time' ? '最新' : '名称'}</span>
             </button>
+
             {/* 独立升降序翻转 */}
             <button
               type="button"
               onClick={toggleReverseOrder}
-              className={`p-1 rounded text-[10px] cursor-pointer transition-all ${
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] cursor-pointer transition shadow-2xs border ${
                 isReverseOrder
-                  ? 'bg-primary/20 text-primary border border-primary/40 font-bold'
-                  : 'bg-surface/60 text-text-muted hover:text-text border border-border/50'
+                  ? 'bg-primary/20 text-primary border-primary/40 font-bold'
+                  : 'bg-surface-2/80 text-text-muted hover:text-text border-border/70 hover:bg-surface'
               }`}
               title={isReverseOrder ? '当前: 倒序 (点击切为正序)' : '当前: 正序 (点击切为倒序)'}
             >
-              {isReverseOrder ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {isReverseOrder ? <ChevronUp className="w-3 h-3 align-neg-125" /> : <ChevronDown className="w-3 h-3 align-neg-125" />}
             </button>
           </div>
 
-          {/* 快捷工具 (🎯 定位 | 🔘 单选 | ⊞ 画廊) */}
-          <div className="flex items-center space-x-1">
+          {/* 快捷工具 (定位 | 单选互斥 | 画廊/列表切换 | 翻页) */}
+          <div className="flex items-center space-x-1.5">
             {/* 🎯 定位 */}
             <button
               type="button"
               onClick={handleLocateEnabled}
-              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-surface border border-border/80 text-[10px] font-semibold text-text hover:text-primary transition-all cursor-pointer shadow-2xs"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface border border-border/70 text-[11px] font-medium text-text-muted hover:text-primary transition shadow-2xs cursor-pointer active:scale-95"
               title="定位当前生效 Mod"
             >
-              <Crosshair className="w-3 h-3 text-primary" />
+              <Crosshair className="w-3 h-3 text-primary align-neg-125" />
               <span>定位</span>
             </button>
 
@@ -1310,52 +1291,54 @@ export const OverlayApp: React.FC = () => {
                 setExclusiveMode(!exclusiveMode)
                 showToast(exclusiveMode ? '已切换为：多选并存模式' : '已切换为：单选互斥保护模式')
               }}
-              className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold transition-all cursor-pointer shadow-2xs ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition shadow-2xs cursor-pointer active:scale-95 ${
                 exclusiveMode
-                  ? 'bg-primary/15 text-primary border-primary/40 font-bold'
-                  : 'bg-surface text-text-muted border-border/80 hover:text-text'
+                  ? 'bg-primary/10 text-primary border-primary/40 font-bold'
+                  : 'bg-surface-2/80 text-text-muted border-border/70 hover:text-text hover:bg-surface'
               }`}
               title="点击切换单选互斥模式"
             >
-              <span>🔘 单选</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${exclusiveMode ? 'bg-primary' : 'bg-text-muted/60'}`} />
+              <span>单选互斥</span>
             </button>
 
             {/* ⊞ 画廊 / ☰ 列表视图切换 */}
-            <button
-              type="button"
-              onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-              className="px-2 py-0.5 rounded-full bg-primary text-primary-fg font-bold text-[10px] flex items-center space-x-1 shadow-2xs transition-all cursor-pointer hover:brightness-105"
-              title="切换列表/画廊视图"
-            >
-              <span>{viewMode === 'grid' ? '画廊' : '列表'}</span>
-            </button>
+            <SegmentedControl
+              size="sm"
+              items={[
+                { id: 'grid', label: <LayoutGrid className="w-3.5 h-3.5 align-neg-125" /> },
+                { id: 'list', label: <List className="w-3.5 h-3.5 align-neg-125" /> }
+              ]}
+              value={viewMode}
+              onChange={(v) => setViewMode(v as any)}
+            />
 
             {/* 🔼 / 🔽 上下翻页快捷按钮 */}
             <div className="flex items-center space-x-0.5 border-l border-border/50 pl-1">
               <button
                 type="button"
                 onClick={() => modListContainerRef.current?.scrollBy({ top: -300, behavior: 'smooth' })}
-                className="p-1 rounded text-text-muted hover:text-primary hover:bg-surface-2 transition-colors cursor-pointer"
-                title="向上翻页 (PageUp / 鼠标滚轮向上)"
+                className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-primary hover:bg-surface-2 transition-colors cursor-pointer"
+                title="向上翻页 (PageUp)"
               >
-                <ChevronUp className="w-3.5 h-3.5" />
+                <ChevronUp className="w-3.5 h-3.5 align-neg-125" />
               </button>
               <button
                 type="button"
                 onClick={() => modListContainerRef.current?.scrollBy({ top: 300, behavior: 'smooth' })}
-                className="p-1 rounded text-text-muted hover:text-primary hover:bg-surface-2 transition-colors cursor-pointer"
-                title="向下翻页 (PageDown / 鼠标滚轮向下)"
+                className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-primary hover:bg-surface-2 transition-colors cursor-pointer"
+                title="向下翻页 (PageDown)"
               >
-                <ChevronDown className="w-3.5 h-3.5" />
+                <ChevronDown className="w-3.5 h-3.5 align-neg-125" />
               </button>
             </div>
           </div>
         </div>
 
-        {/* 4. 主内容流：自适应画廊网格 / 单列列表 */}
-        <div
-          ref={modListContainerRef}
-          className="flex-1 min-h-0 overflow-y-auto p-2.5 overscroll-contain overlay-scroll"
+        {/* 4. 主内容流：自适应画廊网格 / 单列列表 (接入 CDS ScrollContainer 7阶非线性渐隐) */}
+        <ScrollContainer
+          containerRef={modListContainerRef}
+          className="flex-1 min-h-0 p-2.5 overscroll-contain"
         >
           {currentMods.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-text-muted space-y-2">
@@ -1363,8 +1346,8 @@ export const OverlayApp: React.FC = () => {
               <p className="text-xs">【{currentChar || '无'}】暂无符合条件的 Mod</p>
             </div>
           ) : viewMode === 'grid' ? (
-            /* 严格一排显示 3 个 (grid-cols-3) 4:3 封面 + 右下角悬浮笔标 + 底栏 Mod 名与 iOS Switch */
-            <div className="grid grid-cols-3 gap-2">
+            /* 严格一排显示 3 个 (grid-cols-3) 4:3 封面 + 右下角悬浮笔标 + 底栏 Mod 名与 Switch */
+            <div className="grid grid-cols-3 gap-2.5">
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
                 const isMarked = !!markedMods[mod.fullPath]
@@ -1374,9 +1357,9 @@ export const OverlayApp: React.FC = () => {
                     id={`mod-card-${idx}`}
                     key={mod.id || mod.name}
                     onClick={() => handleOpenDetail(mod)}
-                    className={`group relative rounded-[10px] border flex flex-col justify-between overflow-hidden transition-all cursor-pointer ${
+                    className={`group relative rounded-xl border flex flex-col justify-between overflow-hidden transition-all duration-150 cursor-pointer ${
                       mod.enabled
-                        ? 'bg-surface border-primary ring-2 ring-primary/40 shadow-md'
+                        ? 'bg-surface border-primary ring-2 ring-primary/30 shadow-cds-sm'
                         : 'bg-surface/80 border-border/80 hover:border-primary/50 hover:-translate-y-0.5 shadow-2xs'
                     } ${isFocused ? 'scale-[1.01]' : ''}`}
                   >
@@ -1395,44 +1378,44 @@ export const OverlayApp: React.FC = () => {
 
                       {/* 标记徽标 (左上角) */}
                       {isMarked && (
-                        <div className="absolute top-1 left-1 p-0.5 rounded-full bg-amber-500 text-white shadow-xs">
+                        <div className="absolute top-1.5 left-1.5 p-1 rounded-full bg-amber-500 text-white shadow-xs">
                           <Bookmark className="w-2.5 h-2.5 fill-current" />
                         </div>
                       )}
 
                       {/* INI 标识 (右上角) */}
                       {mod.hasIni && (
-                        <span className="absolute top-1 right-1 px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-black/60 text-white backdrop-blur-xs">
+                        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.2 rounded-md text-[9px] font-mono font-bold bg-black/60 text-white backdrop-blur-xs">
                           INI
                         </span>
                       )}
 
-                      {/* 右下角圆形悬浮笔标 (QAQ 招牌 mod-gallery-mark，点击直达详情) */}
+                      {/* 右下角圆形悬浮笔标 */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleOpenDetail(mod)
                         }}
-                        className="absolute right-1 bottom-1 w-5 h-5 rounded-full bg-surface/90 hover:bg-primary text-text-muted hover:text-white border border-border/60 flex items-center justify-center shadow-md transition-all cursor-pointer opacity-80 group-hover:opacity-100 hover:scale-110"
+                        className="absolute right-1.5 bottom-1.5 w-6 h-6 rounded-full bg-surface/90 hover:bg-primary text-text-muted hover:text-white border border-border/60 flex items-center justify-center shadow-md transition-all cursor-pointer opacity-80 group-hover:opacity-100 hover:scale-105"
                         title="查看 Mod 详情与快捷键"
                       >
-                        <Edit3 className="w-2.5 h-2.5" />
+                        <Edit3 className="w-3 h-3 align-neg-125" />
                       </button>
                     </div>
 
-                    {/* 卡片底栏 (QAQ mod-gallery-footer: Mod 名字 + iOS Switch) */}
-                    <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-surface/95 border-t border-border/40">
+                    {/* 卡片底栏 (Mod 名字 + Switch) */}
+                    <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 bg-surface/95 border-t border-border/50">
                       <h4
-                        className={`text-[10px] font-bold truncate flex-1 leading-snug transition-colors ${
-                          mod.enabled ? 'text-primary' : 'text-text'
+                        className={`text-xs font-semibold truncate flex-1 leading-snug transition-colors ${
+                          mod.enabled ? 'text-primary font-bold' : 'text-text'
                         }`}
                         title={mod.name}
                       >
                         {mod.name}
                       </h4>
 
-                      {/* iOS 风格滑动开关 (QAQ Switch) */}
+                      {/* Switch */}
                       <div
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1448,7 +1431,7 @@ export const OverlayApp: React.FC = () => {
             </div>
           ) : (
             /* 单列紧凑列表视图 */
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
                 const isMarked = !!markedMods[mod.fullPath]
@@ -1458,13 +1441,13 @@ export const OverlayApp: React.FC = () => {
                     id={`mod-card-${idx}`}
                     key={mod.id || mod.name}
                     onClick={() => handleOpenDetail(mod)}
-                    className={`rounded-[8px] border p-2 flex items-center justify-between space-x-2.5 transition-all cursor-pointer ${
+                    className={`rounded-xl border p-2.5 flex items-center justify-between space-x-2.5 transition-all duration-150 cursor-pointer ${
                       mod.enabled
-                        ? 'bg-surface border-primary ring-1 ring-primary/30 shadow-xs'
-                        : 'bg-surface/80 border-border/80 hover:border-primary/40'
+                        ? 'bg-surface border-primary ring-2 ring-primary/25 shadow-cds-sm'
+                        : 'bg-surface/80 border-border/80 hover:border-primary/40 hover:bg-surface'
                     } ${isFocused ? 'ring-2 ring-primary scale-[1.01]' : ''}`}
                   >
-                    <div className="w-10 h-10 rounded-md bg-surface-2/60 overflow-hidden shrink-0 flex items-center justify-center border border-border/60">
+                    <div className="w-11 h-11 rounded-lg bg-surface-2/60 overflow-hidden shrink-0 flex items-center justify-center border border-border/60">
                       {mod.coverPath ? (
                         <img
                           src={`file://${mod.coverPath}`}
@@ -1472,23 +1455,25 @@ export const OverlayApp: React.FC = () => {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <ImageIcon className="w-4 h-4 text-text-muted opacity-40" />
+                        <ImageIcon className="w-5 h-5 text-text-muted opacity-40" />
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-1">
-                        {isMarked && <Bookmark className="w-3 h-3 text-amber-500 fill-current shrink-0" />}
+                      <div className="flex items-center space-x-1.5">
+                        {isMarked && <Bookmark className="w-3 h-3 text-amber-500 fill-current shrink-0 align-neg-125" />}
                         <h4 className={`text-xs font-semibold truncate ${mod.enabled ? 'text-primary font-bold' : 'text-text'}`}>
                           {mod.name}
                         </h4>
                       </div>
-                      <div className="flex items-center space-x-2 mt-0.5">
-                        <span className="text-[10px] text-text-muted">
+                      <div className="flex items-center space-x-2 mt-1">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                          mod.enabled ? 'bg-primary/10 text-primary' : 'bg-surface-2 text-text-muted'
+                        }`}>
                           {mod.enabled ? '已激活' : '待命'}
                         </span>
                         {mod.hasIni && (
-                          <span className="text-[8px] px-1 rounded bg-surface border border-border text-primary font-mono font-semibold">
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-surface border border-border/70 text-primary font-mono font-semibold">
                             INI
                           </span>
                         )}
@@ -1507,11 +1492,11 @@ export const OverlayApp: React.FC = () => {
               })}
             </div>
           )}
-        </div>
+        </ScrollContainer>
 
-        {/* 5. 底部栏 (QAQ preset-section: 📦 预设方案胶囊行 + 快捷提示 + 计数) */}
+        {/* 5. 底部栏 (预设方案胶囊行 + 快捷提示 + 计数) */}
         <div
-          className="border-t border-border/60 backdrop-blur-md p-2 space-y-1 shrink-0"
+          className="border-t border-border/60 backdrop-blur-md p-2.5 space-y-1.5 shrink-0"
           style={{
             backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 75)}%, transparent)`
           }}
@@ -1519,8 +1504,8 @@ export const OverlayApp: React.FC = () => {
           {/* 预设方案胶囊行 */}
           {presets.length > 0 && (
             <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-              <span className="text-[10px] font-bold text-text-muted shrink-0 flex items-center space-x-1">
-                <span>📦</span>
+              <span className="text-[11px] font-bold text-text-muted shrink-0 flex items-center space-x-1 mr-1">
+                <Bookmark className="w-3 h-3 text-primary align-neg-125" />
                 <span>预设:</span>
               </span>
               {presets.map((p) => {
@@ -1530,10 +1515,10 @@ export const OverlayApp: React.FC = () => {
                     key={p.id}
                     type="button"
                     onClick={() => handleApplyPreset(p.id)}
-                    className={`px-2 py-0.5 rounded-[5px] text-[10px] font-semibold shrink-0 border transition-all cursor-pointer ${
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium shrink-0 border transition-all cursor-pointer shadow-2xs ${
                       isActive
-                        ? 'bg-primary text-primary-fg border-primary shadow-2xs font-bold'
-                        : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/60'
+                        ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-bold'
+                        : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/70'
                     }`}
                   >
                     {p.name}
@@ -1543,10 +1528,10 @@ export const OverlayApp: React.FC = () => {
             </div>
           )}
 
-          {/* 底部操作提示与角色序号 (QAQ footer-hint) */}
-          <div className="flex items-center justify-between text-[10px] text-text-muted pt-0.5">
+          {/* 底部操作提示与角色序号 */}
+          <div className="flex items-center justify-between text-[11px] text-text-muted pt-0.5">
             <div className="flex items-center space-x-2 truncate">
-              <Gamepad2 className={`w-3.5 h-3.5 ${gamepadConnected ? 'text-emerald-500' : 'text-text-muted'}`} />
+              <Gamepad2 className={`w-3.5 h-3.5 align-neg-125 ${gamepadConnected ? 'text-emerald-500' : 'text-text-muted'}`} />
               <span className="truncate">
                 {gamepadConnected
                   ? '[A]开关 [LB/RB]切角色 [Y]刷新'
@@ -1554,7 +1539,7 @@ export const OverlayApp: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex items-center space-x-2 font-mono font-bold shrink-0">
+            <div className="flex items-center space-x-2 font-mono font-bold shrink-0 tabular-nums-strict">
               <span>
                 {selectedCharIndex + 1} / {displayCharacters.length || 1}
               </span>
@@ -1562,49 +1547,49 @@ export const OverlayApp: React.FC = () => {
           </div>
         </div>
 
-        {/* ================= 侧滑抽屉 1: Mod 详情面板 (1:1 QAQ side-panel.html 复刻) ================= */}
+        {/* ================= 侧滑抽屉 1: Mod 详情面板 (CDS 质感抽屉) ================= */}
         {activeDetailMod && (
-          <div className="absolute inset-0 z-40 bg-surface/96 backdrop-blur-2xl flex flex-col animate-in fade-in slide-in-from-left duration-fast overflow-hidden">
-            {/* Header: Mod 名字 + 缩小 / 放大 / 关闭 (QAQ side-header) */}
-            <div className="h-11 px-3 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/70">
+          <div className="absolute inset-0 z-40 bg-surface/98 backdrop-blur-2xl flex flex-col animate-in fade-in slide-in-from-left duration-fast overflow-hidden">
+            {/* Header: Mod 名字 + 缩小 / 放大 / 关闭 */}
+            <div className="h-12 px-3.5 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/80 backdrop-blur-md">
               <div className="flex items-center space-x-2 flex-1 min-w-0 mr-2">
                 <span className="font-title text-sm font-bold text-text truncate">
                   {activeDetailMod.name}
                 </span>
               </div>
 
-              <div className="flex items-center space-x-1 shrink-0">
+              <div className="flex items-center space-x-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => handleScaleChange(-0.1)}
-                  className="w-6 h-6 rounded border border-border/60 bg-surface/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer text-[10px]"
+                  className="w-7 h-7 rounded-lg border border-border/80 bg-surface-2/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 transition"
                   title="缩小"
                 >
-                  <Minus className="w-3 h-3" />
+                  <Minus className="w-3.5 h-3.5 align-neg-125" />
                 </button>
                 <button
                   type="button"
                   onClick={() => handleScaleChange(0.1)}
-                  className="w-6 h-6 rounded border border-border/60 bg-surface/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer text-[10px]"
+                  className="w-7 h-7 rounded-lg border border-border/80 bg-surface-2/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 transition"
                   title="放大"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5 align-neg-125" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveDetailMod(null)}
-                  className="w-6 h-6 rounded border border-border/60 bg-surface/80 hover:bg-danger text-text-muted hover:text-white flex items-center justify-center cursor-pointer text-[10px] transition-colors"
+                  className="w-7 h-7 rounded-lg border border-border/80 bg-surface-2/80 hover:bg-danger text-text-muted hover:text-white flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 transition"
                   title="关闭"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5 align-neg-125" />
                 </button>
               </div>
             </div>
 
             {/* Body: 预览大图 + 状态 + 标记此 Mod + 快捷键表格 + 部件调节 + 底部大按钮 */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 overlay-scroll">
-              {/* 预览大图 (QAQ detail-preview-img) */}
-              <div className="relative aspect-[16/9] rounded-[10px] overflow-hidden bg-surface-2/60 border border-border/60 flex items-center justify-center">
+            <ScrollContainer className="flex-1 min-h-0 p-3.5 space-y-3.5 overflow-y-auto">
+              {/* 预览大图 */}
+              <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-surface-2/60 border border-border/70 flex items-center justify-center shadow-2xs">
                 {activeDetailMod.coverPath ? (
                   <img
                     src={`file://${activeDetailMod.coverPath}`}
@@ -1616,56 +1601,60 @@ export const OverlayApp: React.FC = () => {
                 )}
               </div>
 
-              {/* 状态与角色 (QAQ 状态条) */}
-              <div className="text-[11px] text-text-muted flex items-center justify-between">
-                <span>
-                  状态: {activeDetailMod.enabled ? '✅ 已启用' : '⬜ 已停用'} | 角色:{' '}
-                  <span className="font-title font-bold text-text">{currentChar}</span>
+              {/* 状态与角色 */}
+              <div className="text-xs text-text-muted flex items-center justify-between px-1">
+                <span className="flex items-center space-x-2">
+                  <span className={`w-2 h-2 rounded-full ${activeDetailMod.enabled ? 'bg-primary' : 'bg-text-muted/40'}`} />
+                  <span className="font-medium text-text">{activeDetailMod.enabled ? '已装备运行' : '待命中 (已停用)'}</span>
+                </span>
+                <span className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-surface-2 border border-border/60">
+                  {currentChar}
                 </span>
               </div>
 
-              {/* 标记按钮 + 移动到其他角色 (QAQ Actions) */}
-              <div className="grid grid-cols-2 gap-1.5">
+              {/* 标记按钮 + 移动到其他角色 */}
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => handleToggleMark(activeDetailMod.fullPath)}
-                  className={`py-2 rounded-[10px] text-xs font-bold border transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs ${
+                  className={`py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs active:scale-95 ${
                     markedMods[activeDetailMod.fullPath]
-                      ? 'bg-amber-500 text-white border-amber-500'
-                      : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/80'
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-cds-sm font-bold'
+                      : 'bg-surface-2/70 hover:bg-surface text-text-muted hover:text-text border-border/80'
                   }`}
                 >
-                  <span>{markedMods[activeDetailMod.fullPath] ? '🏷️ 取消标记' : '🔖 标记此 Mod'}</span>
+                  <Bookmark className={`w-3.5 h-3.5 align-neg-125 ${markedMods[activeDetailMod.fullPath] ? 'fill-current' : ''}`} />
+                  <span>{markedMods[activeDetailMod.fullPath] ? '取消标记' : '标记此 Mod'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setShowMoveModal(true)}
-                  className="py-2 rounded-[10px] text-xs font-semibold border border-border/80 bg-surface hover:bg-surface-2 text-text-muted hover:text-text transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs"
+                  className="py-2 rounded-xl text-xs font-semibold border border-border/80 bg-surface-2/70 hover:bg-surface text-text-muted hover:text-text transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs active:scale-95"
                   title="将该模组移动到其他角色分类"
                 >
-                  <FolderInput className="w-3.5 h-3.5 text-primary" />
+                  <FolderInput className="w-3.5 h-3.5 text-primary align-neg-125" />
                   <span>移动分类</span>
                 </button>
               </div>
 
-              {/* ⌨️ 快捷键分区 (QAQ detail-hotkey-section) */}
-              <div className="space-y-1.5 pt-1">
-                <div className="text-[11px] font-bold text-text flex items-center space-x-1">
-                  <span>⌨️</span>
+              {/* ⌨️ 快捷键分区 */}
+              <div className="space-y-2 pt-1">
+                <div className="text-xs font-bold text-text flex items-center space-x-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-primary align-neg-125" />
                   <span>快捷键与设定值</span>
                 </div>
 
                 {loadingHotkeys ? (
-                  <div className="p-3 rounded-[8px] bg-surface-2/60 border border-border/60 text-[10px] text-text-muted text-center">
+                  <div className="p-3.5 rounded-xl bg-surface-2/60 border border-border/60 text-xs text-text-muted text-center">
                     快捷键加载中...
                   </div>
                 ) : parsedHotkeys.length === 0 ? (
-                  <div className="p-3 rounded-[8px] bg-surface-2/60 border border-border/60 text-[10px] text-text-muted text-center">
+                  <div className="p-3.5 rounded-xl bg-surface-2/60 border border-border/60 text-xs text-text-muted text-center">
                     无专属按键 (可通过游戏原生快捷键控制)
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {parsedHotkeys.map((h, idx) => {
                       const isGamepad = h.keys.some((k) => k.includes('🎮'))
                       const isMouse = h.keys.some((k) => k.includes('鼠标') || k.includes('键'))
@@ -1673,7 +1662,7 @@ export const OverlayApp: React.FC = () => {
                         <div
                           key={idx}
                           onClick={() => handleTriggerHotkey(h)}
-                          className="p-2 rounded-[8px] bg-surface-2/60 hover:bg-surface hover:border-primary/50 border border-border/60 text-xs transition-all cursor-pointer active:scale-[0.99] select-none group"
+                          className="p-2.5 rounded-xl bg-surface-2/50 hover:bg-surface hover:border-primary/40 border border-border/70 text-xs transition-all cursor-pointer active:scale-[0.99] select-none group shadow-2xs"
                           title={
                             isGamepad
                               ? `${h.name} (手柄按键，请使用手柄触发)`
@@ -1685,7 +1674,7 @@ export const OverlayApp: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <div className="min-w-0 mr-2 flex flex-col">
                               <div className="flex items-center space-x-1.5 truncate">
-                                <span className="font-semibold text-[11px] text-text group-hover:text-primary transition-colors truncate">
+                                <span className="font-semibold text-xs text-text group-hover:text-primary transition-colors truncate">
                                   {h.chineseName || h.name}
                                 </span>
                                 {h.chineseName && h.chineseName !== h.name && (
@@ -1695,7 +1684,7 @@ export const OverlayApp: React.FC = () => {
                                 )}
                               </div>
                               {(h.chineseDescription || (h.description && h.description !== h.name)) && (
-                                <span className="text-[9.5px] text-text-muted truncate max-w-[190px]">
+                                <span className="text-[10px] text-text-muted truncate max-w-[200px] mt-0.5">
                                   {h.chineseDescription || h.description}
                                 </span>
                               )}
@@ -1713,11 +1702,11 @@ export const OverlayApp: React.FC = () => {
                           {/* 作者设置的直接数值选项行 (可直接点击选定值) */}
                           {h.allowedValues && h.allowedValues.length > 0 && (
                             <div
-                              className="mt-1.5 pt-1.5 border-t border-border/40 flex items-center justify-between"
+                              className="mt-2 pt-2 border-t border-border/40 flex items-center justify-between"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <span className="text-[10px] text-text-muted shrink-0 mr-1.5 flex items-center space-x-1">
-                                <SlidersHorizontal className="w-2.5 h-2.5 text-primary" />
+                                <SlidersHorizontal className="w-3 h-3 text-primary align-neg-125" />
                                 <span>设定值:</span>
                               </span>
 
@@ -1737,9 +1726,9 @@ export const OverlayApp: React.FC = () => {
                                       key={val}
                                       type="button"
                                       onClick={() => handleSelectHotkeyVal(h, val)}
-                                      className={`px-2 py-0.5 rounded-[5px] text-[10px] font-mono font-bold shrink-0 border transition-all cursor-pointer ${
+                                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 border transition-all cursor-pointer shadow-2xs ${
                                         isSelected
-                                          ? 'bg-primary text-primary-fg border-primary shadow-2xs font-extrabold'
+                                          ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-extrabold'
                                           : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/70'
                                       }`}
                                       title={`直接设定为: ${val}`}
@@ -1761,12 +1750,12 @@ export const OverlayApp: React.FC = () => {
               {/* 🎛️ Persist Bridge 服装/部件调控 (如果有) */}
               {activeModDetails?.persistInfo?.hasPersist && (
                 <div className="space-y-2 pt-2 border-t border-border/60">
-                  <div className="flex items-center space-x-1.5 text-[11px] font-bold text-text">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-primary" />
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-text">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-primary align-neg-125" />
                     <span>服装与部件参数调节</span>
                   </div>
 
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {activeModDetails.persistInfo.variables.map((v) => {
                       const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
                       const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
@@ -1775,11 +1764,11 @@ export const OverlayApp: React.FC = () => {
                       return (
                         <div
                           key={v.name}
-                          className="p-2 rounded-[8px] bg-surface-2/60 border border-border/60 flex items-center justify-between text-xs"
+                          className="p-2.5 rounded-xl bg-surface-2/50 border border-border/70 flex items-center justify-between text-xs shadow-2xs"
                         >
                           <div>
                             <div className="flex items-center space-x-1.5">
-                              <span className="font-bold text-[11px] text-text">
+                              <span className="font-bold text-xs text-text">
                                 {v.alias || v.name}
                               </span>
                               {v.alias && v.alias !== v.name && (
@@ -1788,17 +1777,17 @@ export const OverlayApp: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <span className="text-[10px] text-text-muted">当前值: {v.currentValue}</span>
+                            <span className="text-[10px] text-text-muted mt-0.5 block">当前值: {v.currentValue}</span>
                           </div>
 
                           {isBinary ? (
                             <button
                               type="button"
                               onClick={() => handleUpdatePersistVar(v, isOn ? '0' : '1')}
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer border ${
+                              className={`px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border transition-all ${
                                 isOn
-                                  ? 'bg-primary text-primary-fg border-primary font-bold'
-                                  : 'bg-surface text-text-muted border-border'
+                                  ? 'bg-primary text-primary-fg border-primary font-bold shadow-cds-sm'
+                                  : 'bg-surface text-text-muted border-border hover:bg-surface-2'
                               }`}
                             >
                               {isOn ? '开启' : '关闭'}
@@ -1813,10 +1802,10 @@ export const OverlayApp: React.FC = () => {
                                     key={val}
                                     type="button"
                                     onClick={() => handleUpdatePersistVar(v, val)}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border transition-all ${
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer border transition-all ${
                                       isCur
                                         ? 'bg-primary text-primary-fg border-primary shadow-2xs font-extrabold'
-                                        : 'bg-surface text-text hover:text-primary border-border'
+                                        : 'bg-surface text-text hover:text-primary border-border hover:bg-surface-2'
                                     }`}
                                   >
                                     {label}
@@ -1832,65 +1821,66 @@ export const OverlayApp: React.FC = () => {
                 </div>
               )}
 
-              {/* 底部大按钮 (QAQ detailToggleBtn) */}
+              {/* 底部大按钮 */}
               <button
                 type="button"
                 onClick={() => handleToggleMod(activeDetailMod)}
-                className={`w-full py-2.5 rounded-[10px] text-xs font-bold transition-all cursor-pointer shadow-md flex items-center justify-center space-x-1.5 ${
+                className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-cds-sm flex items-center justify-center space-x-2 active:scale-[0.98] ${
                   activeDetailMod.enabled
-                    ? 'bg-surface-2 hover:bg-danger text-text-muted hover:text-white border border-border/80'
-                    : 'bg-primary text-primary-fg hover:brightness-105'
+                    ? 'bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30'
+                    : 'bg-primary hover:brightness-105 text-primary-fg'
                 }`}
               >
                 {activeDetailMod.enabled ? (
                   <>
-                    <span>⬜</span>
+                    <XCircle className="w-4 h-4 align-neg-125" />
                     <span>停用此 Mod</span>
                   </>
                 ) : (
                   <>
-                    <span>✅</span>
+                    <CheckCircle2 className="w-4 h-4 align-neg-125" />
                     <span>装配启用此 Mod</span>
                   </>
                 )}
               </button>
-            </div>
+            </ScrollContainer>
           </div>
         )}
 
         {/* ================= 侧滑抽屉 2: 全部角色网格浏览 (对应 ☰) ================= */}
         {isCharDrawerOpen && (
-          <div className="absolute inset-0 z-40 bg-surface/96 backdrop-blur-2xl flex flex-col animate-in fade-in slide-in-from-left duration-fast overflow-hidden">
-            <div className="h-11 px-3 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/70">
-              <div className="flex items-center space-x-1.5">
-                <Menu className="w-3.5 h-3.5 text-primary" />
+          <div className="absolute inset-0 z-40 bg-surface/98 backdrop-blur-2xl flex flex-col animate-in fade-in slide-in-from-left duration-fast overflow-hidden">
+            <div className="h-12 px-3.5 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/80 backdrop-blur-md">
+              <div className="flex items-center space-x-2">
+                <Menu className="w-3.5 h-3.5 text-primary align-neg-125" />
                 <h3 className="text-xs font-bold text-text">角色全览 ({sortedCharacters.length})</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsCharDrawerOpen(false)}
-                className="w-6 h-6 rounded border border-border/60 bg-surface/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer text-[10px]"
+                className="w-7 h-7 rounded-lg border border-border/80 bg-surface-2/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 transition"
+                title="关闭"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5 align-neg-125" />
               </button>
             </div>
 
             {/* 搜索框 */}
-            <div className="p-2.5 border-b border-border/50">
+            <div className="p-3 border-b border-border/50 bg-surface-2/30">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-text-muted" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-text-muted" />
                 <input
                   type="text"
                   placeholder="搜索角色名..."
                   value={charSearchQuery}
                   onChange={(e) => setCharSearchQuery(e.target.value)}
-                  className="w-full bg-surface-2/80 border border-border/80 focus:border-primary rounded-[8px] pl-8 pr-3 py-1.5 text-xs text-text focus:outline-none"
+                  className="w-full bg-surface-2/80 border border-border/80 focus:border-primary focus:ring-2 focus:ring-primary/20 rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-text focus:outline-none transition shadow-2xs"
                 />
               </div>
             </div>
 
-            {/* 3 列角色头像气泡网格 (QAQ bubble-grid) */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-3 gap-2.5 overlay-scroll">
+            {/* 3 列角色头像气泡网格 */}
+            <ScrollContainer className="flex-1 min-h-0 p-3 grid grid-cols-3 gap-2.5">
               {sortedCharacters
                 .filter((name) => !charSearchQuery || name.toLowerCase().includes(charSearchQuery.toLowerCase()))
                 .map((name) => {
@@ -1911,58 +1901,59 @@ export const OverlayApp: React.FC = () => {
                         setIsCharDrawerOpen(false)
                         setFocusedModIndex(0)
                       }}
-                      className={`flex flex-col items-center p-2 rounded-[12px] border transition-all text-center cursor-pointer ${
+                      className={`flex flex-col items-center p-2.5 rounded-xl border transition-all duration-150 text-center cursor-pointer shadow-2xs ${
                         isSelected
-                          ? 'bg-primary/10 border-primary ring-2 ring-primary/20 shadow-xs'
-                          : 'bg-surface hover:bg-surface-2 border-border/60'
+                          ? 'bg-primary/10 border-primary ring-2 ring-primary/25 shadow-cds-sm font-bold'
+                          : 'bg-surface hover:bg-surface-2 border-border/70 hover:border-primary/40'
                       }`}
                     >
-                      <div className="w-12 h-12 rounded-full overflow-hidden border border-border/80 mb-1.5 relative bg-surface-2/80 flex items-center justify-center shadow-xs">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border border-border/80 mb-1.5 relative bg-surface-2/80 flex items-center justify-center shadow-2xs">
                         {avatar ? (
                           <img src={`file://${avatar}`} alt="" className="w-full h-full object-cover object-top" />
                         ) : (
                           <span className="font-bold text-xs text-text-muted">{name.slice(0, 1)}</span>
                         )}
                         {enabledCount > 0 && (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-surface" />
+                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-surface shadow-xs" />
                         )}
                       </div>
                       <span className="font-title text-xs font-bold text-text truncate max-w-full">
                         {name}
                       </span>
-                      <span className="text-[10px] text-text-muted font-mono mt-0.5">
+                      <span className="text-[10px] text-text-muted font-mono mt-0.5 tabular-nums-strict">
                         {enabledCount}/{mods.length}
                       </span>
                     </button>
                   )
                 })}
-            </div>
+            </ScrollContainer>
           </div>
         )}
 
         {/* ================= 侧滑抽屉 3: 设置面板 (对应 ⚙️) ================= */}
         {isSettingsOpen && (
-          <div className="absolute inset-0 z-40 bg-surface/96 backdrop-blur-2xl flex flex-col animate-in fade-in slide-in-from-left duration-fast overflow-hidden">
-            <div className="h-11 px-3 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/70">
-              <div className="flex items-center space-x-1.5">
-                <Settings className="w-3.5 h-3.5 text-primary" />
-                <h3 className="text-xs font-bold text-text">⚙️ 悬浮窗设置</h3>
+          <div className="absolute inset-0 z-40 bg-surface/98 backdrop-blur-2xl flex flex-col animate-in fade-in slide-in-from-left duration-fast overflow-hidden">
+            <div className="h-12 px-3.5 border-b border-border/60 flex items-center justify-between shrink-0 bg-surface/80 backdrop-blur-md">
+              <div className="flex items-center space-x-2">
+                <Settings className="w-3.5 h-3.5 text-primary align-neg-125" />
+                <h3 className="text-xs font-bold text-text">悬浮窗设置</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}
-                className="w-6 h-6 rounded border border-border/60 bg-surface/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer text-[10px]"
+                className="w-7 h-7 rounded-lg border border-border/80 bg-surface-2/80 hover:bg-surface text-text-muted hover:text-text flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 transition"
+                title="关闭"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5 align-neg-125" />
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-xs overlay-scroll">
+            <ScrollContainer className="flex-1 min-h-0 p-4 space-y-3.5 text-xs">
               {/* 背景透明度调节 */}
-              <div className="space-y-1.5">
-                <div className="font-bold text-text">背景不透明度</div>
+              <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/70 space-y-2 shadow-2xs">
+                <div className="font-bold text-text text-xs">背景不透明度</div>
                 <div className="flex items-center space-x-3">
-                  <span className="text-[10px] text-text-muted">透明</span>
+                  <span className="text-[11px] text-text-muted">透明</span>
                   <input
                     type="range"
                     min="15"
@@ -1971,17 +1962,17 @@ export const OverlayApp: React.FC = () => {
                     onChange={(e) => handleOpacityChange(parseInt(e.target.value) / 100)}
                     className="flex-1 accent-primary cursor-pointer"
                   />
-                  <span className="font-mono font-bold text-primary w-9 text-right">
+                  <span className="font-mono font-bold text-primary w-10 text-right tabular-nums-strict">
                     {Math.round(opacity * 100)}%
                   </span>
                 </div>
               </div>
 
               {/* 单选互斥保护模式 */}
-              <div className="flex items-center justify-between p-2.5 rounded-[8px] bg-surface-2/60 border border-border/60">
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-surface-2/40 border border-border/70 shadow-2xs">
                 <div>
-                  <div className="font-bold text-text">单选互斥保护</div>
-                  <div className="text-[10px] text-text-muted">启用同角色新 Mod 时自动停用其他 Mod</div>
+                  <div className="font-bold text-text text-xs">单选互斥保护</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">启用同角色新 Mod 时自动停用其他 Mod</div>
                 </div>
                 <button
                   type="button"
@@ -1991,10 +1982,10 @@ export const OverlayApp: React.FC = () => {
               </div>
 
               {/* 仅在游戏界面显示 (智能跟随) */}
-              <div className="flex items-center justify-between p-2.5 rounded-[8px] bg-surface-2/60 border border-border/60">
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-surface-2/40 border border-border/70 shadow-2xs">
                 <div>
-                  <div className="font-bold text-text">仅在游戏界面显示</div>
-                  <div className="text-[10px] text-text-muted">切出游戏时自动隐藏，切回游戏自动恢复</div>
+                  <div className="font-bold text-text text-xs">仅在游戏界面显示</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">切出游戏时自动隐藏，切回游戏自动恢复</div>
                 </div>
                 <button
                   type="button"
@@ -2004,12 +1995,12 @@ export const OverlayApp: React.FC = () => {
               </div>
 
               {/* 当前关联游戏 (智能跟随或手动切换) */}
-              <div className="space-y-1.5">
+              <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/70 space-y-2 shadow-2xs">
                 <div className="flex items-center justify-between">
-                  <div className="font-bold text-text">当前关联游戏</div>
+                  <div className="font-bold text-text text-xs">当前关联游戏</div>
                   <span className="text-[10px] text-text-muted">前台智能识别跟随</span>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-2">
                   {(config?.games || [])
                     .filter((g: any) => !g.hidden)
                     .map((g: any) => {
@@ -2023,14 +2014,14 @@ export const OverlayApp: React.FC = () => {
                           await loadData(g.id)
                           showToast(`已切换至: ${g.name}`)
                         }}
-                        className={`p-2 rounded-[8px] border text-left flex items-center space-x-1.5 transition-all cursor-pointer ${
+                        className={`p-2.5 rounded-lg border text-left flex items-center space-x-2 transition-all cursor-pointer shadow-2xs ${
                           isCur
                             ? 'bg-primary/15 border-primary text-primary font-bold shadow-2xs ring-1 ring-primary/30'
                             : 'bg-surface hover:bg-surface-2 border-border/80 text-text-muted hover:text-text'
                         }`}
                       >
                         <span className="text-xs truncate flex-1">{g.shortName || g.name}</span>
-                        {isCur && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                        {isCur && <Check className="w-3.5 h-3.5 text-primary shrink-0 align-neg-125" />}
                       </button>
                     )
                   })}
@@ -2038,24 +2029,24 @@ export const OverlayApp: React.FC = () => {
               </div>
 
               {/* 唤出热键提示 */}
-              <div className="space-y-1">
-                <div className="font-bold text-text">呼出/隐藏快捷键</div>
-                <div className="p-2 rounded-[8px] bg-surface-2/60 border border-border/60 font-mono font-bold text-primary flex items-center justify-between">
-                  <span>Ctrl + F / Alt + F</span>
-                  <span className="text-[10px] text-text-muted font-normal">系统全局快捷键</span>
+              <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/70 flex items-center justify-between shadow-2xs">
+                <div>
+                  <div className="font-bold text-text text-xs">呼出/隐藏快捷键</div>
+                  <div className="text-[10px] text-text-muted mt-0.5">系统全局监听</div>
                 </div>
+                <kbd className="detail-kbd text-xs px-2.5 py-1">Ctrl + F</kbd>
               </div>
 
               {/* Persist Bridge 缓存清空 */}
-              <div className="pt-2 border-t border-border/60 space-y-1.5">
-                <div className="font-bold text-text">维护与重置</div>
+              <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/70 space-y-2 shadow-2xs">
+                <div className="font-bold text-text text-xs">维护与重置</div>
                 <button
                   type="button"
                   onClick={async () => {
                     await window.lz.clearPersistCache?.()
                     showToast('已清空 Persist Bridge 缓存')
                   }}
-                  className="w-full py-1.5 rounded-[8px] bg-surface border border-border/80 hover:bg-surface-2 text-text-muted hover:text-text font-semibold text-xs cursor-pointer"
+                  className="w-full py-2 rounded-lg bg-surface border border-border/80 hover:bg-surface-2 text-text font-semibold text-xs cursor-pointer shadow-2xs transition active:scale-[0.99]"
                 >
                   清空 Persist Bridge 缓存
                 </button>
@@ -2063,12 +2054,12 @@ export const OverlayApp: React.FC = () => {
 
               {/* 品牌标识 */}
               <div className="pt-2 flex items-center justify-center gap-1.5 opacity-60">
-                <Logo size={14} />
+                <Logo size={16} />
                 <span className="font-title text-[10px] font-bold tracking-wider text-text-muted">
                   LZ MANAGER
                 </span>
               </div>
-            </div>
+            </ScrollContainer>
           </div>
         )}
 
