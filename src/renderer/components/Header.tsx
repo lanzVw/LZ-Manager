@@ -297,8 +297,6 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        <div className="h-4 w-[1px] bg-border mx-0.5" />
-
         {/* Window Controls: 任务栏最小化、最大化、关闭 */}
         <div className="flex items-center space-x-0.5 bg-surface-2 border border-border rounded-control p-0.5">
           {/* 1. 最小化到任务栏 (保留任务栏图标) */}
