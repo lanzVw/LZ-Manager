@@ -992,20 +992,13 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               </div>
             ) : null}
 
-            <div>
-              <div className="flex items-center space-x-2.5">
-                <h2 className="text-base font-title font-bold text-text tracking-wide">
-                  {selectedChar === 'all' ? '全部角色模组' : selectedChar}
-                </h2>
-                <Badge variant="accent" size="sm">
-                  {displayedMods.length} 个项目
-                </Badge>
-              </div>
-              <p className="text-[11px] text-text-muted mt-0.5">
-                {selectedChar === 'all'
-                  ? '汇集所有角色已安装外观与资源'
-                  : '管理当前角色已加载的专属外观模组'}
-              </p>
+            <div className="flex items-center space-x-2.5">
+              <h2 className="text-base font-title font-bold text-text tracking-wide">
+                {selectedChar === 'all' ? '全部角色模组' : selectedChar}
+              </h2>
+              <Badge variant="accent" size="sm">
+                {displayedMods.length} 个项目
+              </Badge>
             </div>
 
             {/* 冲突过滤按钮 */}
@@ -1163,9 +1156,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                   </button>
                 )}
               </div>
-              <span className="text-[11px] text-text-muted">
-                切换仅筛选，不会自动启用
-              </span>
             </div>
 
             {/* 分区横向滚动轨道 */}
@@ -1498,10 +1488,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               ))}
             </div>
           </div>
-
-          <p className="text-[11px] text-text-muted">
-            💡 外观分区用于对角色的不同皮肤或主题外观进行分类，仅做视觉过滤，不影响模组的启用与加载。
-          </p>
         </div>
       </Modal>
 

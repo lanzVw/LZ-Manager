@@ -1363,18 +1363,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Layers className="w-4 h-4" />
                 </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h4 className="text-xs font-semibold text-text">外观分区</h4>
-                    {details.appearanceSectionId && details.appearanceSectionId !== 'base' && (
-                      <Badge variant="primary" size="sm" className="text-[10px]">
-                        {sections.find((s) => s.sectionId === details.appearanceSectionId)?.official ? '官方皮肤' : '自定义分区'}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-text-muted">
-                    只改变显示位置，不改变启用状态
-                  </p>
+                <div className="flex items-center space-x-2">
+                  <h4 className="text-xs font-semibold text-text">外观分区</h4>
+                  {details.appearanceSectionId && details.appearanceSectionId !== 'base' && (
+                    <Badge variant="primary" size="sm" className="text-[10px]">
+                      {sections.find((s) => s.sectionId === details.appearanceSectionId)?.official ? '官方皮肤' : '自定义分区'}
+                    </Badge>
+                  )}
                 </div>
               </div>
 
@@ -1402,10 +1397,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Calendar className="w-4 h-4" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-semibold text-text">检查时间</h4>
-                  <p className="text-[11px] text-text-muted">上次检索此模组的时间戳</p>
-                </div>
+                <h4 className="text-xs font-semibold text-text">检查时间</h4>
               </div>
 
               <div className="flex items-center space-x-2">
@@ -1422,10 +1414,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Calendar className="w-4 h-4" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-semibold text-text">最后更新</h4>
-                  <p className="text-[11px] text-text-muted">模组文件上次物理写入修改时间</p>
-                </div>
+                <h4 className="text-xs font-semibold text-text">最后更新</h4>
               </div>
 
               <div className="flex items-center space-x-2">
@@ -1442,10 +1431,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <User className="w-4 h-4" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-semibold text-text">创作者</h4>
-                  <p className="text-[11px] text-text-muted">模组原作者署名</p>
-                </div>
+                <h4 className="text-xs font-semibold text-text">创作者</h4>
               </div>
 
               <div className="w-64">
@@ -1463,10 +1449,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 <div className="p-2 rounded-control bg-primary/10 text-primary">
                   <Tag className="w-4 h-4" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-semibold text-text">版本标识</h4>
-                  <p className="text-[11px] text-text-muted">模组发布版本编号</p>
-                </div>
+                <h4 className="text-xs font-semibold text-text">版本标识</h4>
               </div>
 
               <div className="w-64">
@@ -1485,18 +1468,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   <div className="p-2 rounded-control bg-primary/10 text-primary">
                     <Globe className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-xs font-semibold text-text">模组来源与市场链接</h4>
-                      {isGameBanana && (
-                        <Badge variant="primary" size="sm" className="text-[10px] font-mono">
-                          GameBanana
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-text-muted">
-                      记录模组原帖或市场下载来源，支持直接在默认浏览器或应用内市场联动
-                    </p>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-semibold text-text">模组来源与市场链接</h4>
+                    {isGameBanana && (
+                      <Badge variant="primary" size="sm" className="text-[10px] font-mono">
+                        GameBanana
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -1581,18 +1559,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   <div className={`p-2 rounded-control ${isBroken ? 'bg-danger/15 text-danger' : 'bg-surface-2 text-text-muted'}`}>
                     <AlertOctagon className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-xs font-semibold text-text">标记为失效 / 损坏 (Broken)</h4>
-                      {isBroken && (
-                        <Badge variant="danger" size="sm" className="text-[10px]">
-                          已失效
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-text-muted">
-                      当游戏版本更新导致碎模、黑脸或报错时标记此项，将在卡片与详情中醒目警告
-                    </p>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-semibold text-text">标记为失效 / 损坏 (Broken)</h4>
+                    {isBroken && (
+                      <Badge variant="danger" size="sm" className="text-[10px]">
+                        已失效
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -1676,24 +1649,19 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
                 <Sliders className="w-4 h-4" />
               </div>
-              <div>
-                <h2 className="text-xs font-bold text-text tracking-wide uppercase flex items-center space-x-2">
-                  <span>模组配置与按键调控 (MOD CONTROLS)</span>
-                  {persistInfo && persistInfo.hasPersist && persistInfo.variables.length > 0 && (
-                    <Badge variant="primary" size="sm">
-                      {persistInfo.variables.length} 个调控变量
-                    </Badge>
-                  )}
-                  {parsedHotkeys.length > 0 && (
-                    <Badge variant="primary" size="sm">
-                      {parsedHotkeys.length} 组快捷键
-                    </Badge>
-                  )}
-                </h2>
-                <p className="text-[11px] text-text-muted mt-0.5">
-                  实时调节发型、服饰部件与开关，支持直接点击直选目标设定值
-                </p>
-              </div>
+              <h2 className="text-xs font-bold text-text tracking-wide uppercase flex items-center space-x-2">
+                <span>模组配置与按键调控 (MOD CONTROLS)</span>
+                {persistInfo && persistInfo.hasPersist && persistInfo.variables.length > 0 && (
+                  <Badge variant="primary" size="sm">
+                    {persistInfo.variables.length} 个调控变量
+                  </Badge>
+                )}
+                {parsedHotkeys.length > 0 && (
+                  <Badge variant="primary" size="sm">
+                    {parsedHotkeys.length} 组快捷键
+                  </Badge>
+                )}
+              </h2>
             </div>
 
             <div className="flex items-center space-x-2 shrink-0">
