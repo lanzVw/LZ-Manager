@@ -65,7 +65,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (_) {}
     // 同步到 Electron 后台持久化配置
     try {
-      ;(window.lz?.updateAppConfig as ((cfg: Record<string, unknown>) => void) | undefined)?.({ palette: newPalette })
+      window.lz?.updateAppConfig?.({ palette: newPalette })
     } catch (_) {}
   }, [])
 
@@ -86,11 +86,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
-  // 通过 ref 读取最新主题，避免 initFromConfig 依赖 theme 导致反复执行
+  // 通过 ref 读取最新主题与调色板，避免 initFromConfig 依赖 theme/palette 导致反复执行
   const themeRef = useRef(theme)
   useEffect(() => {
     themeRef.current = theme
   }, [theme])
+
+  const paletteRef = useRef(palette)
+  useEffect(() => {
+    paletteRef.current = palette
+  }, [palette])
 
   // 仅挂载执行一次：检查持久化配置是否包含主题设定（useRef 标记，StrictMode 重复挂载也只跑一次）
   const initializedRef = useRef(false)
@@ -106,10 +111,15 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             applyTheme(cfg.theme)
           }
         }
+        if (cfg && (cfg.palette === 'default' || cfg.palette === 'clay')) {
+          if (cfg.palette !== paletteRef.current) {
+            applyPalette(cfg.palette)
+          }
+        }
       } catch (_) {}
     }
     initFromConfig()
-  }, [applyTheme])
+  }, [applyTheme, applyPalette])
 
   const toggleTheme = useCallback(() => {
     applyTheme(theme === 'light' ? 'dark' : 'light')

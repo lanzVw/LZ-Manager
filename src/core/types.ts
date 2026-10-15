@@ -24,6 +24,7 @@ export interface AppConfig {
   persistBridgeEnabled?: boolean // 保留 Mod 设定数值 (Persist Bridge)
   persistBridgeCacheSize?: number // 最近缓存 Mod 数量 (默认 12)
   closeAction?: 'quit' | 'minimize_to_tray' // 点击右上角关闭按钮行为: 'quit' (彻底退出) | 'minimize_to_tray' (最小化到托盘)
+  palette?: 'default' | 'clay'
 }
 
 export interface AppearanceSection {

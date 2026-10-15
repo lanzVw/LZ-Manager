@@ -14,7 +14,8 @@ import {
   ChevronDown,
   ArrowDownToLine,
   Sun,
-  Moon
+  Moon,
+  Palette
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from './Logo'
@@ -69,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLaunchLoader,
   onReloadMods
 }) => {
-  const { theme, toggleTheme } = useTheme()
+  const { theme, toggleTheme, palette, togglePalette } = useTheme()
 
   return (
     <header className="h-16 bg-surface/85 border-b border-border backdrop-blur-xl flex items-center justify-between px-5 select-none drag-region relative z-30 shadow-xs">
@@ -184,7 +185,15 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={toggleTheme}
-            title={theme === 'dark' ? '切换至浅色模式 (瓷白·钴蓝)' : '切换至深色模式 (深青墨夜)'}
+            title={
+              palette === 'clay'
+                ? theme === 'dark'
+                  ? '切换至浅色模式 (暖纸·陶土)'
+                  : '切换至深色模式 (黑曜·陶土)'
+                : theme === 'dark'
+                  ? '切换至浅色模式 (瓷白·钴蓝)'
+                  : '切换至深色模式 (深青·墨夜)'
+            }
             className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text-muted hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
           >
             {theme === 'dark' ? (
@@ -193,6 +202,17 @@ export const Header: React.FC<HeaderProps> = ({
               <Moon className="w-3.5 h-3.5 text-primary" />
             )}
             <span className="sr-only">切换主题</span>
+          </button>
+
+          {/* Palette Switcher */}
+          <button
+            type="button"
+            onClick={togglePalette}
+            title={palette === 'clay' ? '当前为 CDS 陶土色，点击切换至经典钴蓝' : '当前为经典钴蓝，点击切换至 CDS 陶土色'}
+            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text-muted hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
+          >
+            <Palette className={`w-3.5 h-3.5 ${palette === 'clay' ? 'text-[#d97757]' : 'text-primary'}`} />
+            <span className="sr-only">切换色系</span>
           </button>
 
           {/* F10 Reload */}

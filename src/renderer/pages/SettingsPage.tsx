@@ -80,7 +80,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onSelectGame
 }) => {
   const toast = useToast()
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, palette, setPalette } = useTheme()
   const [gamePath, setGamePath] = useState(activeGame?.gamePath || '')
   const [modFolderPath, setModFolderPath] = useState(activeGame?.modFolderPath || '')
   const [modLoaderPath, setModLoaderPath] = useState(activeGame?.modLoaderPath || '')
@@ -365,13 +365,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-1">
-            {/* 浅色主题卡片 */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3.5 pt-1">
+            {/* 1. 瓷白 · 钴蓝 (浅色经典) */}
             <button
               type="button"
-              onClick={() => setTheme('light')}
+              onClick={() => {
+                setTheme('light')
+                setPalette('default')
+              }}
               className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                theme === 'light'
+                theme === 'light' && palette === 'default'
                   ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
                   : 'border-border bg-surface hover:border-primary/40'
               }`}
@@ -381,22 +384,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <Sun className="w-4 h-4 text-amber-500" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-text">瓷白 · 钴蓝 (浅色)</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">青花瓷质感清爽明快</div>
+                  <div className="text-xs font-bold text-text">瓷白 · 钴蓝</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">经典清爽明快</div>
                 </div>
               </div>
-              {theme === 'light' && (
+              {theme === 'light' && palette === 'default' && (
                 <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
               )}
             </button>
 
-            {/* 深色主题卡片 */}
+            {/* 2. 深青 · 墨夜 (深色经典) */}
             <button
               type="button"
-              onClick={() => setTheme('dark')}
+              onClick={() => {
+                setTheme('dark')
+                setPalette('default')
+              }}
               className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                theme === 'dark'
-                  ? 'border-primary ring-2 ring-primary/25 bg-primary/10 shadow-xs'
+                theme === 'dark' && palette === 'default'
+                  ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
                   : 'border-border bg-surface hover:border-primary/40'
               }`}
             >
@@ -405,11 +411,65 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <Moon className="w-4 h-4 text-sky-400" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-text">深青 · 墨夜 (深色)</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">沉浸式护眼暗色模式</div>
+                  <div className="text-xs font-bold text-text">深青 · 墨夜</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">沉浸护眼暗色</div>
                 </div>
               </div>
-              {theme === 'dark' && (
+              {theme === 'dark' && palette === 'default' && (
+                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
+              )}
+            </button>
+
+            {/* 3. 暖纸 · 陶土 (CDS 浅色) */}
+            <button
+              type="button"
+              onClick={() => {
+                setTheme('light')
+                setPalette('clay')
+              }}
+              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                theme === 'light' && palette === 'clay'
+                  ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
+                  : 'border-border bg-surface hover:border-primary/40'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-control bg-[#f5f5f3] border border-[#d97757]/30 flex items-center justify-center text-[#d97757] shadow-xs">
+                  <Sun className="w-4 h-4 text-[#d97757]" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-text">暖纸 · 陶土</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">CDS 官方纸质暖色</div>
+                </div>
+              </div>
+              {theme === 'light' && palette === 'clay' && (
+                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
+              )}
+            </button>
+
+            {/* 4. 黑曜 · 陶土 (CDS 深色) */}
+            <button
+              type="button"
+              onClick={() => {
+                setTheme('dark')
+                setPalette('clay')
+              }}
+              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                theme === 'dark' && palette === 'clay'
+                  ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
+                  : 'border-border bg-surface hover:border-primary/40'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-control bg-[#0b0b0a] border border-[#d97757]/40 flex items-center justify-center text-[#d97757] shadow-xs">
+                  <Moon className="w-4 h-4 text-[#d97757]" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-text">黑曜 · 陶土</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">CDS 低反差护眼暗色</div>
+                </div>
+              </div>
+              {theme === 'dark' && palette === 'clay' && (
                 <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
               )}
             </button>

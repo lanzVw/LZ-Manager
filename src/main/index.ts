@@ -428,7 +428,7 @@ function setupIpc() {
   const APP_CONFIG_KEYS = new Set([
     'activeGameId', 'characterUsage', 'serverUrl', 'enableOptionAExclusive',
     'overlayHotkey', 'persistBridgeEnabled', 'persistBridgeCacheSize', 'closeAction',
-    'theme', 'characterSectionsByGame'
+    'theme', 'palette', 'characterSectionsByGame'
   ])
   const GAME_CONFIG_KEYS = new Set([
     'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'launchMode', 'hidden'
