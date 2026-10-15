@@ -23,7 +23,10 @@ import {
   ArrowDownToLine,
   LogOut,
   Monitor,
-  Gamepad2
+  Gamepad2,
+  BookOpen,
+  ChevronDown,
+  Info
 } from 'lucide-react'
 import { EnvironmentStatus } from '../../core/types'
 import { useTheme } from '../contexts/ThemeContext'
@@ -35,7 +38,7 @@ import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
-import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { SegmentedControl, SegmentedControlItem } from '../components/ui/SegmentedControl'
 import { Logo } from '../components/Logo'
 
 import zzzLogo from '../assets/games/zzz_logo.png'
@@ -73,6 +76,106 @@ interface SettingsPageProps {
 // 启动模式派生默认值：与显示兜底逻辑保持同一份三元，保证「显示值 = 保存值」
 const getDerivedLaunchMode = (game: any) => (game?.id === 'zzz' ? 'ZZMI' : 'VANILLA')
 
+export type SettingsTab = 'appearance' | 'games_paths' | 'environment'
+
+const SETTINGS_TABS: SegmentedControlItem<SettingsTab>[] = [
+  { id: 'appearance', label: '外观与交互', icon: <Palette className="w-3.5 h-3.5" /> },
+  { id: 'games_paths', label: '游戏与路径', icon: <Folder className="w-3.5 h-3.5" /> },
+  { id: 'environment', label: '环境与修复', icon: <Wrench className="w-3.5 h-3.5" /> }
+]
+
+interface GuideItem {
+  title: string
+  desc: string
+}
+
+const TAB_METADATA: Record<
+  SettingsTab,
+  {
+    kicker: string
+    title: string
+    description: string
+    icon: React.ReactNode
+    guides: GuideItem[]
+  }
+> = {
+  appearance: {
+    kicker: 'APPEARANCE & INTERACTION',
+    title: '界面外观与窗口交互',
+    description:
+      '定制客户端视觉调色板与窗口生命周期行为。支持一键快速切换浅色与黑夜模式，自定义关闭行为以保持游戏内热键秒级响应。',
+    icon: <Palette className="w-24 h-24 stroke-[1.2]" />,
+    guides: [
+      {
+        title: '任务栏最小化模式',
+        desc: '点击顶栏最小化按钮 (-) 时，窗口缩入任务栏，保留任务栏图标，单次点击秒级呼出。'
+      },
+      {
+        title: '系统托盘常驻模式',
+        desc: '设为最小化至托盘时，点击关闭将隐藏到屏幕右下角托盘区，持续在后台保持 Ctrl+F 悬浮窗响应。'
+      },
+      {
+        title: '托盘右键快捷菜单',
+        desc: '右键右下角托盘图标，可随时唤起游戏悬浮窗、执行 F10 热刷新 Mod、快速启动游戏或彻底退出。'
+      },
+      {
+        title: '深色与色彩体系自适应',
+        desc: '经典主题在深色模式下匹配「深青 · 墨夜」；CDS 主题在深色模式下自动匹配「黑曜 · 陶土」。'
+      }
+    ]
+  },
+  games_paths: {
+    kicker: 'WORKSPACE & PATHS',
+    title: '游戏库与目录映射',
+    description:
+      '配置当前目标游戏的本体程序位置、Mods 存放目录及 3DMigoto 专属启动注入模式；管理主界面顶栏展示的游戏列表。',
+    icon: <Folder className="w-24 h-24 stroke-[1.2]" />,
+    guides: [
+      {
+        title: '游戏本体程序 (Game Executable)',
+        desc: '游戏主程序的 .exe 文件。用于前台窗口感知、焦点检测以及从管理器一键开始游戏。'
+      },
+      {
+        title: 'Mod 存放目录 (Mods Folder)',
+        desc: '3DMigoto 扫描与装载 Mod 的文件夹。LZ Manager 会在此目录内创建角色子目录并管理启用状态。'
+      },
+      {
+        title: 'XXMI 加载器 (Mod Loader)',
+        desc: '配套的 XXMI Launcher.exe。用于通过专用注入环境调起游戏，确保 Mod 正常生效。'
+      },
+      {
+        title: '启动模式区别 (Launch Mode)',
+        desc: '各游戏推荐使用专属加载器模式（如 ZZMI / EFMI / WWMI / SRMI）；选择 VANILLA 原生直启将跳过 Mod 注入。'
+      }
+    ]
+  },
+  environment: {
+    kicker: 'DIAGNOSTICS & HEALING',
+    title: '3DMigoto 环境与修复引擎',
+    description:
+      'DirectX 运行库注入健康度诊断、Mod 数值持久化状态记忆桥，以及应对游戏版本更新的 Hash 修复规则引擎。',
+    icon: <Wrench className="w-24 h-24 stroke-[1.2]" />,
+    guides: [
+      {
+        title: 'DirectX 注入环境 (DLL)',
+        desc: '检测游戏目录是否存在 d3d11.dll 或 dxgi.dll。若未挂载，可使用「一键自动修复/部署」自动同步。'
+      },
+      {
+        title: 'Persist Bridge 状态记忆',
+        desc: '自动持久化保存 Mod 内通过快捷键切换的衣服发型参数，下次启动游戏无需重新按键调整。'
+      },
+      {
+        title: '鸣潮 Hash 规则引擎',
+        desc: '游戏大版本更新后角色 Hash 可能会发生变动，点击「更新 Hash 规则」可拉取社区最新映射规则库。'
+      },
+      {
+        title: '外部独立修复程序',
+        desc: '支持挂接第三方修复工具 exe 或压缩包，LZ Manager 会自动校验安装并在必要时协助执行修复。'
+      }
+    ]
+  }
+}
+
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   activeGame,
   onSaveGameConfig,
@@ -82,6 +185,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const toast = useToast()
   const { theme, setTheme, palette, setPalette } = useTheme()
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('appearance')
+  const [showGuide, setShowGuide] = useState<boolean>(false)
   const [gamePath, setGamePath] = useState(activeGame?.gamePath || '')
   const [modFolderPath, setModFolderPath] = useState(activeGame?.modFolderPath || '')
   const [modLoaderPath, setModLoaderPath] = useState(activeGame?.modLoaderPath || '')
@@ -344,6 +449,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   const allGames = appConfig?.games || config?.games || []
+  const activeMeta = TAB_METADATA[settingsTab]
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 select-none bg-surface/40">
@@ -359,8 +465,81 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </p>
         </div>
 
-        {/* 0. 界面主题与视觉风格 */}
-        <Card className="p-5 space-y-4">
+        {/* 顶部主 Tab 栏 */}
+        <div className="no-drag">
+          <SegmentedControl
+            items={SETTINGS_TABS}
+            value={settingsTab}
+            onChange={(val) => setSettingsTab(val as SettingsTab)}
+            size="md"
+            fullWidth
+          />
+        </div>
+
+        {/* Claude 风格 Context Banner (顶部概览与可展开详细指南) */}
+        <div className="relative overflow-hidden rounded-2xl bg-surface border border-border/80 p-5 shadow-cds-sm transition-all duration-200">
+          {/* 背景水印图标 */}
+          <div className="absolute -right-3 -bottom-3 text-primary/[0.05] dark:text-primary/[0.07] pointer-events-none select-none">
+            {activeMeta.icon}
+          </div>
+
+          <div className="relative z-10 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono font-bold tracking-widest text-primary uppercase px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                {activeMeta.kicker}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setShowGuide(!showGuide)}
+                className="inline-flex items-center space-x-1.5 text-xs font-medium text-text-muted hover:text-text px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-2/80 border border-border/60 transition cursor-pointer select-none active:scale-95"
+              >
+                <BookOpen className="w-3.5 h-3.5 align-neg-125 text-primary" />
+                <span>{showGuide ? '收起功能指南' : '功能指南与说明'}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                    showGuide ? 'rotate-180 text-primary' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-text tracking-tight text-balance-native">
+                {activeMeta.title}
+              </h3>
+              <p className="text-xs text-text-muted leading-relaxed mt-1 text-pretty-native max-w-2xl">
+                {activeMeta.description}
+              </p>
+            </div>
+
+            {/* 可展开详细说明抽屉 */}
+            {showGuide && (
+              <div className="pt-3.5 mt-3 border-t border-border/60 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs animate-in fade-in duration-200">
+                {activeMeta.guides.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl bg-surface-2/60 border border-border/60 space-y-1"
+                  >
+                    <div className="font-semibold text-text flex items-center space-x-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                      <span>{item.title}</span>
+                    </div>
+                    <p className="text-[11px] text-text-muted leading-relaxed pl-3 text-pretty-native">
+                      {item.desc}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ========== TAB 1: 外观与交互 ========== */}
+        {settingsTab === 'appearance' && (
+          <div className="space-y-6">
+            {/* 0. 界面主题与视觉风格 */}
+            <Card className="p-5 space-y-4">
           <div className="flex items-center space-x-2.5">
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Palette className="w-4 h-4" />
@@ -526,8 +705,142 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </Card>
 
-        {/* 0.5. 目标游戏显示与管理 */}
+        {/* 4. 窗口关闭与任务栏交互控制 */}
         <Card className="p-5 space-y-4">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+              <Sliders className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-text">窗口与任务栏交互控制</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                自定义关闭窗口时的行为，确保后台不留冗余进程或按需保持游戏内热键响应
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-1">
+            <label className="block text-xs font-semibold text-text">
+              点击窗口右上角关闭按钮 (✕) 时：
+            </label>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {/* 选项 1: 最小化到系统托盘 (默认推荐) */}
+              <button
+                type="button"
+                onClick={() => handleCloseActionChange('minimize_to_tray')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  closeAction === 'minimize_to_tray'
+                    ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
+                    : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
+                }`}
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-primary flex items-center justify-center shrink-0 shadow-2xs">
+                    <ArrowDownToLine className="w-5 h-5 align-neg-125" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-text flex items-center space-x-2">
+                      <span>最小化到系统托盘</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
+                        默认推荐
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
+                      主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                    closeAction === 'minimize_to_tray' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
+                  }`}
+                >
+                  {closeAction === 'minimize_to_tray' && (
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                  )}
+                </div>
+              </button>
+
+              {/* 选项 2: 彻底退出程序 */}
+              <button
+                type="button"
+                onClick={() => handleCloseActionChange('quit')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  closeAction === 'quit'
+                    ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
+                    : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
+                }`}
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-text-muted flex items-center justify-center shrink-0 shadow-2xs">
+                    <LogOut className="w-5 h-5 align-neg-125" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-text">彻底退出程序</div>
+                    <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
+                      关闭所有窗口并终止后台进程，立即完全释放系统与显存占用
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                    closeAction === 'quit' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
+                  }`}
+                >
+                  {closeAction === 'quit' && (
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                  )}
+                </div>
+              </button>
+            </div>
+
+            {/* 记住弹窗选项复选框 */}
+            <div className="flex items-center space-x-2.5 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  const next = !closePromptRemembered
+                  setClosePromptRemembered(next)
+                  await onUpdateAppConfig?.({ closePromptRemembered: next })
+                }}
+                className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
+                  !closePromptRemembered
+                    ? 'bg-primary border-primary text-primary-fg shadow-2xs'
+                    : 'border-border bg-surface-2 hover:border-primary/50'
+                }`}
+              >
+                {!closePromptRemembered && <Check className="w-3 h-3 stroke-[3]" />}
+              </button>
+              <span
+                className="text-xs text-text-muted hover:text-text cursor-pointer select-none text-pretty-native"
+                onClick={async () => {
+                  const next = !closePromptRemembered
+                  setClosePromptRemembered(next)
+                  await onUpdateAppConfig?.({ closePromptRemembered: next })
+                }}
+              >
+                点击右上角关闭按钮 (✕) 时弹出确认提示（取消勾选后将按上述选择直接执行）
+              </span>
+            </div>
+
+            {/* 任务栏与托盘状态说明提示 */}
+            <div className="mt-2 p-3 rounded-xl bg-surface-2/60 border border-border/70 flex items-start space-x-2.5 text-[11px] text-text-muted leading-relaxed">
+              <Info className="w-3.5 h-3.5 text-primary align-neg-125 shrink-0 mt-0.5" />
+              <span className="text-pretty-native">
+                设为最小化至托盘时，关闭后可在任务栏右下角托盘区找到图标；右键可呼出快捷菜单。可在顶部「功能指南与说明」中查看完整说明。
+              </span>
+            </div>
+          </div>
+        </Card>
+      </div>
+    )}
+
+        {/* ========== TAB 2: 游戏与路径 ========== */}
+        {settingsTab === 'games_paths' && (
+          <div className="space-y-6">
+            {/* 0.5. 目标游戏显示与管理 */}
+            <Card className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
               <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
@@ -602,8 +915,116 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </Card>
 
-        {/* 1. 3DMigoto / XXMI 运行环境诊断与一键部署 */}
-        <Card className="p-5 space-y-4">
+        {/* 3. 路径配置表单 */}
+        <form onSubmit={handleSave} className="space-y-4">
+          <Card className="p-5 space-y-4">
+            <h3 className="text-sm font-bold text-text flex items-center space-x-2">
+              <Folder className="w-4 h-4 text-primary" />
+              <span>路径详细配置</span>
+            </h3>
+
+            <div>
+              <label className="block text-xs font-semibold text-text mb-1.5">
+                游戏本体可执行文件路径 (Game Executable)
+              </label>
+              <Input
+                value={gamePath}
+                onChange={(e) => setGamePath(e.target.value)}
+                placeholder="例如：E:\Games\ZenlessZoneZero\ZenlessZoneZero.exe"
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text mb-1.5">
+                Mod 目录路径 (Mods Folder)
+              </label>
+              <Input
+                value={modFolderPath}
+                onChange={(e) => setModFolderPath(e.target.value)}
+                placeholder="例如：F:\XXMI\ZZMI\Mods"
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text mb-1.5">
+                XXMI / 3DMigoto 加载器路径 (Mod Loader)
+              </label>
+              <Input
+                value={modLoaderPath}
+                onChange={(e) => setModLoaderPath(e.target.value)}
+                placeholder="例如：F:\XXMI\Resources\Bin\XXMI Launcher.exe"
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-xs font-semibold text-text mb-1.5">
+                  游戏启动调起模式 (Launch Mode)
+                </label>
+                <Select
+                  value={launchMode || getDerivedLaunchMode(activeGame)}
+                  onChange={(val) => setLaunchMode(String(val))}
+                  options={(() => {
+                    const defaultMode = activeGame?.id === 'zzz' ? 'ZZMI' : activeGame?.id === 'endfield' ? 'EFMI' : activeGame?.id === 'wuthering-waves' ? 'WWMI' : activeGame?.id === 'honkai-star-rail' ? 'SRMI' : 'XXMI'
+                    const supported: string[] = activeGame?.supportedLaunchModes || [defaultMode]
+                    const all = Array.from(new Set([...supported, 'VANILLA']))
+                    return all.map((m) => {
+                      let label = m
+                      if (m === 'ZZMI') label = 'ZZMI 加载器模式 (绝区零推荐 · 自动注入 Mod)'
+                      else if (m === 'EFMI') label = 'EFMI 加载器模式 (终末地推荐 · 自动注入 Mod)'
+                      else if (m === 'WWMI') label = 'WWMI 加载器模式 (鸣潮推荐 · 自动注入 Mod)'
+                      else if (m === 'SRMI') label = 'SRMI 加载器模式 (星铁推荐 · 自动注入 Mod)'
+                      else if (m === 'NEMI') label = 'NEMI 加载器模式 (异环专属)'
+                      else if (m === 'XXMI') label = 'XXMI 通用加载器模式'
+                      else if (m === 'VANILLA') label = 'VANILLA 原生直启 (原版游戏，不注入 Mod)'
+                      return { value: m, label }
+                    })
+                  })()}
+                  className="w-full"
+                  popupClassName="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text mb-1.5">
+                  附加命令行参数 (可选)
+                </label>
+                <Input
+                  value={launchArgs}
+                  onChange={(e) => setLaunchArgs(e.target.value)}
+                  placeholder="例如：-screen-fullscreen 1"
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+          </Card>
+
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-xs font-mono text-text-muted">
+              * 路径变更将在点击保存后生效并重新检测环境
+            </span>
+
+            <Button
+              type="submit"
+              variant={saved ? 'secondary' : 'primary'}
+              size="md"
+              icon={saved ? <Check className="w-4 h-4 stroke-[2.5]" /> : <Save className="w-4 h-4" />}
+            >
+              {saved ? '已保存设置！' : '保存路径与配置'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    )}
+
+        {/* ========== TAB 3: 环境与修复 ========== */}
+        {settingsTab === 'environment' && (
+          <div className="space-y-6">
+            {/* 1. 3DMigoto / XXMI 运行环境诊断与一键部署 */}
+            <Card className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
               <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
@@ -940,267 +1361,33 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           </div>
         </Card>
+      </div>
+    )}
 
-        {/* 3. 路径配置表单 */}
-        <form onSubmit={handleSave} className="space-y-4">
-          <Card className="p-5 space-y-4">
-            <h3 className="text-sm font-bold text-text flex items-center space-x-2">
-              <Folder className="w-4 h-4 text-primary" />
-              <span>路径详细配置</span>
-            </h3>
-
-            <div>
-              <label className="block text-xs font-semibold text-text mb-1.5">
-                游戏本体可执行文件路径 (Game Executable)
-              </label>
-              <Input
-                value={gamePath}
-                onChange={(e) => setGamePath(e.target.value)}
-                placeholder="例如：E:\Games\ZenlessZoneZero\ZenlessZoneZero.exe"
-                className="font-mono text-xs"
-              />
+        {/* 底部品牌与关于 (全 Tab 共享) */}
+        <div className="flex items-center justify-between p-4 rounded-xl bg-surface border border-border/80 shadow-2xs">
+          <div className="flex items-center space-x-3.5">
+            <div className="rounded-[10px] shadow-2xs overflow-hidden">
+              <Logo size={38} />
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text mb-1.5">
-                Mod 目录路径 (Mods Folder)
-              </label>
-              <Input
-                value={modFolderPath}
-                onChange={(e) => setModFolderPath(e.target.value)}
-                placeholder="例如：F:\XXMI\ZZMI\Mods"
-                className="font-mono text-xs"
-              />
+            <div className="flex flex-col">
+              <span className="font-title font-extrabold text-sm tracking-wide text-text uppercase">
+                LZ MANAGER PRO
+              </span>
+              <span className="text-[11px] text-text-muted">
+                现代化 3DMigoto / XXMI 游戏模组管理器 · 绝区零专属
+              </span>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text mb-1.5">
-                XXMI / 3DMigoto 加载器路径 (Mod Loader)
-              </label>
-              <Input
-                value={modLoaderPath}
-                onChange={(e) => setModLoaderPath(e.target.value)}
-                placeholder="例如：F:\XXMI\Resources\Bin\XXMI Launcher.exe"
-                className="font-mono text-xs"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <div>
-                <label className="block text-xs font-semibold text-text mb-1.5">
-                  游戏启动调起模式 (Launch Mode)
-                </label>
-                <Select
-                  value={launchMode || getDerivedLaunchMode(activeGame)}
-                  onChange={(val) => setLaunchMode(String(val))}
-                  options={(() => {
-                    const defaultMode = activeGame?.id === 'zzz' ? 'ZZMI' : activeGame?.id === 'endfield' ? 'EFMI' : activeGame?.id === 'wuthering-waves' ? 'WWMI' : activeGame?.id === 'honkai-star-rail' ? 'SRMI' : 'XXMI'
-                    const supported: string[] = activeGame?.supportedLaunchModes || [defaultMode]
-                    const all = Array.from(new Set([...supported, 'VANILLA']))
-                    return all.map((m) => {
-                      let label = m
-                      if (m === 'ZZMI') label = 'ZZMI 加载器模式 (绝区零推荐 · 自动注入 Mod)'
-                      else if (m === 'EFMI') label = 'EFMI 加载器模式 (终末地推荐 · 自动注入 Mod)'
-                      else if (m === 'WWMI') label = 'WWMI 加载器模式 (鸣潮推荐 · 自动注入 Mod)'
-                      else if (m === 'SRMI') label = 'SRMI 加载器模式 (星铁推荐 · 自动注入 Mod)'
-                      else if (m === 'NEMI') label = 'NEMI 加载器模式 (异环专属)'
-                      else if (m === 'XXMI') label = 'XXMI 通用加载器模式'
-                      else if (m === 'VANILLA') label = 'VANILLA 原生直启 (原版游戏，不注入 Mod)'
-                      return { value: m, label }
-                    })
-                  })()}
-                  className="w-full"
-                  popupClassName="w-full"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-text mb-1.5">
-                  附加命令行参数 (可选)
-                </label>
-                <Input
-                  value={launchArgs}
-                  onChange={(e) => setLaunchArgs(e.target.value)}
-                  placeholder="例如：-screen-fullscreen 1"
-                  className="font-mono text-xs"
-                />
-              </div>
-            </div>
-          </Card>
-
-          {/* 4. 窗口关闭与任务栏交互控制 */}
-          <Card className="p-5 space-y-4">
-            <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
-                <Sliders className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-text">窗口与任务栏交互控制</h3>
-                <p className="text-xs text-text-muted mt-0.5">
-                  自定义关闭窗口时的行为，确保后台不留冗余进程或按需保持游戏内热键响应
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4 pt-1">
-              <label className="block text-xs font-semibold text-text">
-                点击窗口右上角关闭按钮 (✕) 时：
-              </label>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {/* 选项 1: 最小化到系统托盘 (默认推荐) */}
-                <button
-                  type="button"
-                  onClick={() => handleCloseActionChange('minimize_to_tray')}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                    closeAction === 'minimize_to_tray'
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
-                      : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
-                  }`}
-                >
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-primary flex items-center justify-center shrink-0 shadow-2xs">
-                      <ArrowDownToLine className="w-5 h-5 align-neg-125" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-text flex items-center space-x-2">
-                        <span>最小化到系统托盘</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
-                          默认推荐
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
-                        主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗
-                      </p>
-                    </div>
-                  </div>
-                  <div
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                      closeAction === 'minimize_to_tray' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
-                    }`}
-                  >
-                    {closeAction === 'minimize_to_tray' && (
-                      <div className="w-2 h-2 rounded-full bg-primary" />
-                    )}
-                  </div>
-                </button>
-
-                {/* 选项 2: 彻底退出程序 */}
-                <button
-                  type="button"
-                  onClick={() => handleCloseActionChange('quit')}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                    closeAction === 'quit'
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
-                      : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
-                  }`}
-                >
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-text-muted flex items-center justify-center shrink-0 shadow-2xs">
-                      <LogOut className="w-5 h-5 align-neg-125" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-text">彻底退出程序</div>
-                      <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
-                        关闭所有窗口并终止后台进程，立即完全释放系统与显存占用
-                      </p>
-                    </div>
-                  </div>
-                  <div
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                      closeAction === 'quit' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
-                    }`}
-                  >
-                    {closeAction === 'quit' && (
-                      <div className="w-2 h-2 rounded-full bg-primary" />
-                    )}
-                  </div>
-                </button>
-              </div>
-
-              {/* 记住弹窗选项复选框 */}
-              <div className="flex items-center space-x-2.5 pt-1">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const next = !closePromptRemembered
-                    setClosePromptRemembered(next)
-                    await onUpdateAppConfig?.({ closePromptRemembered: next })
-                  }}
-                  className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
-                    !closePromptRemembered
-                      ? 'bg-primary border-primary text-primary-fg shadow-2xs'
-                      : 'border-border bg-surface-2 hover:border-primary/50'
-                  }`}
-                >
-                  {!closePromptRemembered && <Check className="w-3 h-3 stroke-[3]" />}
-                </button>
-                <span
-                  className="text-xs text-text-muted hover:text-text cursor-pointer select-none text-pretty-native"
-                  onClick={async () => {
-                    const next = !closePromptRemembered
-                    setClosePromptRemembered(next)
-                    await onUpdateAppConfig?.({ closePromptRemembered: next })
-                  }}
-                >
-                  点击右上角关闭按钮 (✕) 时弹出确认提示（取消勾选后将按上述选择直接执行）
-                </span>
-              </div>
-
-              {/* 任务栏与托盘状态说明 */}
-              <div className="mt-2 p-4 rounded-xl bg-surface-2/60 border border-border/70 text-[11px] text-text-muted space-y-2 leading-relaxed">
-                <div className="flex items-center space-x-2 text-text font-semibold">
-                  <Monitor className="w-3.5 h-3.5 text-primary align-neg-125" />
-                  <span>任务栏与系统托盘状态说明</span>
-                </div>
-                <div className="text-pretty-native">
-                  • <strong className="text-text">任务栏状态</strong>：点击顶栏最小化按钮 (<kbd className="px-1.5 py-0.5 bg-surface border border-border/80 rounded font-mono text-[10px] shadow-2xs">-</kbd>)，窗口缩入任务栏，保留图标且支持单次点击秒级唤醒。
-                </div>
-                <div className="text-pretty-native">
-                  • <strong className="text-text">系统托盘状态</strong>：当设置为最小化至系统托盘并点击关闭时，程序常驻在屏幕右下角托盘区（可在任务栏右下角 <kbd className="px-1.5 py-0.5 bg-surface border border-border/80 rounded font-mono text-[10px] shadow-2xs">^</kbd> 折叠箭头内查找）。
-                </div>
-                <div className="text-pretty-native">
-                  • <strong className="text-text">托盘右键菜单</strong>：右键系统托盘图标可一键唤起游戏悬浮窗、刷新 Mod (F10)、快速启动游戏或随时选择“彻底退出程序”。
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          {/* 5. 品牌与关于 */}
-          <div className="flex items-center justify-between p-4 rounded-card bg-surface border border-border/80 shadow-xs">
-            <div className="flex items-center space-x-3.5">
-              <div className="rounded-[10px] shadow-xs overflow-hidden">
-                <Logo size={38} />
-              </div>
-              <div className="flex flex-col">
-                <span className="font-title font-extrabold text-sm tracking-wide text-text uppercase">
-                  LZ MANAGER PRO
-                </span>
-                <span className="text-[11px] text-text-muted">
-                  现代化 3DMigoto / XXMI 游戏模组管理器 · 绝区零专属
-                </span>
-              </div>
-            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            <span className="text-[11px] font-mono text-text-muted hidden sm:inline">
+              双向兼容 QAQManager
+            </span>
             <Badge variant="default" className="font-mono text-[11px] px-2 py-0.5">
               v1.0.0
             </Badge>
           </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-xs font-mono text-text-muted">
-              * 设置会自动与原版 QAQManager 配置文件保持双向兼容同步
-            </span>
-
-            <Button
-              type="submit"
-              variant={saved ? 'secondary' : 'primary'}
-              size="md"
-              icon={saved ? <Check className="w-4 h-4 stroke-[2.5]" /> : <Save className="w-4 h-4" />}
-            >
-              {saved ? '已保存设置！' : '保存设置'}
-            </Button>
-          </div>
-        </form>
+        </div>
       </div>
 
       <Modal
