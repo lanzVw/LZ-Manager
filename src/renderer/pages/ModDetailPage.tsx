@@ -1365,11 +1365,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 </div>
                 <div className="flex items-center space-x-2">
                   <h4 className="text-xs font-semibold text-text">外观分区</h4>
-                  {details.appearanceSectionId && details.appearanceSectionId !== 'base' && (
-                    <Badge variant="primary" size="sm" className="text-[10px]">
-                      {sections.find((s) => s.sectionId === details.appearanceSectionId)?.official ? '官方皮肤' : '自定义分区'}
-                    </Badge>
-                  )}
+                  {details.appearanceSectionId &&
+                    details.appearanceSectionId !== 'base' &&
+                    !sections.find((s) => s.sectionId === details.appearanceSectionId)?.official && (
+                      <Badge variant="default" size="sm" className="text-[10px]">
+                        自定义分区
+                      </Badge>
+                    )}
                 </div>
               </div>
 
@@ -1381,8 +1383,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   options={sections.map((s) => ({
                     value: s.sectionId,
                     label: s.name,
-                    description: `${s.enabledCount || 0} 启用 · ${s.totalCount || 0} Mod`,
-                    icon: <Layers className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                    description: `${s.enabledCount || 0} 启用 · ${s.totalCount || 0} Mod`
                   }))}
                   className="w-full"
                   popupClassName="w-64"

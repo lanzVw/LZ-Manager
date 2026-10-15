@@ -1130,7 +1130,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                   <span>外观分区</span>
                 </span>
                 <span className="text-[11px] text-text-muted">
-                  {officialSections.length} 官方皮肤 · {sections.length} 个分区
+                  共 {sections.length} 个分区
                 </span>
                 {selectedSectionId !== 'all' && (
                   <button
@@ -1224,10 +1224,9 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                         <span className="text-xs font-title font-bold truncate" title={sec.name}>
                           {sec.name}
                         </span>
-                        <div className="flex items-center space-x-1 mt-0.5">
-                          <span className="text-[9px] px-1 py-0.2 rounded bg-primary/15 text-primary font-bold shrink-0">官方皮肤</span>
-                          <span className="text-[10px] text-text-muted truncate">{sec.nameEn || ''}</span>
-                        </div>
+                        <span className="text-[10px] text-text-muted truncate mt-0.5" title={sec.nameEn || ''}>
+                          {sec.nameEn || ''}
+                        </span>
                         <span className="text-[10px] text-text-muted mt-0.5 font-mono">
                           <span className={(sec.enabledCount || 0) > 0 ? 'font-bold text-emerald-600' : ''}>
                             {sec.enabledCount || 0}
