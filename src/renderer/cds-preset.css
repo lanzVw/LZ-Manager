@@ -1,0 +1,340 @@
+/* ==========================================================================
+   Claude Design System (CDS) 预设令牌与基础设施基座
+   ========================================================================== */
+
+:root {
+  /* Brand Clay 品牌陶土色系 */
+  --cds-clay: #d97757;
+  --cds-clay-hover: #cc5a36;
+  --cds-clay-light: #fbf3ef;
+
+  /* 4层表面系统（浅色模式） */
+  --cds-surface-0: #f5f5f3;
+  --cds-surface-1: #fcfcfb;
+  --cds-surface-2: #ffffff;
+  --cds-surface-3: #ffffff;
+
+  /* 暖灰阶梯 (Warm Gray Scale) */
+  --cds-gray-0: #ffffff;
+  --cds-gray-50: #fafaf9;
+  --cds-gray-100: #f5f5f3;
+  --cds-gray-200: #e8e8e5;
+  --cds-gray-300: #d6d6d2;
+  --cds-gray-400: #a3a39e;
+  --cds-gray-500: #73736c;
+  --cds-gray-600: #52524d;
+  --cds-gray-700: #3f3f3b;
+  --cds-gray-800: #262624;
+  --cds-gray-900: #141413;
+
+  /* 动效令牌 */
+  --cds-dur-fast: 60ms;
+  --cds-dur-normal: 150ms;
+  --cds-dur-slow: 450ms;
+
+  /* 二阶贝塞尔曲线 */
+  --cds-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --cds-ease-snap: cubic-bezier(0.2, 0, 0, 1);
+  --cds-ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* 标度因子 */
+  --cds-rem-scale: calc(16 / 17);
+}
+
+.dark,
+[data-theme="dark"] {
+  /* 4层表面系统（深色模式） */
+  --cds-surface-0: #0b0b0a;
+  --cds-surface-1: #151515;
+  --cds-surface-2: #1a1a19;
+  --cds-surface-3: #20201e;
+
+  /* 暖灰阶梯（深色反转适配） */
+  --cds-gray-0: #141413;
+  --cds-gray-50: #262624;
+  --cds-gray-100: #3f3f3b;
+  --cds-gray-200: #52524d;
+  --cds-gray-300: #73736c;
+  --cds-gray-400: #a3a39e;
+  --cds-gray-500: #d6d6d2;
+  --cds-gray-600: #e8e8e5;
+  --cds-gray-700: #f5f5f3;
+  --cds-gray-800: #fafaf9;
+  --cds-gray-900: #ffffff;
+}
+
+/* ==========================================================================
+   光学排版与基线对齐工具类
+   ========================================================================== */
+
+.align-neg-125 {
+  vertical-align: -0.125em;
+  display: inline-block;
+  flex-shrink: 0;
+  shrink: 0;
+}
+
+.align-neg-075 {
+  vertical-align: -0.075em;
+  display: inline-block;
+  flex-shrink: 0;
+  shrink: 0;
+}
+
+.align-neg-1px {
+  vertical-align: -1px;
+  display: inline-block;
+  flex-shrink: 0;
+  shrink: 0;
+}
+
+.align-neg-2px {
+  vertical-align: -2px;
+  display: inline-block;
+  flex-shrink: 0;
+  shrink: 0;
+}
+
+.text-balance-native {
+  text-wrap: balance;
+}
+
+.text-pretty-native {
+  text-wrap: pretty;
+}
+
+.overflow-wrap-safe {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.tabular-nums-strict {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* 可变字体暗色视网膜光渗补偿 */
+body {
+  font-variation-settings: "wght" 500;
+}
+
+h1,
+h2,
+h3,
+h4,
+strong {
+  font-variation-settings: "wght" 600;
+}
+
+.dark body,
+[data-theme="dark"] body {
+  font-variation-settings: "wght" 460;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark strong,
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] strong {
+  font-variation-settings: "wght" 560;
+}
+
+/* ==========================================================================
+   CDS 阴影系统
+   ========================================================================== */
+
+.cds-composer-shadow {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.cds-composer-shadow:focus-within {
+  box-shadow: 0 0 0 1.5px var(--cds-clay, #d97757), 0 4px 12px rgba(217, 119, 87, 0.15);
+}
+
+.cds-shadow-sm {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.cds-shadow-md {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.cds-shadow-popover {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================================================
+   7阶非线性渐隐遮罩 (Quintic Smoothstep Mask)
+   ========================================================================== */
+
+.cds-scroll-fade-mask {
+  --cds-scroll-fade-top: 24px;
+  --cds-scroll-fade-bottom: 24px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.05) calc(var(--cds-scroll-fade-top) * 0.15),
+    rgba(0, 0, 0, 0.25) calc(var(--cds-scroll-fade-top) * 0.35),
+    rgba(0, 0, 0, 0.55) calc(var(--cds-scroll-fade-top) * 0.55),
+    rgba(0, 0, 0, 0.8) calc(var(--cds-scroll-fade-top) * 0.75),
+    rgba(0, 0, 0, 0.95) calc(var(--cds-scroll-fade-top) * 0.9),
+    black var(--cds-scroll-fade-top),
+    black calc(100% - var(--cds-scroll-fade-bottom)),
+    rgba(0, 0, 0, 0.95) calc(100% - var(--cds-scroll-fade-bottom) * 0.9),
+    rgba(0, 0, 0, 0.8) calc(100% - var(--cds-scroll-fade-bottom) * 0.75),
+    rgba(0, 0, 0, 0.55) calc(100% - var(--cds-scroll-fade-bottom) * 0.55),
+    rgba(0, 0, 0, 0.25) calc(100% - var(--cds-scroll-fade-bottom) * 0.35),
+    rgba(0, 0, 0, 0.05) calc(100% - var(--cds-scroll-fade-bottom) * 0.15),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.05) calc(var(--cds-scroll-fade-top) * 0.15),
+    rgba(0, 0, 0, 0.25) calc(var(--cds-scroll-fade-top) * 0.35),
+    rgba(0, 0, 0, 0.55) calc(var(--cds-scroll-fade-top) * 0.55),
+    rgba(0, 0, 0, 0.8) calc(var(--cds-scroll-fade-top) * 0.75),
+    rgba(0, 0, 0, 0.95) calc(var(--cds-scroll-fade-top) * 0.9),
+    black var(--cds-scroll-fade-top),
+    black calc(100% - var(--cds-scroll-fade-bottom)),
+    rgba(0, 0, 0, 0.95) calc(100% - var(--cds-scroll-fade-bottom) * 0.9),
+    rgba(0, 0, 0, 0.8) calc(100% - var(--cds-scroll-fade-bottom) * 0.75),
+    rgba(0, 0, 0, 0.55) calc(100% - var(--cds-scroll-fade-bottom) * 0.55),
+    rgba(0, 0, 0, 0.25) calc(100% - var(--cds-scroll-fade-bottom) * 0.35),
+    rgba(0, 0, 0, 0.05) calc(100% - var(--cds-scroll-fade-bottom) * 0.15),
+    transparent 100%
+  );
+}
+
+/* ==========================================================================
+   关键帧动画与动画工具类
+   ========================================================================== */
+
+/* 1. 字素显现动画 */
+@keyframes _grapheme-reveal_1plog_1 {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 2. 时间线静默脉冲点动效 */
+@keyframes timeline-quiet-dot {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.1);
+  }
+}
+
+.cds-quiet-dot-1 {
+  animation: timeline-quiet-dot 1.4s var(--cds-ease-out, ease-in-out) infinite;
+}
+
+.cds-quiet-dot-2 {
+  animation: timeline-quiet-dot 1.4s var(--cds-ease-out, ease-in-out) 0.2s infinite;
+}
+
+.cds-quiet-dot-3 {
+  animation: timeline-quiet-dot 1.4s var(--cds-ease-out, ease-in-out) 0.4s infinite;
+}
+
+/* 3. 时间线区块进入 */
+@keyframes timeline-block-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 4. 消息向上淡入 */
+@keyframes message-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 5. 用户代码气泡进入 */
+@keyframes code-user-bubble-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.98) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* 6. 文件缩略图生长载入 */
+@keyframes file-thumbnail-grow-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 7. 文件缩略图上传脉动 */
+@keyframes file-thumbnail-upload-pulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 8. 已保存对勾衰减动画 */
+@keyframes saved-check-decay {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* 9. 点击光圈扩散效果 */
+@keyframes click-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--cds-clay, #d97757) 40%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--cds-clay, #d97757) 0%, transparent);
+  }
+}

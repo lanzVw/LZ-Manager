@@ -17,6 +17,11 @@
           var saved = localStorage.getItem('lz-theme')
           var theme = saved || 'light'
           document.documentElement.setAttribute('data-theme', theme)
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark')
+          }
+          var palette = localStorage.getItem('lz-palette') || 'default'
+          document.documentElement.setAttribute('data-palette', palette)
           if (window.location.hash.indexOf('overlay') !== -1 || window.location.search.indexOf('overlay') !== -1) {
             document.documentElement.classList.add('overlay-mode')
           }

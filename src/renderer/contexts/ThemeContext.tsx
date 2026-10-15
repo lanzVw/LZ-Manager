@@ -1,16 +1,21 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
 export type Theme = 'light' | 'dark'
+export type Palette = 'default' | 'clay'
 
 interface ThemeContextType {
   theme: Theme
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
+  palette: Palette
+  setPalette: (palette: Palette) => void
+  togglePalette: () => void
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 const STORAGE_KEY = 'lz-theme'
+const PALETTE_STORAGE_KEY = 'lz-palette'
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
@@ -26,9 +31,23 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return 'light'
   })
 
+  const [palette, setPaletteState] = useState<Palette>(() => {
+    // 优先读取 DOM 已设置的调色板（index.html 早期注入），其次 localStorage，默认 default
+    const currentAttr = document.documentElement.getAttribute('data-palette') as Palette | null
+    if (currentAttr === 'default' || currentAttr === 'clay') {
+      return currentAttr
+    }
+    try {
+      const saved = localStorage.getItem(PALETTE_STORAGE_KEY) as Palette | null
+      if (saved === 'default' || saved === 'clay') return saved
+    } catch (_) {}
+    return 'default'
+  })
+
   const applyTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme)
     document.documentElement.setAttribute('data-theme', newTheme)
+    document.documentElement.classList.toggle('dark', newTheme === 'dark')
     try {
       localStorage.setItem(STORAGE_KEY, newTheme)
     } catch (_) {}
@@ -38,12 +57,29 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (_) {}
   }, [])
 
-  // 监听跨窗口的主题同步（主窗口与悬浮窗互相即时响应）
+  const applyPalette = useCallback((newPalette: Palette) => {
+    setPaletteState(newPalette)
+    document.documentElement.setAttribute('data-palette', newPalette)
+    try {
+      localStorage.setItem(PALETTE_STORAGE_KEY, newPalette)
+    } catch (_) {}
+    // 同步到 Electron 后台持久化配置
+    try {
+      ;(window.lz?.updateAppConfig as ((cfg: Record<string, unknown>) => void) | undefined)?.({ palette: newPalette })
+    } catch (_) {}
+  }, [])
+
+  // 监听跨窗口的主题与调色板同步（主窗口与悬浮窗互相即时响应）
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY && (e.newValue === 'light' || e.newValue === 'dark')) {
         setThemeState(e.newValue)
         document.documentElement.setAttribute('data-theme', e.newValue)
+        document.documentElement.classList.toggle('dark', e.newValue === 'dark')
+      }
+      if (e.key === PALETTE_STORAGE_KEY && (e.newValue === 'default' || e.newValue === 'clay')) {
+        setPaletteState(e.newValue)
+        document.documentElement.setAttribute('data-palette', e.newValue)
       }
     }
     window.addEventListener('storage', handleStorage)
@@ -79,9 +115,20 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     applyTheme(theme === 'light' ? 'dark' : 'light')
   }, [theme, applyTheme])
 
+  const togglePalette = useCallback(() => {
+    applyPalette(palette === 'default' ? 'clay' : 'default')
+  }, [palette, applyPalette])
+
   const contextValue = useMemo(
-    () => ({ theme, setTheme: applyTheme, toggleTheme }),
-    [theme, applyTheme, toggleTheme]
+    () => ({
+      theme,
+      setTheme: applyTheme,
+      toggleTheme,
+      palette,
+      setPalette: applyPalette,
+      togglePalette,
+    }),
+    [theme, applyTheme, toggleTheme, palette, applyPalette, togglePalette]
   )
 
   return (
