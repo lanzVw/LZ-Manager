@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { X, AlertTriangle, Info, CheckCircle2 } from 'lucide-react'
+import { X, AlertTriangle, Info } from 'lucide-react'
 import { Button } from './Button'
 
 // 容器内可聚焦元素选择器（排除禁用与显式 tabindex=-1 的元素）
@@ -104,11 +104,11 @@ export const Modal: React.FC<ModalProps> = ({
   const getIcon = () => {
     switch (variant) {
       case 'danger':
-        return <AlertTriangle className="w-5 h-5 text-danger" />
+        return <AlertTriangle className="w-5 h-5 text-danger shrink-0 align-neg-125" />
       case 'warning':
-        return <AlertTriangle className="w-5 h-5 text-amber-500" />
+        return <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 align-neg-125" />
       case 'info':
-        return <Info className="w-5 h-5 text-primary" />
+        return <Info className="w-5 h-5 text-primary shrink-0 align-neg-125" />
       default:
         return null
     }
@@ -117,7 +117,7 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <div
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-fast"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 dark:bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-150"
     >
       <div
         ref={contentRef}
@@ -127,28 +127,28 @@ export const Modal: React.FC<ModalProps> = ({
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
         tabIndex={-1}
-        className={`bg-surface border border-border rounded-xl shadow-2xl w-full ${maxWidth} p-6 space-y-4 animate-in zoom-in-95 duration-fast text-text select-none outline-none ${className || ''}`}
+        className={`bg-surface border border-border/80 rounded-2xl shadow-popover w-full ${maxWidth} p-6 space-y-4 animate-in zoom-in-95 duration-150 text-text select-none outline-none ${className || ''}`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border pb-3">
+        <div className="flex items-center justify-between border-b border-border/80 pb-3">
           <div className="flex items-center space-x-2.5">
             {getIcon()}
-            {title && <h3 className="text-sm font-bold text-text">{title}</h3>}
+            {title && <h3 className="text-sm font-bold text-text text-balance-native">{title}</h3>}
           </div>
           <button
             type="button"
             onClick={handleCloseRequest}
             disabled={loading}
             aria-label="关闭"
-            className="p-1 rounded-control text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-1.5 rounded-md text-text-muted hover:text-text hover:bg-surface-2 transition-all duration-[80ms] ease-[cubic-bezier(.16,1,.3,1)] active:scale-[0.96] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4 shrink-0 align-neg-125" />
           </button>
         </div>
 
         {/* Content */}
         {description && (
-          <p className="text-xs text-text-muted leading-relaxed whitespace-pre-wrap">
+          <p className="text-xs text-text-muted leading-relaxed text-pretty-native whitespace-pre-wrap">
             {description}
           </p>
         )}
@@ -156,7 +156,7 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Footer */}
         {(onConfirm || cancelText) && (
-          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-border">
+          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-border/80">
             {cancelText && (
               <Button variant="secondary" size="sm" onClick={handleCloseRequest} disabled={loading}>
                 {cancelText}
