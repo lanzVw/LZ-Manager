@@ -266,7 +266,7 @@ const flairxApi = {
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),
   hideToTray: () => ipcRenderer.invoke('window:hideToTray'),
-  close: () => ipcRenderer.invoke('window:close'),
+  close: (action?: 'quit' | 'minimize_to_tray') => ipcRenderer.invoke('window:close', action),
   openExternalUrl: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   // Electron 32+ 已移除 File.path，拖拽文件路径必须经 webUtils 获取

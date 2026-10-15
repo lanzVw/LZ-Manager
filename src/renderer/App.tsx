@@ -245,6 +245,7 @@ export default function App() {
         activeGame={activeGame}
         games={config?.games || []}
         closeAction={config?.closeAction || 'quit'}
+        closePromptRemembered={config?.closePromptRemembered ?? false}
         launchingGame={launchingGame}
         onSelectGame={handleSelectGame}
         onLaunchGame={handleLaunchGame}

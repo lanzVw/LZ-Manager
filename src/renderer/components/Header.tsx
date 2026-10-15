@@ -12,7 +12,6 @@ import {
   Zap,
   Gamepad2,
   ChevronDown,
-  ArrowDownToLine,
   Sun,
   Moon
 } from 'lucide-react'
@@ -20,6 +19,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from './Logo'
 import { Select } from './ui/Select'
 import { SegmentedControl } from './ui/SegmentedControl'
+import { CloseConfirmModal } from './ui/CloseConfirmModal'
 
 import zzzLogo from '../assets/games/zzz_logo.png'
 import endfieldLogo from '../assets/games/endfield_logo.png'
@@ -51,6 +51,7 @@ interface HeaderProps {
   activeGame: any
   games: any[]
   closeAction?: 'quit' | 'minimize_to_tray'
+  closePromptRemembered?: boolean
   launchingGame?: boolean
   onSelectGame: (gameId: string) => void
   onLaunchGame: () => void
@@ -64,6 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeGame,
   games,
   closeAction = 'quit',
+  closePromptRemembered = false,
   launchingGame = false,
   onSelectGame,
   onLaunchGame,
@@ -72,7 +74,16 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme, palette } = useTheme()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showCloseModal, setShowCloseModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const handleCloseClick = () => {
+    if (closePromptRemembered) {
+      window.flairx.close(closeAction)
+    } else {
+      setShowCloseModal(true)
+    }
+  }
 
   const getThemeToggleTitle = () => {
     if (theme === 'dark') {
@@ -287,19 +298,9 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="h-4 w-[1px] bg-border mx-0.5" />
 
-        {/* Window Controls: 托盘收起、任务栏最小化、最大化、彻底关闭 */}
+        {/* Window Controls: 任务栏最小化、最大化、关闭 */}
         <div className="flex items-center space-x-0.5 bg-surface-2 border border-border rounded-control p-0.5">
-          {/* 1. 收起至托盘 (后台运行) */}
-          <button
-            type="button"
-            onClick={() => window.flairx.hideToTray()}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface text-text-muted hover:text-text transition cursor-pointer"
-            title="收起至系统托盘 (保持后台运行，Ctrl+F 游戏悬浮窗可用)"
-          >
-            <ArrowDownToLine className="w-3.5 h-3.5" />
-          </button>
-
-          {/* 2. 最小化到任务栏 (保留任务栏图标) */}
+          {/* 1. 最小化到任务栏 (保留任务栏图标) */}
           <button
             type="button"
             onClick={() => window.flairx.minimize()}
@@ -309,7 +310,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Minus className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. 最大化 / 还原 */}
+          {/* 2. 最大化 / 还原 */}
           <button
             type="button"
             onClick={() => window.flairx.maximize()}
@@ -319,10 +320,10 @@ export const Header: React.FC<HeaderProps> = ({
             <Square className="w-3 h-3" />
           </button>
 
-          {/* 4. 彻底退出程序 / 关闭 */}
+          {/* 3. 关闭窗口 */}
           <button
             type="button"
-            onClick={() => window.flairx.close()}
+            onClick={handleCloseClick}
             className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-rose-600 text-text-muted hover:text-white transition cursor-pointer"
             title={
               closeAction === 'minimize_to_tray'
@@ -334,6 +335,24 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </div>
+
+      <CloseConfirmModal
+        isOpen={showCloseModal}
+        onClose={() => setShowCloseModal(false)}
+        initialAction={closeAction}
+        onConfirm={async (action, remember) => {
+          setShowCloseModal(false)
+          if (remember) {
+            try {
+              await window.flairx.updateAppConfig({
+                closeAction: action,
+                closePromptRemembered: true
+              })
+            } catch (_) {}
+          }
+          window.flairx.close(action)
+        }}
+      />
     </header>
   )
 }

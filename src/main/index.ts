@@ -428,6 +428,7 @@ function setupIpc() {
   const APP_CONFIG_KEYS = new Set([
     'activeGameId', 'characterUsage', 'serverUrl', 'enableOptionAExclusive',
     'overlayHotkey', 'persistBridgeEnabled', 'persistBridgeCacheSize', 'closeAction',
+    'closePromptRemembered',
     'theme', 'palette', 'characterSectionsByGame'
   ])
   const GAME_CONFIG_KEYS = new Set([
@@ -1469,8 +1470,8 @@ function setupIpc() {
       trayManager?.notifyHiddenToTray()
     }
   })
-  ipcMain.handle('window:close', () => {
-    const closeAction = configStore.getConfig().closeAction || 'quit'
+  ipcMain.handle('window:close', (_event, action?: 'quit' | 'minimize_to_tray') => {
+    const closeAction = action || configStore.getConfig().closeAction || 'quit'
     if (closeAction === 'minimize_to_tray') {
       if (mainWindow) {
         mainWindow.hide()

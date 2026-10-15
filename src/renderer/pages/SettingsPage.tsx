@@ -104,6 +104,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [closeAction, setCloseAction] = useState<'quit' | 'minimize_to_tray'>(
     config?.closeAction || 'quit'
   )
+  const [closePromptRemembered, setClosePromptRemembered] = useState<boolean>(
+    config?.closePromptRemembered ?? false
+  )
   const [appConfig, setAppConfig] = useState<any>(config)
 
   // 运行环境检测与一键部署状态
@@ -195,6 +198,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           typeof cfg.persistBridgeCacheSize === 'number' ? cfg.persistBridgeCacheSize : 12
         )
         setCloseAction(cfg.closeAction || 'quit')
+        setClosePromptRemembered(cfg.closePromptRemembered ?? false)
       }
     } catch (_) {}
   }
@@ -205,7 +209,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setModLoaderPath(activeGame?.modLoaderPath || '')
     setLaunchMode(activeGame?.launchMode || getDerivedLaunchMode(activeGame))
     setLaunchArgs(activeGame?.launchArgs || '')
-    if (config) setAppConfig(config)
+    if (config) {
+      setAppConfig(config)
+      setClosePromptRemembered(config.closePromptRemembered ?? false)
+    }
     loadEnvironmentStatus()
     loadAppConfig()
     loadFixStatus()
@@ -1101,6 +1108,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </button>
               </div>
 
+              <label className="flex items-center space-x-2 text-xs text-text-muted hover:text-text cursor-pointer select-none mt-3">
+                <input
+                  type="checkbox"
+                  checked={!closePromptRemembered}
+                  onChange={async (e) => {
+                    const prompt = e.target.checked
+                    setClosePromptRemembered(!prompt)
+                    await onUpdateAppConfig?.({ closePromptRemembered: !prompt })
+                  }}
+                  className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/40 cursor-pointer"
+                />
+                <span>点击右上角关闭按钮 (X) 时弹出确认提示</span>
+              </label>
+
               {/* 任务栏与托盘状态说明 */}
               <div className="mt-3 p-3.5 rounded-control bg-surface-2 border border-border text-[11px] text-text-muted space-y-1.5 font-sans leading-relaxed">
                 <div className="flex items-center space-x-1.5 text-text font-semibold">
@@ -1111,7 +1132,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   • <strong className="text-text">任务栏状态</strong>：点击最小化按钮 (<kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono text-[10px]">-</kbd>)，窗口缩入 Windows 任务栏，任务栏图标持续保留，单次左键点击即可瞬间还原主界面。
                 </div>
                 <div>
-                  • <strong className="text-text">系统托盘状态</strong>：点击顶部托盘收起按钮 (<kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono text-[10px]">⤓</kbd>) 或设为最小化至托盘时，程序收纳在屏幕右下角托盘区（可在任务栏右下角 <kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono text-[10px]">^</kbd> 折叠箭头内查找）。
+                  • <strong className="text-text">系统托盘状态</strong>：当设置为最小化至系统托盘并点击关闭时，程序收纳在屏幕右下角托盘区（可在任务栏右下角 <kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono text-[10px]">^</kbd> 折叠箭头内查找）。
                 </div>
                 <div>
                   • <strong className="text-text">托盘右键菜单</strong>：右键系统托盘图标可一键呼出游戏悬浮窗、刷新 Mod (F10)、启动游戏或随时选择“彻底退出程序”。
