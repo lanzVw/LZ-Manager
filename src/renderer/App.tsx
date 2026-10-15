@@ -87,6 +87,19 @@ export default function App() {
     }
   }, [loadConfig])
 
+  // 监听来自系统托盘或主进程的页面导航跳转（如托盘菜单点击「系统设置...」）
+  useEffect(() => {
+    const unsub = window.flairx.onNavigate?.((tab: string) => {
+      if (tab) {
+        setSelectedModPath(null)
+        setActiveTab(tab)
+      }
+    })
+    return () => {
+      unsub?.()
+    }
+  }, [])
+
   // 全局本地压缩包拖拽导入监听 (.zip / .7z / .rar)
   useEffect(() => {
     // 穿过子元素时 dragenter/dragleave 会成对触发，用计数器避免遮罩闪烁

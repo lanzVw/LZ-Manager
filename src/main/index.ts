@@ -284,6 +284,10 @@ function broadcastGameChanged(origin: 'manual' | 'auto-focus' | 'fix' = 'manual'
       overlayWin.webContents.send('game:changed', payload)
     }
   } catch (_) {}
+
+  try {
+    trayManager?.updateContextMenu()
+  } catch (_) {}
 }
 
 overlayManager.setOnAutoSwitchGame((matchedGame: any) => {
@@ -1507,15 +1511,24 @@ if (app) {
     if (mainWindow) {
       try {
         trayManager = new TrayManager(mainWindow, {
-        onToggleOverlay: () => overlayManager.toggleOverlay(),
-        onReloadModsF10: () => dispatchReloadF10({ applyEchoGuard: false }),
-        onLaunchGame: async () => {
-          const g = configStore.getActiveGame()
-          if (g) {
-            await gameLauncher.launchGame(g)
-          }
-        },
-        getCloseAction: () => configStore.getConfig().closeAction || 'minimize_to_tray'
+          onToggleOverlay: () => overlayManager.toggleOverlay(),
+          onReloadModsF10: () => dispatchReloadF10({ applyEchoGuard: false }),
+          onLaunchGame: async () => {
+            const g = configStore.getActiveGame()
+            if (g) {
+              await gameLauncher.launchGame(g)
+            }
+          },
+          getActiveGame: () => configStore.getActiveGame() || null,
+          getAllGames: () => configStore.getConfig().games || [],
+          onSwitchGame: (gameId) => applyActiveGame(gameId, 'manual'),
+          onOpenSettings: () => {
+            if (mainWindow) {
+              trayManager?.showMainWindow()
+              mainWindow.webContents.send('app:navigate', 'settings')
+            }
+          },
+          getCloseAction: () => configStore.getConfig().closeAction || 'minimize_to_tray'
         })
       } catch (trayErr) {
         console.warn('[LZ Main] TrayManager init failed, continue without tray:', trayErr)

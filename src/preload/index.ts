@@ -261,6 +261,11 @@ const flairxApi = {
     ipcRenderer.on('overlay:shown', listener)
     return () => ipcRenderer.removeListener('overlay:shown', listener)
   },
+  onNavigate: (callback: (tab: string) => void) => {
+    const listener = (_: any, tab: string) => callback(tab)
+    ipcRenderer.on('app:navigate', listener)
+    return () => ipcRenderer.removeListener('app:navigate', listener)
+  },
 
   // Window & System Controls
   minimize: () => ipcRenderer.invoke('window:minimize'),
