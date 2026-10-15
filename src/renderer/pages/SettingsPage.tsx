@@ -460,9 +460,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <Settings className="w-5 h-5 text-primary" />
             <span>系统与环境设置 · {activeGame?.name}</span>
           </h2>
-          <p className="text-xs text-text-muted mt-1">
-            配置界面外观主题、游戏可执行文件、Mods 存放目录以及 3DMigoto / XXMI 环境
-          </p>
         </div>
 
         {/* 顶部主 Tab 栏 */}
@@ -544,12 +541,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Palette className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-text">界面主题与视觉风格</h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                选择软件视觉体系；可通过顶栏右上角快捷切换浅色与黑夜模式
-              </p>
-            </div>
+            <h3 className="text-sm font-bold text-text">界面主题与视觉风格</h3>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
@@ -711,12 +703,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Sliders className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-text">窗口与任务栏交互控制</h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                自定义关闭窗口时的行为，确保后台不留冗余进程或按需保持游戏内热键响应
-              </p>
-            </div>
+            <h3 className="text-sm font-bold text-text">窗口与任务栏交互控制</h3>
           </div>
 
           <div className="space-y-4 pt-1">
@@ -846,16 +833,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
                 <Gamepad2 className="w-4 h-4" />
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h3 className="text-sm font-bold text-text">游戏显示管理</h3>
-                  <Badge variant="primary" className="text-[10px] px-1.5 py-0 font-mono">
-                    可见: {allGames.filter((g: any) => !g.hidden).length} / {allGames.length}
-                  </Badge>
-                </div>
-                <p className="text-xs text-text-muted mt-0.5">
-                  控制主界面顶栏与悬浮窗展示的目标游戏；隐藏的游戏将同时移出前台运行识别列表
-                </p>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm font-bold text-text">游戏显示管理</h3>
+                <Badge variant="primary" className="text-[10px] px-1.5 py-0 font-mono">
+                  可见: {allGames.filter((g: any) => !g.hidden).length} / {allGames.length}
+                </Badge>
               </div>
             </div>
           </div>
@@ -1030,14 +1012,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
                 <Wrench className="w-4 h-4" />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-text">
-                  3DMigoto / XXMI 运行环境健康度诊断
-                </h3>
-                <p className="text-xs text-text-muted mt-0.5">
-                  自动检查 DirectX 运行库挂载、DLL 依赖与 Mods 映射
-                </p>
-              </div>
+              <h3 className="text-sm font-bold text-text">
+                3DMigoto / XXMI 运行环境健康度诊断
+              </h3>
             </div>
 
             <Button
@@ -1177,14 +1154,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Cpu className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-text">
-                Persist Bridge 状态记忆引擎
-              </h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                自动记忆 Mod 内切换键与参数变量状态，游戏重开无需重新按快捷键
-              </p>
-            </div>
+            <h3 className="text-sm font-bold text-text">
+              Persist Bridge 状态记忆引擎
+            </h3>
           </div>
 
           <div className="space-y-4 pt-1">
@@ -1252,14 +1224,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Wrench className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-text">
-                Mod 修复工具与 Hash 规则引擎
-              </h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                自动化 Hash 规则替换与外部独立修复程序集成，解决游戏版本更新后的 Mod 报错或模型缺失
-              </p>
-            </div>
+            <h3 className="text-sm font-bold text-text">
+              Mod 修复工具与 Hash 规则引擎
+            </h3>
           </div>
 
           <div className="space-y-4 pt-1">
