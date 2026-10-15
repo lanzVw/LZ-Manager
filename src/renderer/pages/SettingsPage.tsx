@@ -35,6 +35,7 @@ import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { Logo } from '../components/Logo'
 
 import zzzLogo from '../assets/games/zzz_logo.png'
@@ -80,7 +81,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onSelectGame
 }) => {
   const toast = useToast()
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, palette, setPalette } = useTheme()
   const [gamePath, setGamePath] = useState(activeGame?.gamePath || '')
   const [modFolderPath, setModFolderPath] = useState(activeGame?.modFolderPath || '')
   const [modLoaderPath, setModLoaderPath] = useState(activeGame?.modLoaderPath || '')
@@ -351,66 +352,103 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </p>
         </div>
 
-        {/* 0. 界面主题与外观风格 */}
+        {/* 0. 界面主题与视觉风格 */}
         <Card className="p-5 space-y-4">
-          <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
-              <Palette className="w-4 h-4" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+                <Palette className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-text">界面主题与视觉风格</h3>
+                <p className="text-xs text-text-muted mt-0.5">
+                  选择外观风格体系，支持顶栏与右上角快捷切换浅色与黑夜模式
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-text">界面主题与视觉风格</h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                实时切换界面明暗主题，设置自动持久化保存且启动防白屏闪烁
-              </p>
+
+            {/* 明暗模式快捷切换 */}
+            <div className="no-drag">
+              <SegmentedControl
+                items={[
+                  { id: 'light', label: '浅色', icon: <Sun className="w-3.5 h-3.5 text-amber-500" /> },
+                  { id: 'dark', label: '黑夜', icon: <Moon className="w-3.5 h-3.5 text-sky-400" /> }
+                ]}
+                value={theme}
+                onChange={(val) => setTheme(val as 'light' | 'dark')}
+                size="sm"
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 pt-1">
-            {/* 1. 浅色模式 */}
+            {/* 卡片 1：经典主题 (default) */}
             <button
               type="button"
-              onClick={() => setTheme('light')}
-              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                theme === 'light'
+              onClick={() => setPalette('default')}
+              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                palette === 'default'
                   ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
                   : 'border-border bg-surface hover:border-primary/40'
               }`}
             >
               <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-control bg-[#F4F7FC] border border-[#1F4FC4]/20 flex items-center justify-center text-[#1F4FC4] shadow-xs">
-                  <Sun className="w-4 h-4 text-amber-500" />
+                <div
+                  className={`w-9 h-9 rounded-control flex items-center justify-center shadow-xs transition-colors shrink-0 ${
+                    theme === 'dark'
+                      ? 'bg-[#0F1626] border border-[#5B8CFF]/30 text-[#5B8CFF]'
+                      : 'bg-[#F4F7FC] border border-[#1F4FC4]/20 text-[#1F4FC4]'
+                  }`}
+                >
+                  {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-text">浅色模式</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">清爽明快视觉体验</div>
+                  <div className="text-xs font-bold text-text">经典主题</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">
+                    {theme === 'dark' ? '深青 · 墨夜 (沉浸护眼暗色)' : '瓷白 · 钴蓝 (经典清爽明快)'}
+                  </div>
+                  <div className="text-[10px] text-text-muted/80 mt-1">
+                    经典科技蓝风格 · 深色模式自动匹配「深青 · 墨夜」
+                  </div>
                 </div>
               </div>
-              {theme === 'light' && (
-                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
+              {palette === 'default' && (
+                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs shrink-0 ml-2" />
               )}
             </button>
 
-            {/* 2. 黑夜模式 */}
+            {/* 卡片 2：CDS 主题 (clay) */}
             <button
               type="button"
-              onClick={() => setTheme('dark')}
-              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                theme === 'dark'
+              onClick={() => setPalette('clay')}
+              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                palette === 'clay'
                   ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
                   : 'border-border bg-surface hover:border-primary/40'
               }`}
             >
               <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-control bg-[#0F1626] border border-[#5B8CFF]/30 flex items-center justify-center text-[#5B8CFF] shadow-xs">
-                  <Moon className="w-4 h-4 text-sky-400" />
+                <div
+                  className={`w-9 h-9 rounded-control flex items-center justify-center shadow-xs transition-colors shrink-0 ${
+                    theme === 'dark'
+                      ? 'bg-[#0b0b0a] border border-[#d97757]/40 text-[#d97757]'
+                      : 'bg-[#f5f5f3] border border-[#d97757]/30 text-[#d97757]'
+                  }`}
+                >
+                  {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-text">黑夜模式</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">沉浸式护眼暗色模式</div>
+                  <div className="text-xs font-bold text-text">CDS 主题</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">
+                    {theme === 'dark' ? '黑曜 · 陶土 (低反差护眼暗色)' : '暖纸 · 陶土 (CDS 官方暖色)'}
+                  </div>
+                  <div className="text-[10px] text-text-muted/80 mt-1">
+                    Claude 官方纸质暖调 · 深色模式自动匹配「黑曜 · 陶土」
+                  </div>
                 </div>
               </div>
-              {theme === 'dark' && (
-                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs" />
+              {palette === 'clay' && (
+                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs shrink-0 ml-2" />
               )}
             </button>
           </div>

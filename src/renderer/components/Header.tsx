@@ -70,9 +70,16 @@ export const Header: React.FC<HeaderProps> = ({
   onLaunchLoader,
   onReloadMods
 }) => {
-  const { theme, toggleTheme } = useTheme()
+  const { theme, toggleTheme, palette } = useTheme()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const getThemeToggleTitle = () => {
+    if (theme === 'dark') {
+      return palette === 'clay' ? '切换至浅色模式 (暖纸 · 陶土)' : '切换至浅色模式 (瓷白 · 钴蓝)'
+    }
+    return palette === 'clay' ? '切换至黑夜模式 (黑曜 · 陶土)' : '切换至黑夜模式 (深青 · 墨夜)'
+  }
 
   useEffect(() => {
     if (!dropdownOpen) return
@@ -160,7 +167,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={toggleTheme}
-            title={theme === 'dark' ? '切换至浅色模式' : '切换至黑夜模式'}
+            title={getThemeToggleTitle()}
             className="w-8 h-8 aspect-square flex items-center justify-center rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
           >
             {theme === 'dark' ? (
