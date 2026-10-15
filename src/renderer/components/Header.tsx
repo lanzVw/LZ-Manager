@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
   FolderKanban,
   ShoppingBag,
@@ -14,8 +14,7 @@ import {
   ChevronDown,
   ArrowDownToLine,
   Sun,
-  Moon,
-  Palette
+  Moon
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from './Logo'
@@ -71,7 +70,22 @@ export const Header: React.FC<HeaderProps> = ({
   onLaunchLoader,
   onReloadMods
 }) => {
-  const { theme, toggleTheme, palette, togglePalette } = useTheme()
+  const { theme, toggleTheme } = useTheme()
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const handlePointerDown = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [dropdownOpen])
 
   return (
     <header className="h-16 bg-surface/85 border-b border-border backdrop-blur-xl flex items-center justify-between px-5 select-none drag-region relative z-30 shadow-xs">
@@ -79,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-60 pointer-events-none" />
 
       {/* Left: Brand Emblem & Game Target Switcher */}
-      <div className="flex items-center space-x-3.5 no-drag">
+      <div className="flex items-center space-x-3.5 no-drag shrink-0">
         {/* Brand Badge */}
         <div className="flex items-center space-x-2.5 group cursor-default">
           <div className="rounded-[9px] shadow-sm overflow-hidden group-hover:scale-105 transition-transform duration-fast">
@@ -124,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Center: Navigation Tabs */}
-      <div className="no-drag">
+      <div className="no-drag shrink-0 mx-4">
         <SegmentedControl
           items={[
             { id: 'mods', label: '角色库', icon: <FolderKanban className="w-3.5 h-3.5" /> },
@@ -139,41 +153,22 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right: Quick Actions, Theme Switcher & Window Controls */}
-      <div className="flex items-center space-x-2 no-drag">
+      <div className="flex items-center space-x-2 no-drag shrink-0 ml-auto">
         {/* Quick Operations */}
         <div className="flex items-center space-x-1.5">
           {/* Light/Dark Theme Switcher */}
           <button
             type="button"
             onClick={toggleTheme}
-            title={
-              palette === 'clay'
-                ? theme === 'dark'
-                  ? '切换至浅色模式 (暖纸·陶土)'
-                  : '切换至深色模式 (黑曜·陶土)'
-                : theme === 'dark'
-                  ? '切换至浅色模式 (瓷白·钴蓝)'
-                  : '切换至深色模式 (深青·墨夜)'
-            }
-            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text-muted hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
+            title={theme === 'dark' ? '切换至浅色模式' : '切换至黑夜模式'}
+            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
           >
             {theme === 'dark' ? (
-              <Sun className="w-3.5 h-3.5 text-amber-400" />
+              <Sun className="w-3.5 h-3.5 text-amber-400 align-neg-125" />
             ) : (
-              <Moon className="w-3.5 h-3.5 text-primary" />
+              <Moon className="w-3.5 h-3.5 text-primary align-neg-125" />
             )}
             <span className="sr-only">切换主题</span>
-          </button>
-
-          {/* Palette Switcher */}
-          <button
-            type="button"
-            onClick={togglePalette}
-            title={palette === 'clay' ? '当前为 CDS 陶土色，点击切换至经典钴蓝' : '当前为经典钴蓝，点击切换至 CDS 陶土色'}
-            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text-muted hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
-          >
-            <Palette className={`w-3.5 h-3.5 ${palette === 'clay' ? 'text-[#d97757]' : 'text-primary'}`} />
-            <span className="sr-only">切换色系</span>
           </button>
 
           {/* F10 Reload */}
@@ -187,45 +182,111 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="sr-only">F10 刷新</span>
           </button>
 
-          {/* XXMI Loader */}
-          <button
-            type="button"
-            onClick={onLaunchLoader}
-            title="启动 3DMigoto / XXMI 加载器"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary text-xs font-semibold transition shadow-2xs active:scale-95 cursor-pointer"
-          >
-            <Zap className="w-3.5 h-3.5 text-primary" />
-            <span className="hidden xl:inline">XXMI</span>
-          </button>
-
           {/* Overlay Button */}
           <button
             type="button"
             onClick={() => window.lz.toggleOverlay()}
             title="唤起游戏内置悬浮窗 (Ctrl+F)"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary text-xs font-semibold transition shadow-2xs active:scale-95 cursor-pointer"
+            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
           >
-            <Gamepad2 className="w-3.5 h-3.5 text-primary" />
-            <span className="hidden lg:inline">悬浮窗</span>
+            <Gamepad2 className="w-3.5 h-3.5 text-primary align-neg-125" />
+            <span className="sr-only">唤起游戏内置悬浮窗</span>
           </button>
 
-          {/* Play Button - The ONLY solid primary button in Header */}
-          <button
-            type="button"
-            onClick={onLaunchGame}
-            disabled={launchingGame}
-            className={`btn-play flex items-center space-x-2 px-4 py-1.5 rounded-control font-bold text-xs tracking-wider uppercase cursor-pointer transition-all ${
-              launchingGame ? 'opacity-80 cursor-wait' : 'active:scale-95'
-            }`}
-            title="启动当前游戏"
-          >
-            {launchingGame ? (
-              <RotateCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Play className="w-3.5 h-3.5 fill-current" />
+          {/* Play Split Button - The ONLY solid primary button in Header */}
+          <div ref={dropdownRef} className="relative inline-flex items-stretch">
+            <div
+              className={`btn-play inline-flex items-stretch overflow-hidden ${
+                launchingGame ? 'opacity-80 cursor-wait' : ''
+              }`}
+            >
+              {/* 左侧主按钮 */}
+              <button
+                type="button"
+                onClick={onLaunchGame}
+                disabled={launchingGame}
+                className={`flex items-center space-x-2 px-3.5 py-1.5 font-bold text-xs tracking-wider uppercase cursor-pointer transition-colors hover:bg-white/10 active:bg-white/20 ${
+                  launchingGame ? 'cursor-wait' : ''
+                }`}
+                title="启动当前游戏"
+              >
+                {launchingGame ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                )}
+                <span className="tracking-wide">{launchingGame ? '启动中...' : '开始游戏'}</span>
+              </button>
+
+              {/* 中间微细分割线 */}
+              <div className="w-[1px] bg-white/20 my-1.5 self-stretch" />
+
+              {/* 右侧下拉箭头按钮 */}
+              <button
+                type="button"
+                onClick={() => setDropdownOpen((prev) => !prev)}
+                disabled={launchingGame}
+                className={`flex items-center justify-center px-2 py-1.5 cursor-pointer transition-colors hover:bg-white/10 active:bg-white/20 ${
+                  launchingGame ? 'cursor-wait' : ''
+                }`}
+                title="启动选项"
+                aria-expanded={dropdownOpen}
+              >
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                    dropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* 下拉菜单 */}
+            {dropdownOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-surface border border-border/80 shadow-popover p-1.5 z-50">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDropdownOpen(false)
+                    onLaunchGame()
+                  }}
+                  className="w-full flex items-start space-x-2.5 p-2 rounded-lg hover:bg-surface-2 text-left transition-colors cursor-pointer group"
+                >
+                  <div className="p-1.5 rounded-md bg-primary/10 text-primary mt-0.5 group-hover:bg-primary group-hover:text-primary-fg transition-colors">
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-text group-hover:text-primary transition-colors">
+                      开始游戏
+                    </div>
+                    <div className="text-[11px] text-text-muted mt-0.5 leading-tight">
+                      启动当前关联的游戏客户端
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDropdownOpen(false)
+                    onLaunchLoader()
+                  }}
+                  className="w-full flex items-start space-x-2.5 p-2 rounded-lg hover:bg-surface-2 text-left transition-colors cursor-pointer group mt-1"
+                >
+                  <div className="p-1.5 rounded-md bg-primary/10 text-primary mt-0.5 group-hover:bg-primary group-hover:text-primary-fg transition-colors">
+                    <Zap className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-text group-hover:text-primary transition-colors">
+                      启动 XXMI 加载器
+                    </div>
+                    <div className="text-[11px] text-text-muted mt-0.5 leading-tight">
+                      调起 3DMigoto / XXMI 独立环境
+                    </div>
+                  </div>
+                </button>
+              </div>
             )}
-            <span className="tracking-wide">{launchingGame ? '启动中...' : '开始游戏'}</span>
-          </button>
+          </div>
         </div>
 
         <div className="h-4 w-[1px] bg-border mx-0.5" />
