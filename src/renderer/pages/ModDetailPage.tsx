@@ -54,6 +54,7 @@ import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
 import { Switch } from '../components/ui/Switch'
 import { Modal } from '../components/ui/Modal'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/Toast'
 
 interface ModDetailPageProps {
@@ -1064,38 +1065,28 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         {/* Row 2: Tab 导航切换栏 (单独第二行/列，置顶吸顶) */}
         <div className="px-6 py-2 bg-surface/50 backdrop-blur-md">
           <div className="max-w-5xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-2 bg-surface-2/90 p-1 rounded-control border border-border shadow-xs">
-              <button
-                type="button"
-                onClick={() => setActiveDetailTab('overview')}
-                className={`flex items-center space-x-2 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
-                  activeDetailTab === 'overview'
-                    ? 'bg-primary/15 text-primary border-primary/30 shadow-xs font-bold'
-                    : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                <span>模组规格与封面</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveDetailTab('config')}
-                className={`flex items-center space-x-2 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
-                  activeDetailTab === 'config'
-                    ? 'bg-primary/15 text-primary border-primary/30 shadow-xs font-bold'
-                    : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
-                }`}
-              >
-                <Sliders className="w-4 h-4" />
-                <span>模组配置与脚本</span>
-                {((persistInfo?.variables?.length || 0) + parsedHotkeys.length > 0 || (details.iniFiles?.length || 0) > 0) && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-primary/20 text-primary border border-primary/30">
-                    {(persistInfo?.variables?.length || 0) + parsedHotkeys.length}
-                  </span>
-                )}
-              </button>
-            </div>
+            <SegmentedControl
+              items={[
+                {
+                  id: 'overview',
+                  label: '模组规格与封面',
+                  icon: <Layers className="w-4 h-4" />
+                },
+                {
+                  id: 'config',
+                  label: '模组配置与脚本',
+                  icon: <Sliders className="w-4 h-4" />,
+                  badge:
+                    ((persistInfo?.variables?.length || 0) + parsedHotkeys.length > 0 || (details.iniFiles?.length || 0) > 0) ? (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-primary/20 text-primary border border-primary/30">
+                        {(persistInfo?.variables?.length || 0) + parsedHotkeys.length}
+                      </span>
+                    ) : undefined
+                }
+              ]}
+              value={activeDetailTab}
+              onChange={(tab) => setActiveDetailTab(tab as 'overview' | 'config')}
+            />
           </div>
         </div>
       </div>

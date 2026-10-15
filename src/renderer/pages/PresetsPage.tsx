@@ -15,6 +15,7 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
+import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
 
 interface PresetsPageProps {
@@ -182,7 +183,7 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
       )}
 
       {/* Presets Grid */}
-      <div className="flex-1 overflow-y-auto pt-6">
+      <ScrollContainer className="flex-1 pt-6">
         {presets.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-text-muted space-y-3">
             <div className="p-4 rounded-2xl bg-surface border border-border text-primary shadow-xs">
@@ -274,7 +275,7 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
             })}
           </div>
         )}
-      </div>
+      </ScrollContainer>
 
       <Modal
         isOpen={!!deletePresetId}

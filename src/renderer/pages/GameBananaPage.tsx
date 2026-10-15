@@ -24,6 +24,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
+import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
 import { useEscapeToClose } from '../hooks/useEscape'
 import { GameBananaCard } from '../components/gamebanana/GameBananaCard'
@@ -582,7 +583,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
       )}
 
       {/* Mod 瀑布流/网格展示 */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <ScrollContainer className="flex-1 p-6">
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center text-primary space-y-3">
             <RefreshCw className="w-9 h-9 animate-spin" />
@@ -621,7 +622,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
             })}
           </div>
         )}
-      </div>
+      </ScrollContainer>
 
       {/* 分页控制器 */}
       {totalPages > 1 && !loading && (

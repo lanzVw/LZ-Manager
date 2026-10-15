@@ -29,6 +29,7 @@ import { Badge } from '../components/ui/Badge'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
+import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
 import { MoveModModal } from '../components/MoveModModal'
 import { ModCard } from '../components/mods/ModCard'
@@ -795,7 +796,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         </div>
 
         {/* 角色卡片列表 (高度压缩至约 56px) */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <ScrollContainer className="flex-1 p-2 space-y-1">
           {/* 全部角色条目 (高度约 54px) */}
           <button
             type="button"
@@ -957,7 +958,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               })}
             </div>
           )}
-        </div>
+        </ScrollContainer>
       </aside>
 
       {/* 主展示区：受 --accent 动态强调色驱动，顶部带角色立绘模糊氛围层，列表区纯色底 */}
@@ -1360,7 +1361,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         )}
 
         {/* 模组展示流 (纯色底，清晰高效，保证内容高可读性) */}
-        <div className="flex-1 overflow-y-auto p-6 bg-surface/50 relative z-10">
+        <ScrollContainer className="flex-1 p-6 bg-surface/50 relative z-10">
           {displayedMods.length === 0 ? (
             /* 空状态 */
             <div className="h-full flex flex-col items-center justify-center text-text-muted p-8 space-y-4">
@@ -1443,7 +1444,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               ))}
             </div>
           )}
-        </div>
+        </ScrollContainer>
       </main>
 
       {/* 新建外观分区模态框 */}

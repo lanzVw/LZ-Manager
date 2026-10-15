@@ -39,7 +39,7 @@ export const Switch: React.FC<SwitchProps> = ({
           }`}
         >
           <div
-            className={`w-4 h-4 rounded-full bg-white transition-transform duration-fast shadow-xs ${
+            className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-[cubic-bezier(0.2,0.85,0.32,1.2)] shadow-cds-sm ${
               checked ? 'translate-x-4' : 'translate-x-0.5'
             } mt-[1px]`}
           />

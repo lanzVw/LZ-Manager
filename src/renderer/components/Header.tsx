@@ -20,6 +20,7 @@ import {
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from './Logo'
 import { Select } from './ui/Select'
+import { SegmentedControl } from './ui/SegmentedControl'
 
 import zzzLogo from '../assets/games/zzz_logo.png'
 import endfieldLogo from '../assets/games/endfield_logo.png'
@@ -122,60 +123,20 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Center: Navigation Tabs (Active tab uses subtle pale background) */}
-      <nav className="flex items-center space-x-1 no-drag bg-surface-2/80 p-1 rounded-control border border-border">
-        <button
-          type="button"
-          onClick={() => setActiveTab('mods')}
-          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
-            activeTab === 'mods'
-              ? 'bg-primary/12 text-primary border-primary/25 shadow-xs'
-              : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
-          }`}
-        >
-          <FolderKanban className={`w-3.5 h-3.5 ${activeTab === 'mods' ? 'text-primary' : 'text-text-muted'}`} />
-          <span>角色库</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('gamebanana')}
-          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
-            activeTab === 'gamebanana'
-              ? 'bg-primary/12 text-primary border-primary/25 shadow-xs'
-              : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
-          }`}
-        >
-          <ShoppingBag className={`w-3.5 h-3.5 ${activeTab === 'gamebanana' ? 'text-primary' : 'text-text-muted'}`} />
-          <span>Mod市场</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('presets')}
-          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
-            activeTab === 'presets'
-              ? 'bg-primary/12 text-primary border-primary/25 shadow-xs'
-              : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
-          }`}
-        >
-          <Sliders className={`w-3.5 h-3.5 ${activeTab === 'presets' ? 'text-primary' : 'text-text-muted'}`} />
-          <span>方案预设</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('settings')}
-          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all border cursor-pointer ${
-            activeTab === 'settings'
-              ? 'bg-primary/12 text-primary border-primary/25 shadow-xs'
-              : 'text-text-muted hover:text-text hover:bg-surface/80 border-transparent'
-          }`}
-        >
-          <Settings className={`w-3.5 h-3.5 ${activeTab === 'settings' ? 'text-primary' : 'text-text-muted'}`} />
-          <span>系统设置</span>
-        </button>
-      </nav>
+      {/* Center: Navigation Tabs */}
+      <div className="no-drag">
+        <SegmentedControl
+          items={[
+            { id: 'mods', label: '角色库', icon: <FolderKanban className="w-3.5 h-3.5" /> },
+            { id: 'gamebanana', label: 'Mod市场', icon: <ShoppingBag className="w-3.5 h-3.5" /> },
+            { id: 'presets', label: '方案预设', icon: <Sliders className="w-3.5 h-3.5" /> },
+            { id: 'settings', label: '系统设置', icon: <Settings className="w-3.5 h-3.5" /> }
+          ]}
+          value={activeTab}
+          onChange={(val) => setActiveTab(val)}
+          size="sm"
+        />
+      </div>
 
       {/* Right: Quick Actions, Theme Switcher & Window Controls */}
       <div className="flex items-center space-x-2 no-drag">
