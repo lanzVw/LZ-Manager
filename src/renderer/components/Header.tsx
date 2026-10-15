@@ -55,7 +55,7 @@ interface HeaderProps {
   onSelectGame: (gameId: string) => void
   onLaunchGame: () => void
   onLaunchLoader: () => void
-  onReloadMods: () => void
+  onReloadMods?: () => void
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -161,25 +161,14 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={toggleTheme}
             title={theme === 'dark' ? '切换至浅色模式' : '切换至黑夜模式'}
-            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
+            className="w-8 h-8 aspect-square flex items-center justify-center rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
           >
             {theme === 'dark' ? (
-              <Sun className="w-3.5 h-3.5 text-amber-400 align-neg-125" />
+              <Sun className="w-4 h-4 text-amber-400 align-neg-125" />
             ) : (
-              <Moon className="w-3.5 h-3.5 text-primary align-neg-125" />
+              <Moon className="w-4 h-4 text-primary align-neg-125" />
             )}
             <span className="sr-only">切换主题</span>
-          </button>
-
-          {/* F10 Reload */}
-          <button
-            type="button"
-            onClick={onReloadMods}
-            title="向游戏发送热刷新信号 (F10)"
-            className="group p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text-muted hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
-          >
-            <RotateCw className="w-3.5 h-3.5 transition-transform group-hover:rotate-180 duration-500 text-text-muted group-hover:text-primary" />
-            <span className="sr-only">F10 刷新</span>
           </button>
 
           {/* Overlay Button */}
@@ -187,9 +176,9 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={() => window.lz.toggleOverlay()}
             title="唤起游戏内置悬浮窗 (Ctrl+F)"
-            className="p-2 rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer"
+            className="w-8 h-8 aspect-square flex items-center justify-center rounded-control bg-surface hover:bg-surface-2 border border-border hover:border-primary/40 text-text hover:text-primary transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
           >
-            <Gamepad2 className="w-3.5 h-3.5 text-primary align-neg-125" />
+            <Gamepad2 className="w-4 h-4 text-primary align-neg-125" />
             <span className="sr-only">唤起游戏内置悬浮窗</span>
           </button>
 
