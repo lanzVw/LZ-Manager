@@ -106,7 +106,8 @@ export const Header: React.FC<HeaderProps> = ({
   }, [dropdownOpen])
 
   return (
-    <header className="h-16 bg-surface/85 border-b border-border backdrop-blur-xl flex items-center justify-between px-5 select-none drag-region relative z-30 shadow-xs">
+    <>
+      <header className="h-16 bg-surface/85 border-b border-border backdrop-blur-xl flex items-center justify-between px-5 select-none drag-region relative z-30 shadow-xs">
       {/* Decorative Top Accent Line */}
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-60 pointer-events-none" />
 
@@ -336,6 +337,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
+      </header>
       <CloseConfirmModal
         isOpen={showCloseModal}
         onClose={() => setShowCloseModal(false)}
@@ -353,6 +355,6 @@ export const Header: React.FC<HeaderProps> = ({
           window.flairx.close(action)
         }}
       />
-    </header>
+    </>
   )
 }

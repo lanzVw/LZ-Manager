@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Monitor, X, Terminal, Power } from 'lucide-react'
 
 export interface CloseConfirmModalProps {
@@ -17,11 +18,36 @@ export const CloseConfirmModal: React.FC<CloseConfirmModalProps> = ({
   const [selectedAction, setSelectedAction] = useState<'quit' | 'minimize_to_tray'>(initialAction)
   const [remember, setRemember] = useState(false)
 
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedAction(initialAction)
+      setRemember(false)
+    }
+  }, [isOpen, initialAction])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/45 dark:bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-surface border border-border/80 rounded-2xl shadow-popover w-full max-w-md p-6 space-y-4 animate-in zoom-in-95 duration-150 select-none text-text">
+  return createPortal(
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      className="fixed inset-0 z-[9999] bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 no-drag cursor-default"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      <div
+        className="bg-surface border border-border/80 rounded-2xl shadow-popover w-full max-w-md p-6 space-y-4 animate-in zoom-in-95 duration-150 select-none text-text no-drag"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
         {/* 头部 */}
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
@@ -144,6 +170,7 @@ export const CloseConfirmModal: React.FC<CloseConfirmModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
