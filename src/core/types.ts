@@ -7,6 +7,7 @@ export interface GameConfig {
   modFolderPath: string
   modLoaderPath: string
   dx12LauncherPath?: string
+  officialLauncherPath?: string
   launchMode?: string
   supportedLaunchModes?: string[]
   launchArgs?: string

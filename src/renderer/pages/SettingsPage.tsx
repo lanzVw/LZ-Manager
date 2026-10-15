@@ -190,6 +190,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [gamePath, setGamePath] = useState(activeGame?.gamePath || '')
   const [modFolderPath, setModFolderPath] = useState(activeGame?.modFolderPath || '')
   const [modLoaderPath, setModLoaderPath] = useState(activeGame?.modLoaderPath || '')
+  const [officialLauncherPath, setOfficialLauncherPath] = useState(activeGame?.officialLauncherPath || '')
   const [launchMode, setLaunchMode] = useState<string>(activeGame?.launchMode || getDerivedLaunchMode(activeGame))
   const [launchArgs, setLaunchArgs] = useState(activeGame?.launchArgs || '')
   const [saved, setSaved] = useState(false)
@@ -312,6 +313,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setGamePath(activeGame?.gamePath || '')
     setModFolderPath(activeGame?.modFolderPath || '')
     setModLoaderPath(activeGame?.modLoaderPath || '')
+    setOfficialLauncherPath(activeGame?.officialLauncherPath || '')
     setLaunchMode(activeGame?.launchMode || getDerivedLaunchMode(activeGame))
     setLaunchArgs(activeGame?.launchArgs || '')
     if (config) {
@@ -422,6 +424,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       gamePath,
       modFolderPath,
       modLoaderPath,
+      officialLauncherPath,
       launchMode,
       launchArgs
     })
@@ -941,6 +944,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold text-text mb-1.5">
+                官方启动器路径 (Official Launcher)
+              </label>
+              <Input
+                value={officialLauncherPath}
+                onChange={(e) => setOfficialLauncherPath(e.target.value)}
+                placeholder="例如：E:\Hypergryph Launcher\Launcher.exe（留空将自动从游戏路径推导）"
+                className="font-mono text-xs"
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <div>
                 <label className="block text-xs font-semibold text-text mb-1.5">
@@ -957,6 +972,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       let label = m
                       if (m === 'ZZMI') label = 'ZZMI 加载器模式 (绝区零推荐 · 自动注入 Mod)'
                       else if (m === 'EFMI') label = 'EFMI 加载器模式 (终末地推荐 · 自动注入 Mod)'
+                      else if (m === 'EFMI_OFFICIAL') label = 'EFMI 官方启动器联动模式 (终末地 1.6+ 推荐 · 先挂起注入再调起官方启动器)'
                       else if (m === 'WWMI') label = 'WWMI 加载器模式 (鸣潮推荐 · 自动注入 Mod)'
                       else if (m === 'SRMI') label = 'SRMI 加载器模式 (星铁推荐 · 自动注入 Mod)'
                       else if (m === 'NEMI') label = 'NEMI 加载器模式 (异环专属)'

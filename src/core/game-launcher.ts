@@ -405,9 +405,112 @@ export class GameLauncher {
   }
 
   /**
+   * 从加载器所在目录向上逐级查找 XXMI Launcher Config.json 配置文件
+   */
+  public findXxmiConfigPath(modLoaderPath: string): string | null {
+    try {
+      let currentDir = path.dirname(path.resolve(modLoaderPath))
+      while (true) {
+        const candidate = path.join(currentDir, 'XXMI Launcher Config.json')
+        if (fs.existsSync(candidate)) {
+          return candidate
+        }
+        const parent = path.dirname(currentDir)
+        if (parent === currentDir) break
+        currentDir = parent
+      }
+    } catch {
+      // 路径解析异常时安全返回空
+    }
+    return null
+  }
+
+  /**
+   * 解析官方启动器路径，优先使用显式配置，其次根据游戏本体路径按标准目录结构向上推导
+   */
+  public resolveOfficialLauncherPath(game: GameConfig): string {
+    if (game.officialLauncherPath && fs.existsSync(game.officialLauncherPath)) {
+      return game.officialLauncherPath
+    }
+    if (!game.gamePath) return ''
+
+    const gameDir = path.dirname(game.gamePath)
+    const parentDir = path.dirname(gameDir)
+    const grandParentDir = path.dirname(parentDir)
+
+    // 适配官方启动器两级 (Launcher/Game/exe) 与三级标准结构 (Launcher/games/Game/exe)
+    const candidates = [
+      path.join(grandParentDir, 'Launcher.exe'),
+      path.join(parentDir, 'Launcher.exe'),
+      path.join(gameDir, 'Launcher.exe'),
+      path.join(grandParentDir, 'Gryphline Launcher.exe'),
+      path.join(parentDir, 'Gryphline Launcher.exe')
+    ]
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate
+      }
+    }
+
+    return ''
+  }
+
+  /**
+   * 确保 XXMI 配置中对应 importer 的启动模式为 MANUAL 并设置充足超时，
+   * 适配游戏启动器强校验下的手动挂起监听注入机制
+   */
+  public ensureXxmiManualMode(modLoaderPath: string, importerId: string): void {
+    try {
+      const configPath = this.findXxmiConfigPath(modLoaderPath)
+      if (!configPath) return
+
+      const raw = fs.readFileSync(configPath, 'utf8')
+      const data = JSON.parse(raw)
+      let modified = false
+
+      const importer = data?.Importers?.[importerId]?.Importer
+      if (importer && typeof importer === 'object') {
+        if ('game_launch' in importer && importer.game_launch !== 'MANUAL') {
+          importer.game_launch = 'MANUAL'
+          modified = true
+        }
+        if (typeof importer.start_timeout === 'number' && importer.start_timeout < 60) {
+          importer.start_timeout = 60
+          modified = true
+        }
+      }
+
+      if (data?.Launcher && typeof data.Launcher === 'object') {
+        if (typeof data.Launcher.start_timeout === 'number' && data.Launcher.start_timeout < 60) {
+          data.Launcher.start_timeout = 60
+          modified = true
+        }
+      }
+
+      if (modified) {
+        // 原子写入配置文件，避免进程中断损坏配置
+        const tmpPath = `${configPath}.${Date.now()}.tmp`
+        fs.writeFileSync(tmpPath, JSON.stringify(data, null, 4), 'utf8')
+        try {
+          if (fs.existsSync(configPath)) {
+            fs.copyFileSync(configPath, `${configPath}.bak`)
+          }
+          fs.renameSync(tmpPath, configPath)
+        } catch (renameErr) {
+          try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+          throw renameErr
+        }
+      }
+    } catch (err) {
+      console.warn('[GameLauncher] ensureXxmiManualMode failed:', err)
+    }
+  }
+
+  /**
    * 启动指定游戏 (按游戏专属启动模式调起，自动串联 XXMI/3DMigoto 加载器与提权)
    */
-  public async launchGame(game: GameConfig, asAdmin: boolean = false): Promise<{ success: boolean; error?: string }> {
+  public async launchGame(game: GameConfig, asAdmin: boolean = false): Promise<{ success: boolean; error?: string; message?: string }> {
     if (!game) {
       return { success: false, error: '未选择任何游戏' }
     }
@@ -425,6 +528,15 @@ export class GameLauncher {
       else mode = 'VANILLA'
     }
 
+    // 双向兜底：如果 mode 为 EFMI 且游戏为 endfield，若检测到官方启动器存在，自动走官方启动器联动流程
+    // 避免老配置尚未切换时，点击开始游戏未拉起官方启动器导致 Mod 无法生效
+    if (game.id === 'endfield' && mode === 'EFMI') {
+      const officialCandidate = this.resolveOfficialLauncherPath(game)
+      if (officialCandidate) {
+        mode = 'EFMI_OFFICIAL'
+      }
+    }
+
     const customArgs = (game.launchArgs || '').trim()
     const customArgsList = customArgs ? customArgs.split(/\s+/).filter(Boolean) : []
 
@@ -440,7 +552,43 @@ export class GameLauncher {
       return this.launchElevated(exe, dir, args)
     }
 
-    // 1. XXMI 专属注入模式 (ZZMI / EFMI / WWMI / SRMI)
+    // 1. EFMI 官方启动器联动模式 (终末地 1.6+ 官方启动器强校验注入解法)
+    if (mode === 'EFMI_OFFICIAL') {
+      if (game.modLoaderPath && fs.existsSync(game.modLoaderPath)) {
+        this.ensureXxmiManualMode(game.modLoaderPath, 'EFMI')
+        const loaderDir = path.dirname(game.modLoaderPath)
+        const args = ['--nogui', '--xxmi', 'EFMI', ...customArgsList]
+        console.log(`[GameLauncher] 正在以 EFMI_OFFICIAL 模式调起加载器:`, game.modLoaderPath, args)
+        const loaderRes = await startOrElevate(game.modLoaderPath, loaderDir, args)
+        if (!loaderRes.success) {
+          return loaderRes
+        }
+
+        const officialExe = this.resolveOfficialLauncherPath(game)
+        if (officialExe) {
+          // 等待加载器初始化完成挂起并开始监听目标进程
+          await new Promise((resolve) => setTimeout(resolve, 800))
+          // 鹰角启动器等官方启动器带有 requireAdministrator 清单，必须通过提权拉起以避免被 Windows 静默拦截
+          await this.launchElevated(officialExe, path.dirname(officialExe), [])
+          return {
+            success: true,
+            message: 'EFMI 注入监听已就绪，已唤起官方启动器。请在官方启动器中确认勾选「以 DirectX 11 启动」并点击「开始游戏」。'
+          }
+        }
+
+        return {
+          success: true,
+          message: 'EFMI 注入监听已就绪。未检测到官方启动器路径，请手动打开鹰角启动器并勾选「以 DirectX 11 启动」开始游戏。'
+        }
+      } else {
+        return {
+          success: false,
+          error: '未找到 EFMI 对应的 XXMI Launcher 加载器路径，请在「设置」中指定加载器路径'
+        }
+      }
+    }
+
+    // 2. XXMI 专属注入模式 (ZZMI / EFMI / WWMI / SRMI)
     if (['ZZMI', 'EFMI', 'WWMI', 'SRMI'].includes(mode)) {
       if (game.modLoaderPath && fs.existsSync(game.modLoaderPath)) {
         const loaderDir = path.dirname(game.modLoaderPath)

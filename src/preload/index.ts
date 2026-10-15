@@ -198,7 +198,7 @@ const flairxApi = {
   deletePreset: (presetId: string): Promise<boolean> => ipcRenderer.invoke('presets:delete', presetId),
 
   // Launcher & F10 & Hotkeys
-  launchGame: (asAdmin?: boolean): Promise<{ success: boolean; error?: string }> =>
+  launchGame: (asAdmin?: boolean): Promise<{ success: boolean; error?: string; message?: string }> =>
     ipcRenderer.invoke('game:launch', asAdmin),
   launchLoader: () => ipcRenderer.invoke('game:launchLoader'),
   reloadModsF10: () => ipcRenderer.invoke('game:reloadModsF10'),

@@ -204,10 +204,14 @@ export default function App() {
       toast.info('正在唤起游戏...', activeGame ? `模式: ${activeGame.launchMode || '自动'} · ${activeGame.name}` : undefined)
       const res = await window.flairx.launchGame()
       if (res && res.success) {
-        toast.success(
-          '启动指令已下发',
-          activeGame ? `正在调起 ${activeGame.name}，请留意任务栏与游戏窗口` : '请留意系统任务栏与游戏窗口'
-        )
+        if (res.message) {
+          toast.toast('启动流程就绪', 'success', 6000, res.message)
+        } else {
+          toast.success(
+            '启动指令已下发',
+            activeGame ? `正在调起 ${activeGame.name}，请留意任务栏与游戏窗口` : '请留意系统任务栏与游戏窗口'
+          )
+        }
       } else {
         toast.error('启动游戏失败', res?.error || '未知错误')
       }

@@ -436,7 +436,7 @@ function setupIpc() {
     'theme', 'palette', 'characterSectionsByGame'
   ])
   const GAME_CONFIG_KEYS = new Set([
-    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'launchMode', 'hidden'
+    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'officialLauncherPath', 'launchMode', 'hidden'
   ])
   const sanitizePatch = (patch: any, allowed: Set<string>): any => {
     if (!patch || typeof patch !== 'object') return {}
@@ -445,7 +445,7 @@ function setupIpc() {
       if (allowed.has(k)) out[k] = v
     }
     // 路径类字段必须是字符串且不含控制字符（真正存在性校验在使用处做，避免误杀未安装的游戏）
-    for (const p of ['gamePath', 'modFolderPath', 'modLoaderPath']) {
+    for (const p of ['gamePath', 'modFolderPath', 'modLoaderPath', 'officialLauncherPath']) {
       if (p in out && (typeof out[p] !== 'string' || /[\u0000-\u001f]/.test(out[p]))) delete out[p]
     }
     if ('persistBridgeCacheSize' in out && typeof out.persistBridgeCacheSize !== 'number') delete out.persistBridgeCacheSize

@@ -165,6 +165,21 @@ export class ConfigStore {
           let games: GameConfig[] = Array.isArray(data.games) ? data.games : []
           if (games.length === 0) {
             games = this.getDefaultGames(data)
+          } else {
+            // 老版本配置升级兼容：确保终末地游戏拥有 EFMI_OFFICIAL 支持选项与推荐启动模式
+            for (const g of games) {
+              if (g.id === 'endfield') {
+                if (!g.supportedLaunchModes) {
+                  g.supportedLaunchModes = ['EFMI', 'EFMI_OFFICIAL', 'XXMI']
+                } else if (!g.supportedLaunchModes.includes('EFMI_OFFICIAL')) {
+                  g.supportedLaunchModes.push('EFMI_OFFICIAL')
+                }
+                // 老配置平滑迁移：终末地 1.6+ 官方启动器强校验注入，将 EFMI 自动升级为 EFMI_OFFICIAL
+                if (g.launchMode === 'EFMI') {
+                  g.launchMode = 'EFMI_OFFICIAL'
+                }
+              }
+            }
           }
 
           const visibleGames = games.filter((g) => !g.hidden)
@@ -240,7 +255,8 @@ export class ConfigStore {
         gamePath: 'E:\\Hypergryph Launcher\\games\\Endfield Game\\Endfield.exe',
         modFolderPath: 'F:\\XXMI\\EFMI\\Mods',
         modLoaderPath: 'F:\\XXMI\\Resources\\Bin\\XXMI Launcher.exe',
-        launchMode: 'EFMI'
+        launchMode: 'EFMI_OFFICIAL',
+        supportedLaunchModes: ['EFMI', 'EFMI_OFFICIAL', 'XXMI']
       },
       {
         id: 'wuwa',
