@@ -244,7 +244,7 @@ export default function App() {
         }}
         activeGame={activeGame}
         games={config?.games || []}
-        closeAction={config?.closeAction || 'quit'}
+        closeAction={config?.closeAction || 'minimize_to_tray'}
         closePromptRemembered={config?.closePromptRemembered ?? false}
         launchingGame={launchingGame}
         onSelectGame={handleSelectGame}

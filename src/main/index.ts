@@ -1471,7 +1471,7 @@ function setupIpc() {
     }
   })
   ipcMain.handle('window:close', (_event, action?: 'quit' | 'minimize_to_tray') => {
-    const closeAction = action || configStore.getConfig().closeAction || 'quit'
+    const closeAction = action || configStore.getConfig().closeAction || 'minimize_to_tray'
     if (closeAction === 'minimize_to_tray') {
       if (mainWindow) {
         mainWindow.hide()
@@ -1515,7 +1515,7 @@ if (app) {
             await gameLauncher.launchGame(g)
           }
         },
-        getCloseAction: () => configStore.getConfig().closeAction || 'quit'
+        getCloseAction: () => configStore.getConfig().closeAction || 'minimize_to_tray'
         })
       } catch (trayErr) {
         console.warn('[LZ Main] TrayManager init failed, continue without tray:', trayErr)

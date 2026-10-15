@@ -182,7 +182,7 @@ export class ConfigStore {
             overlayHotkey: data.overlayHotkey || 'Ctrl+F',
             persistBridgeEnabled: data.persistBridgeEnabled ?? true,
             persistBridgeCacheSize: typeof data.persistBridgeCacheSize === 'number' ? data.persistBridgeCacheSize : 12,
-            closeAction: data.closeAction || 'quit'
+            closeAction: data.closeAction || 'minimize_to_tray'
           }
         }
       }
@@ -199,7 +199,7 @@ export class ConfigStore {
       overlayHotkey: 'Ctrl+F',
       persistBridgeEnabled: true,
       persistBridgeCacheSize: 12,
-      closeAction: 'quit'
+      closeAction: 'minimize_to_tray'
     }
   }
 

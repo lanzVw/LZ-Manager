@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   activeGame,
   games,
-  closeAction = 'quit',
+  closeAction = 'minimize_to_tray',
   closePromptRemembered = false,
   launchingGame = false,
   onSelectGame,

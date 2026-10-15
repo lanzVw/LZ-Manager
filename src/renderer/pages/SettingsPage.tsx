@@ -102,7 +102,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   // 窗口与退出交互设置: 'quit' (彻底退出) | 'minimize_to_tray' (最小化到托盘)
   const [closeAction, setCloseAction] = useState<'quit' | 'minimize_to_tray'>(
-    config?.closeAction || 'quit'
+    config?.closeAction || 'minimize_to_tray'
   )
   const [closePromptRemembered, setClosePromptRemembered] = useState<boolean>(
     config?.closePromptRemembered ?? false
@@ -197,7 +197,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         setPersistBridgeCacheSize(
           typeof cfg.persistBridgeCacheSize === 'number' ? cfg.persistBridgeCacheSize : 12
         )
-        setCloseAction(cfg.closeAction || 'quit')
+        setCloseAction(cfg.closeAction || 'minimize_to_tray')
         setClosePromptRemembered(cfg.closePromptRemembered ?? false)
       }
     } catch (_) {}
@@ -1042,100 +1042,125 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3 pt-1">
+            <div className="space-y-4 pt-1">
               <label className="block text-xs font-semibold text-text">
                 点击窗口右上角关闭按钮 (✕) 时：
               </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* 选项 1: 彻底退出程序 (默认推荐) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {/* 选项 1: 最小化到系统托盘 (默认推荐) */}
                 <button
                   type="button"
-                  onClick={() => handleCloseActionChange('quit')}
-                  className={`p-3.5 rounded-control border cursor-pointer transition-all duration-fast flex flex-col justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                    closeAction === 'quit'
-                      ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
-                      : 'border-border bg-surface hover:border-primary/40'
+                  onClick={() => handleCloseActionChange('minimize_to_tray')}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    closeAction === 'minimize_to_tray'
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
+                      : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                        <LogOut className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-text flex items-center space-x-1.5">
-                          <span>彻底退出程序</span>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-medium">默认推荐</span>
-                        </div>
-                        <div className="text-[11px] text-text-muted mt-1 leading-snug">
-                          关闭所有窗口并终止后台进程，立即释放全部系统与显存占用
-                        </div>
-                      </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-primary flex items-center justify-center shrink-0 shadow-2xs">
+                      <ArrowDownToLine className="w-5 h-5 align-neg-125" />
                     </div>
-                    {closeAction === 'quit' && (
-                      <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs shrink-0 mt-1" />
+                    <div>
+                      <div className="text-xs font-bold text-text flex items-center space-x-2">
+                        <span>最小化到系统托盘</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
+                          默认推荐
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
+                        主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                      closeAction === 'minimize_to_tray' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
+                    }`}
+                  >
+                    {closeAction === 'minimize_to_tray' && (
+                      <div className="w-2 h-2 rounded-full bg-primary" />
                     )}
                   </div>
                 </button>
 
-                {/* 选项 2: 最小化到系统托盘 */}
+                {/* 选项 2: 彻底退出程序 */}
                 <button
                   type="button"
-                  onClick={() => handleCloseActionChange('minimize_to_tray')}
-                  className={`p-3.5 rounded-control border cursor-pointer transition-all duration-fast flex flex-col justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                    closeAction === 'minimize_to_tray'
-                      ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
-                      : 'border-border bg-surface hover:border-primary/40'
+                  onClick={() => handleCloseActionChange('quit')}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    closeAction === 'quit'
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
+                      : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-500 border border-sky-500/20">
-                        <ArrowDownToLine className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-text">最小化到系统托盘</div>
-                        <div className="text-[11px] text-text-muted mt-1 leading-snug">
-                          主窗口收纳至屏幕右下角，保持后台运行以便随时按 Ctrl+F 唤起游戏悬浮窗
-                        </div>
-                      </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-text-muted flex items-center justify-center shrink-0 shadow-2xs">
+                      <LogOut className="w-5 h-5 align-neg-125" />
                     </div>
-                    {closeAction === 'minimize_to_tray' && (
-                      <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs shrink-0 mt-1" />
+                    <div>
+                      <div className="text-xs font-bold text-text">彻底退出程序</div>
+                      <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
+                        关闭所有窗口并终止后台进程，立即完全释放系统与显存占用
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                      closeAction === 'quit' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
+                    }`}
+                  >
+                    {closeAction === 'quit' && (
+                      <div className="w-2 h-2 rounded-full bg-primary" />
                     )}
                   </div>
                 </button>
               </div>
 
-              <label className="flex items-center space-x-2 text-xs text-text-muted hover:text-text cursor-pointer select-none mt-3">
-                <input
-                  type="checkbox"
-                  checked={!closePromptRemembered}
-                  onChange={async (e) => {
-                    const prompt = e.target.checked
-                    setClosePromptRemembered(!prompt)
-                    await onUpdateAppConfig?.({ closePromptRemembered: !prompt })
+              {/* 记住弹窗选项复选框 */}
+              <div className="flex items-center space-x-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const next = !closePromptRemembered
+                    setClosePromptRemembered(next)
+                    await onUpdateAppConfig?.({ closePromptRemembered: next })
                   }}
-                  className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/40 cursor-pointer"
-                />
-                <span>点击右上角关闭按钮 (X) 时弹出确认提示</span>
-              </label>
+                  className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
+                    !closePromptRemembered
+                      ? 'bg-primary border-primary text-primary-fg shadow-2xs'
+                      : 'border-border bg-surface-2 hover:border-primary/50'
+                  }`}
+                >
+                  {!closePromptRemembered && <Check className="w-3 h-3 stroke-[3]" />}
+                </button>
+                <span
+                  className="text-xs text-text-muted hover:text-text cursor-pointer select-none text-pretty-native"
+                  onClick={async () => {
+                    const next = !closePromptRemembered
+                    setClosePromptRemembered(next)
+                    await onUpdateAppConfig?.({ closePromptRemembered: next })
+                  }}
+                >
+                  点击右上角关闭按钮 (✕) 时弹出确认提示（取消勾选后将按上述选择直接执行）
+                </span>
+              </div>
 
               {/* 任务栏与托盘状态说明 */}
-              <div className="mt-3 p-3.5 rounded-control bg-surface-2 border border-border text-[11px] text-text-muted space-y-1.5 font-sans leading-relaxed">
-                <div className="flex items-center space-x-1.5 text-text font-semibold">
-                  <Monitor className="w-3.5 h-3.5 text-primary" />
+              <div className="mt-2 p-4 rounded-xl bg-surface-2/60 border border-border/70 text-[11px] text-text-muted space-y-2 leading-relaxed">
+                <div className="flex items-center space-x-2 text-text font-semibold">
+                  <Monitor className="w-3.5 h-3.5 text-primary align-neg-125" />
                   <span>任务栏与系统托盘状态说明</span>
                 </div>
-                <div>
-                  • <strong className="text-text">任务栏状态</strong>：点击最小化按钮 (<kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono text-[10px]">-</kbd>)，窗口缩入 Windows 任务栏，任务栏图标持续保留，单次左键点击即可瞬间还原主界面。
+                <div className="text-pretty-native">
+                  • <strong className="text-text">任务栏状态</strong>：点击顶栏最小化按钮 (<kbd className="px-1.5 py-0.5 bg-surface border border-border/80 rounded font-mono text-[10px] shadow-2xs">-</kbd>)，窗口缩入任务栏，保留图标且支持单次点击秒级唤醒。
                 </div>
-                <div>
-                  • <strong className="text-text">系统托盘状态</strong>：当设置为最小化至系统托盘并点击关闭时，程序收纳在屏幕右下角托盘区（可在任务栏右下角 <kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono text-[10px]">^</kbd> 折叠箭头内查找）。
+                <div className="text-pretty-native">
+                  • <strong className="text-text">系统托盘状态</strong>：当设置为最小化至系统托盘并点击关闭时，程序常驻在屏幕右下角托盘区（可在任务栏右下角 <kbd className="px-1.5 py-0.5 bg-surface border border-border/80 rounded font-mono text-[10px] shadow-2xs">^</kbd> 折叠箭头内查找）。
                 </div>
-                <div>
-                  • <strong className="text-text">托盘右键菜单</strong>：右键系统托盘图标可一键呼出游戏悬浮窗、刷新 Mod (F10)、启动游戏或随时选择“彻底退出程序”。
+                <div className="text-pretty-native">
+                  • <strong className="text-text">托盘右键菜单</strong>：右键系统托盘图标可一键唤起游戏悬浮窗、刷新 Mod (F10)、快速启动游戏或随时选择“彻底退出程序”。
                 </div>
               </div>
             </div>
