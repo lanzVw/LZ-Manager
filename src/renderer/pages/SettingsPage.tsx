@@ -354,102 +354,167 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         {/* 0. 界面主题与视觉风格 */}
         <Card className="p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
-                <Palette className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-text">界面主题与视觉风格</h3>
-                <p className="text-xs text-text-muted mt-0.5">
-                  选择外观风格体系，支持顶栏与右上角快捷切换浅色与黑夜模式
-                </p>
-              </div>
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+              <Palette className="w-4 h-4" />
             </div>
-
-            {/* 明暗模式快捷切换 */}
-            <div className="no-drag">
-              <SegmentedControl
-                items={[
-                  { id: 'light', label: '浅色', icon: <Sun className="w-3.5 h-3.5 text-amber-500" /> },
-                  { id: 'dark', label: '黑夜', icon: <Moon className="w-3.5 h-3.5 text-sky-400" /> }
-                ]}
-                value={theme}
-                onChange={(val) => setTheme(val as 'light' | 'dark')}
-                size="sm"
-              />
+            <div>
+              <h3 className="text-sm font-bold text-text">界面主题与视觉风格</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                选择软件视觉体系；可通过顶栏右上角快捷切换浅色与黑夜模式
+              </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             {/* 卡片 1：经典主题 (default) */}
             <button
               type="button"
               onClick={() => setPalette('default')}
-              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+              className={`group p-3.5 rounded-xl border cursor-pointer transition-all duration-150 flex flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                 palette === 'default'
-                  ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
-                  : 'border-border bg-surface hover:border-primary/40'
+                  ? 'border-primary ring-2 ring-primary/25 bg-primary/[0.03] shadow-cds-sm'
+                  : 'border-border/80 bg-surface hover:border-primary/40 hover:shadow-2xs'
               }`}
             >
-              <div className="flex items-center space-x-3">
-                <div
-                  className={`w-9 h-9 rounded-control flex items-center justify-center shadow-xs transition-colors shrink-0 ${
-                    theme === 'dark'
-                      ? 'bg-[#0F1626] border border-[#5B8CFF]/30 text-[#5B8CFF]'
-                      : 'bg-[#F4F7FC] border border-[#1F4FC4]/20 text-[#1F4FC4]'
-                  }`}
-                >
-                  {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-text">经典主题</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">
-                    {theme === 'dark' ? '深青 · 墨夜 (沉浸护眼暗色)' : '瓷白 · 钴蓝 (经典清爽明快)'}
+              {/* 微型视窗：日夜双拼预览 */}
+              <div className="w-full h-24 rounded-lg overflow-hidden border border-border/60 relative grid grid-cols-2 mb-3 shadow-2xs pointer-events-none select-none">
+                {/* 左半边：瓷白·钴蓝 (浅色) */}
+                <div className="bg-[#F4F7FC] p-2 flex flex-col justify-between border-r border-border/40">
+                  <div className="flex items-center justify-between">
+                    <div className="flex space-x-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#1F4FC4]/40" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#1F4FC4]/25" />
+                    </div>
+                    <span className="text-[9px] font-bold text-[#1F4FC4] tracking-tight">瓷白</span>
                   </div>
-                  <div className="text-[10px] text-text-muted/80 mt-1">
-                    经典科技蓝风格 · 深色模式自动匹配「深青 · 墨夜」
+                  <div className="space-y-1">
+                    <div className="bg-white rounded p-1 border border-[#1F4FC4]/15 shadow-2xs">
+                      <div className="w-1/2 h-1.5 rounded-full bg-[#1F4FC4]/30" />
+                    </div>
+                    <div className="w-7 h-2 rounded bg-[#1F4FC4] text-white flex items-center justify-center text-[7px] font-bold">
+                      MOD
+                    </div>
+                  </div>
+                </div>
+
+                {/* 右半边：深青·墨夜 (深色) */}
+                <div className="bg-[#0F1626] p-2 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-[#5B8CFF] tracking-tight ml-auto">墨夜</span>
+                    <div className="flex space-x-1 ml-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#5B8CFF]/30" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#5B8CFF]/50" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="bg-[#172036] rounded p-1 border border-[#5B8CFF]/20 shadow-2xs">
+                      <div className="w-1/2 h-1.5 rounded-full bg-[#5B8CFF]/40 ml-auto" />
+                    </div>
+                    <div className="w-7 h-2 rounded bg-[#5B8CFF] text-[#0F1626] flex items-center justify-center text-[7px] font-bold ml-auto">
+                      MOD
+                    </div>
                   </div>
                 </div>
               </div>
-              {palette === 'default' && (
-                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs shrink-0 ml-2" />
-              )}
+
+              {/* 标题与激活状态 */}
+              <div className="flex items-center justify-between mt-0.5">
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-text">经典主题</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full font-medium bg-[#1F4FC4]/10 text-[#1F4FC4] dark:bg-[#5B8CFF]/15 dark:text-[#5B8CFF]">
+                    经典科技蓝
+                  </span>
+                </div>
+                {palette === 'default' ? (
+                  <div className="flex items-center space-x-1 text-primary text-[11px] font-semibold">
+                    <CheckCircle2 className="w-3.5 h-3.5 align-neg-125" />
+                    <span>已应用</span>
+                  </div>
+                ) : (
+                  <div className="w-3.5 h-3.5 rounded-full border border-border group-hover:border-primary/50" />
+                )}
+              </div>
+
+              {/* 描述信息 */}
+              <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                经典清爽科技风格；浅色呈现瓷白钴蓝，深色模式自动适配「深青 · 墨夜」
+              </p>
             </button>
 
             {/* 卡片 2：CDS 主题 (clay) */}
             <button
               type="button"
               onClick={() => setPalette('clay')}
-              className={`p-4 rounded-control border cursor-pointer transition-all duration-fast flex items-center justify-between text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+              className={`group p-3.5 rounded-xl border cursor-pointer transition-all duration-150 flex flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                 palette === 'clay'
-                  ? 'border-primary ring-2 ring-primary/25 bg-primary/5 shadow-xs'
-                  : 'border-border bg-surface hover:border-primary/40'
+                  ? 'border-primary ring-2 ring-primary/25 bg-primary/[0.03] shadow-cds-sm'
+                  : 'border-border/80 bg-surface hover:border-primary/40 hover:shadow-2xs'
               }`}
             >
-              <div className="flex items-center space-x-3">
-                <div
-                  className={`w-9 h-9 rounded-control flex items-center justify-center shadow-xs transition-colors shrink-0 ${
-                    theme === 'dark'
-                      ? 'bg-[#0b0b0a] border border-[#d97757]/40 text-[#d97757]'
-                      : 'bg-[#f5f5f3] border border-[#d97757]/30 text-[#d97757]'
-                  }`}
-                >
-                  {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-text">CDS 主题</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">
-                    {theme === 'dark' ? '黑曜 · 陶土 (低反差护眼暗色)' : '暖纸 · 陶土 (CDS 官方暖色)'}
+              {/* 微型视窗：日夜双拼预览 */}
+              <div className="w-full h-24 rounded-lg overflow-hidden border border-border/60 relative grid grid-cols-2 mb-3 shadow-2xs pointer-events-none select-none">
+                {/* 左半边：暖纸·陶土 (浅色) */}
+                <div className="bg-[#f5f5f3] p-2 flex flex-col justify-between border-r border-[#d97757]/20">
+                  <div className="flex items-center justify-between">
+                    <div className="flex space-x-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#d97757]/50" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#d97757]/30" />
+                    </div>
+                    <span className="text-[9px] font-bold text-[#d97757] tracking-tight">暖纸</span>
                   </div>
-                  <div className="text-[10px] text-text-muted/80 mt-1">
-                    Claude 官方纸质暖调 · 深色模式自动匹配「黑曜 · 陶土」
+                  <div className="space-y-1">
+                    <div className="bg-[#ffffff] rounded p-1 border border-[#d97757]/15 shadow-2xs">
+                      <div className="w-1/2 h-1.5 rounded-full bg-[#d97757]/35" />
+                    </div>
+                    <div className="w-7 h-2 rounded bg-[#d97757] text-white flex items-center justify-center text-[7px] font-bold">
+                      MOD
+                    </div>
+                  </div>
+                </div>
+
+                {/* 右半边：黑曜·陶土 (深色) */}
+                <div className="bg-[#0b0b0a] p-2 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-[#d97757] tracking-tight ml-auto">黑曜</span>
+                    <div className="flex space-x-1 ml-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#d97757]/30" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#d97757]/50" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="bg-[#1a1a19] rounded p-1 border border-[#d97757]/25 shadow-2xs">
+                      <div className="w-1/2 h-1.5 rounded-full bg-[#d97757]/40 ml-auto" />
+                    </div>
+                    <div className="w-7 h-2 rounded bg-[#d97757] text-white flex items-center justify-center text-[7px] font-bold ml-auto">
+                      MOD
+                    </div>
                   </div>
                 </div>
               </div>
-              {palette === 'clay' && (
-                <div className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface shadow-xs shrink-0 ml-2" />
-              )}
+
+              {/* 标题与激活状态 */}
+              <div className="flex items-center justify-between mt-0.5">
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-text">CDS 主题</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full font-medium bg-[#d97757]/15 text-[#d97757]">
+                    Claude 陶土
+                  </span>
+                </div>
+                {palette === 'clay' ? (
+                  <div className="flex items-center space-x-1 text-primary text-[11px] font-semibold">
+                    <CheckCircle2 className="w-3.5 h-3.5 align-neg-125" />
+                    <span>已应用</span>
+                  </div>
+                ) : (
+                  <div className="w-3.5 h-3.5 rounded-full border border-border group-hover:border-primary/50" />
+                )}
+              </div>
+
+              {/* 描述信息 */}
+              <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                Claude 官方纸质暖调风格；浅色呈现暖纸陶土，深色模式自动适配「黑曜 · 陶土」
+              </p>
             </button>
           </div>
         </Card>
