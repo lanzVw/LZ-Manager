@@ -797,11 +797,11 @@ export const ModsPage: React.FC<ModsPageProps> = ({
 
         {/* 角色卡片列表 (高度压缩至约 56px) */}
         <ScrollContainer className="flex-1 p-2 space-y-1">
-          {/* 全部角色条目 (高度约 54px) */}
+          {/* 全部角色条目 */}
           <button
             type="button"
             onClick={() => setSelectedChar('all')}
-            className={`w-full h-[54px] flex items-center justify-between px-2.5 rounded-control text-xs font-semibold transition-all duration-fast group border text-left cursor-pointer ${
+            className={`w-full h-11 flex items-center justify-between px-2.5 rounded-control text-xs font-semibold transition-all duration-fast group border text-left cursor-pointer ${
               selectedChar === 'all'
                 ? 'bg-primary/10 border-primary text-primary shadow-xs ring-1 ring-primary/25'
                 : 'bg-surface hover:bg-surface-2 text-text border-border hover:border-primary/40'
@@ -809,7 +809,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           >
             <div className="flex items-center space-x-2.5 truncate">
               <div
-                className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border transition-transform duration-fast group-hover:scale-105 shadow-2xs ${
+                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border transition-transform duration-fast group-hover:scale-105 shadow-2xs ${
                   selectedChar === 'all'
                     ? 'bg-primary text-primary-fg border-primary'
                     : 'bg-surface-2 text-text-muted border-border'
@@ -817,14 +817,9 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               >
                 <LayoutGrid className="w-4 h-4" />
               </div>
-              <div className="flex flex-col truncate">
-                <span className="truncate font-bold tracking-wide">
-                  全部角色
-                </span>
-                <span className="text-[10px] text-text-muted truncate">
-                  全库模组汇总
-                </span>
-              </div>
+              <span className="truncate font-bold tracking-wide">
+                全部角色
+              </span>
             </div>
 
             <div
@@ -842,7 +837,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           </button>
 
           {sidebarMode === 'list' ? (
-            /* 1. 紧凑型图文列表 (高度约 54px，去重描述，展示 已装载/总数) */
+            /* 1. 紧凑型图文列表 (展示 已装载/总数) */
             <div className="space-y-1 pt-0.5">
               {filteredCharacters.map((c) => {
                 const isSelected = selectedChar === c.name
@@ -854,7 +849,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                     key={c.name}
                     type="button"
                     onClick={() => setSelectedChar(c.name)}
-                    className={`w-full h-[54px] flex items-center justify-between px-2.5 rounded-control text-xs font-semibold transition-all duration-fast group border text-left cursor-pointer ${
+                    className={`w-full h-11 flex items-center justify-between px-2.5 rounded-control text-xs font-semibold transition-all duration-fast group border text-left cursor-pointer ${
                       isSelected
                         ? 'bg-primary/10 border-primary text-primary shadow-xs ring-1 ring-primary/25'
                         : 'bg-surface hover:bg-surface-2 text-text border-border hover:border-primary/40'
@@ -867,22 +862,13 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                         hasActive={hasActive}
                         isSelected={isSelected}
                         hasMods={hasMods}
-                        className="w-9 h-9"
+                        className="w-8 h-8"
                       />
-                      <div className="flex flex-col truncate">
-                        <span className={`truncate tracking-wide font-title font-bold text-xs ${
-                          !hasMods && !isSelected ? 'text-text-muted' : ''
-                        }`}>
-                          {c.name}
-                        </span>
-                        <span className="text-[10px] text-text-muted truncate">
-                          {hasActive
-                            ? '已装备生效'
-                            : hasMods
-                            ? '模组待命中'
-                            : '未安装模组'}
-                        </span>
-                      </div>
+                      <span className={`truncate tracking-wide font-title font-bold text-xs ${
+                        !hasMods && !isSelected ? 'text-text-muted' : ''
+                      }`}>
+                        {c.name}
+                      </span>
                     </div>
 
                     <div
