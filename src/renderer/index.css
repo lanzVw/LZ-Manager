@@ -328,7 +328,11 @@ body.overlay-mode #root {
   background: rgba(100, 116, 139, 0.25);
   border-radius: 4px;
 }
-.overlay-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.45);
+/* 隐藏滚动条实用类 */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

@@ -1229,11 +1229,12 @@ export const OverlayApp: React.FC = () => {
         </div>
 
         {/* 3. 过滤与实用工具条 (SegmentedControl + 排序 + 互斥 + 视图) */}
-        <div className="px-3 py-1.5 border-b border-border/50 bg-surface-2/40 flex items-center justify-between text-xs shrink-0">
+        <div className="px-3 py-1.5 border-b border-border/50 bg-surface-2/40 flex items-center justify-between gap-2 text-xs shrink-0 select-none overflow-x-auto scrollbar-none">
           {/* 状态过滤胶囊滑块 + 排序 */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-1.5 shrink-0">
             <SegmentedControl
               size="sm"
+              className="shrink-0"
               items={[
                 { id: 'all', label: '全部' },
                 { id: 'enabled', label: '已装配' },
@@ -1247,20 +1248,20 @@ export const OverlayApp: React.FC = () => {
             <button
               type="button"
               onClick={cycleSortMode}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface text-[11px] font-medium text-text-muted hover:text-text border border-border/70 cursor-pointer transition shadow-2xs ml-1"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface text-[11px] font-medium text-text-muted hover:text-text border border-border/70 cursor-pointer transition shadow-2xs ml-0.5 shrink-0"
               title={`当前排序: ${
-                modSortMode === 'default' ? '装配优先' : modSortMode === 'time' ? '最新修改' : '名称拼音'
+                modSortMode === 'default' ? '默认 (装配优先)' : modSortMode === 'time' ? '最新修改优先' : '名称拼音排序'
               } (点击循环切换)`}
             >
               <ArrowUpDown className="w-3 h-3 text-primary align-neg-125" />
-              <span>{modSortMode === 'default' ? '装配' : modSortMode === 'time' ? '最新' : '名称'}</span>
+              <span>{modSortMode === 'default' ? '默认' : modSortMode === 'time' ? '最新' : '名称'}</span>
             </button>
 
             {/* 独立升降序翻转 */}
             <button
               type="button"
               onClick={toggleReverseOrder}
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] cursor-pointer transition shadow-2xs border ${
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] cursor-pointer transition shadow-2xs border shrink-0 ${
                 isReverseOrder
                   ? 'bg-primary/20 text-primary border-primary/40 font-bold'
                   : 'bg-surface-2/80 text-text-muted hover:text-text border-border/70 hover:bg-surface'
@@ -1272,12 +1273,12 @@ export const OverlayApp: React.FC = () => {
           </div>
 
           {/* 快捷工具 (定位 | 单选互斥 | 画廊/列表切换 | 翻页) */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-1.5 shrink-0">
             {/* 🎯 定位 */}
             <button
               type="button"
               onClick={handleLocateEnabled}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface border border-border/70 text-[11px] font-medium text-text-muted hover:text-primary transition shadow-2xs cursor-pointer active:scale-95"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface border border-border/70 text-[11px] font-medium text-text-muted hover:text-primary transition shadow-2xs cursor-pointer active:scale-95 shrink-0"
               title="定位当前生效 Mod"
             >
               <Crosshair className="w-3 h-3 text-primary align-neg-125" />
@@ -1291,7 +1292,7 @@ export const OverlayApp: React.FC = () => {
                 setExclusiveMode(!exclusiveMode)
                 showToast(exclusiveMode ? '已切换为：多选并存模式' : '已切换为：单选互斥保护模式')
               }}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition shadow-2xs cursor-pointer active:scale-95 ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition shadow-2xs cursor-pointer active:scale-95 shrink-0 ${
                 exclusiveMode
                   ? 'bg-primary/10 text-primary border-primary/40 font-bold'
                   : 'bg-surface-2/80 text-text-muted border-border/70 hover:text-text hover:bg-surface'
@@ -1305,6 +1306,7 @@ export const OverlayApp: React.FC = () => {
             {/* ⊞ 画廊 / ☰ 列表视图切换 */}
             <SegmentedControl
               size="sm"
+              className="shrink-0"
               items={[
                 { id: 'grid', label: <LayoutGrid className="w-3.5 h-3.5 align-neg-125" /> },
                 { id: 'list', label: <List className="w-3.5 h-3.5 align-neg-125" /> }
@@ -1314,7 +1316,7 @@ export const OverlayApp: React.FC = () => {
             />
 
             {/* 🔼 / 🔽 上下翻页快捷按钮 */}
-            <div className="flex items-center space-x-0.5 border-l border-border/50 pl-1">
+            <div className="flex items-center space-x-0.5 border-l border-border/50 pl-1 shrink-0">
               <button
                 type="button"
                 onClick={() => modListContainerRef.current?.scrollBy({ top: -300, behavior: 'smooth' })}

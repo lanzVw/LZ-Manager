@@ -41,10 +41,12 @@ export function SegmentedControl<T extends string = string>({
   return (
     <div
       role="tablist"
-      className={`relative rounded-full bg-surface-2 border border-border/80 flex items-stretch select-none ${sizeClasses} ${
-        fullWidth ? 'w-full' : 'inline-flex'
-      } ${className}`}
-      style={{ containerType: 'inline-size' }}
+      className={`relative rounded-full bg-surface-2 border border-border/80 select-none ${sizeClasses} ${
+        fullWidth ? 'w-full grid' : 'inline-grid'
+      } items-stretch ${className}`}
+      style={{
+        gridTemplateColumns: count > 0 ? `repeat(${count}, minmax(0, 1fr))` : undefined
+      }}
     >
       {/* 100% 几何精度滑动背景药丸 */}
       {count > 0 && activeIndex >= 0 && (
@@ -68,7 +70,7 @@ export function SegmentedControl<T extends string = string>({
             aria-selected={isActive}
             disabled={item.disabled}
             onClick={() => onChange(item.id)}
-            className={`relative z-10 flex-1 h-full px-3 inline-flex items-center justify-center gap-1.5 rounded-full font-[480] tracking-tight transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`relative z-10 w-full h-full px-3 inline-flex items-center justify-center gap-1.5 rounded-full font-[480] tracking-tight transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
               isActive
                 ? 'text-text font-semibold'
                 : 'text-text-muted hover:text-text'
