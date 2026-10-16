@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vites
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { downloadFile, installMod } from '../src/core/gamebanana-service'
+import { downloadFile, installMod, resolveDownloadRoot } from '../src/core/gamebanana-service'
 
 /**
  * 回归来源：用户现场 %APPDATA%\Electron\lz-main-error.log
@@ -48,6 +48,35 @@ describe('downloadFile 临时目录韧性', () => {
   })
 })
 
+describe('downloadFile 停滞超时', () => {
+  it('下载停滞超时且清理 .part 文件', async () => {
+    const dir = path.join(tmpRoot, 'stall-timeout')
+    fs.mkdirSync(dir, { recursive: true })
+    const body = new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0x50, 0x4b, 0x03, 0x04])) } })
+    vi.stubGlobal('fetch', async () => new Response(body, { headers: { 'content-length': '1048576' } }))
+
+    await expect(
+      downloadFile({
+        downloadUrl: 'https://gamebanana.com/dl/1',
+        targetDir: dir,
+        fileName: 'demo.zip',
+        stallTimeoutMs: 300
+      })
+    ).rejects.toThrow(/下载停滞/)
+
+    expect(fs.existsSync(path.join(dir, 'demo.zip.part'))).toBe(false)
+  })
+})
+
+describe('resolveDownloadRoot 下载根目录位置', () => {
+  it('下载根目录包含 QAQManager 与 gb_downloads，且不位于 os.tmpdir()', () => {
+    const root = resolveDownloadRoot()
+    expect(root).toContain('QAQManager')
+    expect(root).toContain('gb_downloads')
+    expect(root.startsWith(os.tmpdir())).toBe(false)
+  })
+})
+
 describe('installMod 失败语义', () => {
   it('下载失败时返回 { success:false, error } 而不是抛异常', async () => {
     const target = path.join(tmpRoot, 'install-target', 'TestChar')
@@ -65,3 +94,68 @@ describe('installMod 失败语义', () => {
     expect(typeof res.error).toBe('string')
   })
 })
+
+describe('中途取消安装', () => {
+  it('downloadFile 被取消：抛出 DOWNLOAD_CANCELLED 且清理 .part 文件', async () => {
+    const dir = path.join(tmpRoot, 'cancel-download')
+    fs.mkdirSync(dir, { recursive: true })
+    const body = new ReadableStream({
+      start(c) {
+        c.enqueue(new Uint8Array([0x50, 0x4b, 0x03, 0x04]))
+      }
+    })
+    vi.stubGlobal('fetch', async () => new Response(body, { headers: { 'content-length': '1048576' } }))
+
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 150)
+
+    const promise = downloadFile({
+      downloadUrl: 'https://gamebanana.com/dl/1',
+      targetDir: dir,
+      fileName: 'demo.zip',
+      signal: controller.signal
+    })
+
+    await expect(promise).rejects.toMatchObject({ code: 'DOWNLOAD_CANCELLED' })
+    expect(fs.existsSync(path.join(dir, 'demo.zip.part'))).toBe(false)
+  })
+
+  it('installMod 被取消：返回已取消安装并清理临时及未完成目录', async () => {
+    const target = path.join(tmpRoot, 'install-cancel-target', 'TestChar')
+    const body = new ReadableStream({
+      start(c) {
+        c.enqueue(new Uint8Array([0x50, 0x4b, 0x03, 0x04]))
+      }
+    })
+    vi.stubGlobal('fetch', async () => new Response(body, { headers: { 'content-length': '1048576' } }))
+
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 150)
+
+    const res: any = await installMod({
+      downloadUrl: 'https://gamebanana.com/dl/1',
+      targetParentDir: target,
+      modName: 'Probe Mod',
+      fileName: 'demo_ver_52_-MqgcoX.zip',
+      signal: controller.signal
+    })
+
+    expect(res).toEqual({
+      success: false,
+      cancelled: true,
+      error: '已取消安装'
+    })
+
+    const disabledDirs = fs.existsSync(target)
+      ? fs.readdirSync(target).filter((n) => n.startsWith('DISABLED_'))
+      : []
+    expect(disabledDirs).toEqual([])
+
+    const root = resolveDownloadRoot()
+    const leftovers = fs.existsSync(root)
+      ? fs.readdirSync(root).filter((n) => n.startsWith('dl_') || n.startsWith('staging_'))
+      : []
+    expect(leftovers).toEqual([])
+  })
+})
+

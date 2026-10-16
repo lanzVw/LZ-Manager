@@ -141,6 +141,15 @@ function resolveUnrarPath(customPath = null) {
 }
 
 /**
+ * 为什么：清理软件（如 Wise Care 365 / 360 等）默认只扫 %TEMP% 与 Windows 临时目录，
+ * 迁移到应用自有缓存目录（%LOCALAPPDATA%\QAQManager\cache\gb_downloads）可避免下载中的文件被外部误删
+ */
+function resolveDownloadRoot() {
+  const baseDir = process.env.LOCALAPPDATA || process.env.APPDATA || os.tmpdir();
+  return path.join(baseDir, "QAQManager", "cache", "gb_downloads");
+}
+
+/**
  * Safe sleep utility
  */
 function sleep(ms) {
@@ -853,9 +862,11 @@ export function assertNoLinksInDir(dir) {
  *
  * @param {string} archivePath
  * @param {string} [sevenZipPath]
+ * @param {string} [format]
+ * @param {AbortSignal} [signal]
  * @returns {Promise<{ safe: boolean, entriesCount: number, entries: Array }>}
  */
-async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip") {
+async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip", signal?: AbortSignal) {
   if (!fs.existsSync(archivePath)) {
     throw new Error(`待预检的归档文件不存在: ${archivePath}`);
   }
@@ -872,10 +883,12 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
     try {
       const res = await execFileAsync(unrarBin, ["vb", archivePath], {
         windowsHide: true,
-        maxBuffer: 32 * 1024 * 1024
+        maxBuffer: 32 * 1024 * 1024,
+        signal
       });
       stdout = res.stdout;
-    } catch (err) {
+    } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
       throw new Error(`UnRAR 预检执行失败: ${err.message}`);
     }
     const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -892,10 +905,12 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
     try {
       const res = await execFileAsync(bin, ["l", "-slt", archivePath], {
         windowsHide: true,
-        maxBuffer: 32 * 1024 * 1024
+        maxBuffer: 32 * 1024 * 1024,
+        signal
       });
       stdout = res.stdout;
-    } catch (err) {
+    } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
       throw new Error(`7za 预检执行失败: ${err.message}`);
     }
 
@@ -1021,6 +1036,8 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
   };
 }
 
+const DOWNLOAD_STALL_TIMEOUT_MS = 60000;
+
 /**
  * 5. Stream download to dedicated `.part` file with progress callback
  * @param {object} params
@@ -1029,6 +1046,8 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip")
  * @param {string} [params.fileName]
  * @param {string} [params.expectedMd5]
  * @param {function} [params.onProgress] - ({ downloaded, total, percent, speed })
+ * @param {number} [params.stallTimeoutMs]
+ * @param {AbortSignal} [params.signal]
  * @returns {Promise<{ archivePath: string, size: number, format: string, md5: string }>}
  */
 async function downloadFile({
@@ -1036,7 +1055,17 @@ async function downloadFile({
   targetDir,
   fileName,
   expectedMd5,
-  onProgress
+  onProgress,
+  stallTimeoutMs = DOWNLOAD_STALL_TIMEOUT_MS,
+  signal
+}: {
+  downloadUrl: string;
+  targetDir: string;
+  fileName?: string;
+  expectedMd5?: string;
+  onProgress?: (progress: any) => void;
+  stallTimeoutMs?: number;
+  signal?: AbortSignal;
 }) {
   if (!downloadUrl) throw new Error("下载链接不能为空");
   fs.mkdirSync(targetDir, { recursive: true });
@@ -1067,11 +1096,13 @@ async function downloadFile({
   let downloadedBytes = 0;
   let lastReportTime = Date.now();
   let lastReportBytes = 0;
+  let lastByteAt = Date.now();
 
   // 使用 stream pipeline：统一处理背压（慢盘快网不再堆积内存）、
   // 写流 error（磁盘满/权限，此前为 unhandled error 会击穿主进程）与资源清理
   const progressCounter = new Transform({
     transform(chunk, _enc, cb) {
+      lastByteAt = Date.now();
       downloadedBytes += chunk.length;
 
       const now = Date.now();
@@ -1108,17 +1139,56 @@ async function downloadFile({
     streamError = err;
   });
 
+  const stallController = new AbortController();
+  const signals = [stallController.signal];
+  if (signal) {
+    signals.push(signal);
+  }
+  const combined = AbortSignal.any(signals);
+
+  let stallTimer = null;
+
   try {
     if (!response.body) {
       throw new Error("响应体为空，无法下载");
     }
-    await pipeline(Readable.fromWeb(response.body), progressCounter, writeStream);
+
+    // 为什么：CDN 挂住不发数据时若没有停滞判定会永远转圈
+    stallTimer = setInterval(() => {
+      if (Date.now() - lastByteAt >= stallTimeoutMs && signal?.aborted !== true) {
+        stallController.abort();
+      }
+    }, Math.max(250, Math.min(5000, Math.floor(stallTimeoutMs / 4))));
+
+    await pipeline(Readable.fromWeb(response.body), progressCounter, writeStream, { signal: combined });
   } catch (err) {
     if (fs.existsSync(partPath)) {
       try { fs.unlinkSync(partPath); } catch {}
     }
     const cause = streamError || err;
+
+    // 为什么：pipeline 因 signal abort 时一律抛 AbortError，不透传自定义 abort reason，因此通过标志判断
+    const cancelledByUser = signal?.aborted === true;
+    const stalled = stallController.signal.aborted === true;
+
+    if (cancelledByUser) {
+      const error: any = new Error("流式下载中断: 安装已取消", { cause });
+      error.code = "DOWNLOAD_CANCELLED";
+      throw error;
+    }
+    if (stalled) {
+      const error: any = new Error(
+        `流式下载中断: 下载停滞：${Math.round(stallTimeoutMs / 1000)} 秒内未收到数据，请重试`,
+        { cause }
+      );
+      error.code = "DOWNLOAD_STALLED";
+      throw error;
+    }
     throw new Error(`流式下载中断: ${cause.message}`);
+  } finally {
+    if (stallTimer) {
+      clearInterval(stallTimer);
+    }
   }
 
   // Verify Magic Bytes
@@ -1283,6 +1353,7 @@ async function installMod(rawParams: any = {}) {
     previewImageUrl,
     sevenZipPath,
     onProgress,
+    signal,
     sourceUrl,
     profileUrl,
     modId,
@@ -1302,7 +1373,7 @@ async function installMod(rawParams: any = {}) {
 
   fs.mkdirSync(safeTargetParentDir, { recursive: true });
 
-  const tempBase = path.join(os.tmpdir(), "qaqman_gb_downloads");
+  const tempBase = resolveDownloadRoot();
   fs.mkdirSync(tempBase, { recursive: true });
 
   const runId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
@@ -1312,6 +1383,10 @@ async function installMod(rawParams: any = {}) {
   fs.mkdirSync(stagingDir, { recursive: true });
 
   let downloadedArchivePath = null;
+  let installedTargetDir = "";
+  // 为什么：取消是用户主动行为，阶段边界必须再查一次，否则会白干一整个阶段
+  const cancelledError = () => Object.assign(new Error("安装已取消"), { code: "INSTALL_CANCELLED" });
+  const throwIfAborted = () => { if (signal?.aborted) throw cancelledError(); };
 
   try {
     // 1. Download to .part file & verify magic + md5
@@ -1324,6 +1399,7 @@ async function installMod(rawParams: any = {}) {
       targetDir: tempDownloadDir,
       fileName: fileName || `${sanitizeFileName(modName)}.zip`,
       expectedMd5,
+      signal,
       onProgress: (p) => {
         if (typeof onProgress === "function") {
           onProgress({ stage: "downloading", ...p });
@@ -1331,6 +1407,7 @@ async function installMod(rawParams: any = {}) {
       }
     });
     downloadedArchivePath = dlResult.archivePath;
+    throwIfAborted();
 
     // 2. Pre-inspect archive security
     if (typeof onProgress === "function") {
@@ -1338,7 +1415,8 @@ async function installMod(rawParams: any = {}) {
     }
 
     const bin7z = resolve7zaPath(sevenZipPath);
-    await inspectArchiveSecurity(downloadedArchivePath, bin7z, dlResult.format);
+    await inspectArchiveSecurity(downloadedArchivePath, bin7z, dlResult.format, signal);
+    throwIfAborted();
 
     // 3. Extract to isolated staging directory
     if (typeof onProgress === "function") {
@@ -1352,14 +1430,17 @@ async function installMod(rawParams: any = {}) {
       }
       await execFileAsync(unrarBin, ["x", "-y", downloadedArchivePath, stagingDir + path.sep], {
         windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024
+        maxBuffer: 64 * 1024 * 1024,
+        signal
       });
     } else {
       await execFileAsync(bin7z, ["x", "-y", `-o${stagingDir}`, downloadedArchivePath], {
         windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024
+        maxBuffer: 64 * 1024 * 1024,
+        signal
       });
     }
+    throwIfAborted();
 
     // 4. Identify Mod Root Directory
     const modRoot = identifyModRoot(stagingDir);
@@ -1377,6 +1458,8 @@ async function installMod(rawParams: any = {}) {
       counter++;
     }
 
+    throwIfAborted();
+    installedTargetDir = targetModDir;
     // Move or copy mod root to target
     fs.mkdirSync(targetModDir, { recursive: true });
     fs.cpSync(modRoot, targetModDir, { recursive: true });
@@ -1400,6 +1483,7 @@ async function installMod(rawParams: any = {}) {
         console.warn(`[GameBananaService] 保存预览图失败:`, err.message);
       }
     }
+    throwIfAborted();
 
     // 7. Write/merge mod metadata (mod.json) including sourceUrl and market information
     try {
@@ -1456,7 +1540,13 @@ async function installMod(rawParams: any = {}) {
       previewSaved,
       format: dlResult.format
     };
-  } catch (err) {
+  } catch (err: any) {
+    if (signal?.aborted) {
+      // 为什么：取消时目录可能只拷了一半，必须回滚，否则留下半成品 Mod 被扫描到
+      if (installedTargetDir) { try { fs.rmSync(installedTargetDir, { recursive: true, force: true }); } catch {} }
+      console.warn('[GameBananaService] 安装已取消:', err?.message);
+      return { success: false, cancelled: true, error: '已取消安装' };
+    }
     console.error('[GameBananaService] 安装失败:', err?.message || String(err));
     return { success: false, error: err?.message || String(err) };
   } finally {
@@ -1669,6 +1759,7 @@ export {
   resolveGameBananaGameId,
   resolve7zaPath,
   resolveUnrarPath,
+  resolveDownloadRoot,
   fetchWithRetry,
   findMemberIdByName,
   normalizeModRecord,
