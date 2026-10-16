@@ -1499,6 +1499,24 @@ function evaluateUpdate(details: any, localDate?: any, localVersion?: string) {
     if (!isNaN(parsed)) localSec = Math.floor(parsed / 1000)
   }
 
+  // 本地记录的 version 就是安装时那份 GameBanana 文件名，同名即同一份文件
+  // （GameBanana 文件名带随机后缀，重传必然改名），因此版本号字符串和页面修改时间都不应再算作更新。
+  const latestFileName = details.files?.[0]?.fileName ? String(details.files[0].fileName).trim() : ''
+  const cleanLocalVersion = localVersion ? String(localVersion).trim() : ''
+  if (latestFileName && cleanLocalVersion && latestFileName.toLowerCase() === cleanLocalVersion.toLowerCase()) {
+    return {
+      hasUpdate: false,
+      checked: true,
+      modId: details.id,
+      remoteVersion: remoteVersion || '最新版本',
+      remoteDate: remoteDate ? remoteDate * 1000 : 0,
+      remoteName: details.name,
+      changelog: '',
+      latestFile: details.files?.[0] || null,
+      downloadUrl: details.files?.[0]?.downloadUrl || null
+    }
+  }
+
   let hasUpdate = false
   // 判定规则 1：远程修改时间比本地记录晚 1 小时 (3600秒) 以上
   if (remoteDate && localSec && remoteDate > localSec + 3600) {
