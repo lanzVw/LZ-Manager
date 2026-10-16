@@ -148,6 +148,48 @@ function resolveDownloadRoot() {
   return path.join(baseDir, "QAQManager", "cache", "gb_downloads");
 }
 
+const STALE_DOWNLOAD_DIR_AGE_MS = 60 * 60 * 1000;
+
+// 为什么：主进程有单实例锁，正常不会有两个实例同时安装，但保留年龄门槛可避免极端场景（多用户会话 / 异常双开）误删正在进行的下载
+async function sweepStaleDownloadDirs(preferredRoot?: string) {
+  const root = typeof preferredRoot === "string" && preferredRoot.trim() ? preferredRoot.trim() : resolveDownloadRoot();
+  let removed = 0;
+
+  const sweepDir = async (targetDir: string) => {
+    try {
+      if (!fs.existsSync(targetDir)) return;
+      const entries = fs.readdirSync(targetDir);
+      for (const entry of entries) {
+        if (!entry.startsWith("dl_") && !entry.startsWith("staging_")) continue;
+        const full = path.join(targetDir, entry);
+        try {
+          const stat = fs.statSync(full);
+          if (!stat.isDirectory()) continue;
+          if (stat.mtimeMs < Date.now() - STALE_DOWNLOAD_DIR_AGE_MS) {
+            await fs.promises.rm(full, { recursive: true, force: true });
+            removed++;
+          }
+        } catch {}
+      }
+    } catch {}
+  };
+
+  await sweepDir(root);
+
+  const legacyDir = path.join(os.tmpdir(), "qaqman_gb_downloads");
+  if (path.resolve(legacyDir) !== path.resolve(root)) {
+    await sweepDir(legacyDir);
+    try {
+      if (fs.existsSync(legacyDir) && fs.readdirSync(legacyDir).length === 0) {
+        fs.rmdirSync(legacyDir);
+      }
+    } catch {}
+  }
+
+  return { root, removed };
+}
+
+
 /**
  * Safe sleep utility
  */
@@ -1761,6 +1803,7 @@ export {
   resolve7zaPath,
   resolveUnrarPath,
   resolveDownloadRoot,
+  sweepStaleDownloadDirs,
   fetchWithRetry,
   findMemberIdByName,
   normalizeModRecord,

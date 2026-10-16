@@ -12,7 +12,7 @@ import { ModEngine } from '../core/mod-engine'
 import { PresetEngine } from '../core/preset-engine'
 import { GameLauncher } from '../core/game-launcher'
 import { getCharactersForGame, normalizeCharacterName, detectCharacterForMod } from '../core/characters-data'
-import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpdates } from '../core/gamebanana-service'
+import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpdates, sweepStaleDownloadDirs } from '../core/gamebanana-service'
 import { translateModDetails } from '../core/translate-service'
 import { PersistBridgeManager } from '../core/persist-bridge'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
@@ -1297,6 +1297,11 @@ function setupIpc() {
     return ''
   })()
   console.log('[LZ Main] GameBanana 下载缓存目录:', gbDownloadCacheDir || '(程序目录不可写，回退到应用数据目录)')
+
+  // 为什么：强杀/断电会留下 dl_* / staging_* 残留持续吃盘，启动时清理一次
+  void sweepStaleDownloadDirs(gbDownloadCacheDir)
+    .then((r) => { if (r.removed > 0) console.log('[LZ Main] 已清理陈旧下载缓存残留:', r.removed, '个 @', r.root) })
+    .catch(() => {})
 
   let activeGameBananaInstallController: AbortController | null = null
 

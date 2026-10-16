@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vites
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { downloadFile, installMod, resolveDownloadRoot } from '../src/core/gamebanana-service'
+import { downloadFile, installMod, resolveDownloadRoot, sweepStaleDownloadDirs } from '../src/core/gamebanana-service'
 
 /**
  * 回归来源：用户现场 %APPDATA%\Electron\lz-main-error.log
@@ -194,4 +194,45 @@ describe('中途取消安装', () => {
     expect(leftovers).toEqual([])
   })
 })
+
+describe('sweepStaleDownloadDirs 清理陈旧下载缓存残留', () => {
+  it('清理陈旧残留、保留无关目录', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-sweep-'))
+    const dlOld = path.join(root, 'dl_old')
+    const stagingOld = path.join(root, 'staging_old')
+    const keepme = path.join(root, 'keepme')
+    fs.mkdirSync(dlOld, { recursive: true })
+    fs.mkdirSync(stagingOld, { recursive: true })
+    fs.mkdirSync(keepme, { recursive: true })
+
+    const oldTime = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    fs.utimesSync(dlOld, oldTime, oldTime)
+    fs.utimesSync(stagingOld, oldTime, oldTime)
+
+    try {
+      const res = await sweepStaleDownloadDirs(root)
+      expect(res.removed).toBe(2)
+      expect(fs.existsSync(dlOld)).toBe(false)
+      expect(fs.existsSync(stagingOld)).toBe(false)
+      expect(fs.existsSync(keepme)).toBe(true)
+    } finally {
+      try { fs.rmSync(root, { recursive: true, force: true }) } catch {}
+    }
+  })
+
+  it('新鲜残留不删', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-sweep-'))
+    const dlFresh = path.join(root, 'dl_fresh')
+    fs.mkdirSync(dlFresh, { recursive: true })
+
+    try {
+      const res = await sweepStaleDownloadDirs(root)
+      expect(res.removed).toBe(0)
+      expect(fs.existsSync(dlFresh)).toBe(true)
+    } finally {
+      try { fs.rmSync(root, { recursive: true, force: true }) } catch {}
+    }
+  })
+})
+
 
