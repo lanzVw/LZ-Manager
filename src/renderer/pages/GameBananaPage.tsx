@@ -566,14 +566,14 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
         </div>
       </div>
 
-      {/* 安装进度浮条 */}
+      {/* 详情抽屉 z-50 的 backdrop-blur 会糊掉页内进度条，且滚动无关，所以改成固定浮层保证下载期间始终可读 */}
       {installingId !== null && (
-        <div className="bg-primary/10 border-b border-primary/20 px-6 py-2.5 flex items-center justify-between text-xs text-primary shrink-0 shadow-xs animate-in fade-in duration-200">
+        <div className="fixed left-6 bottom-6 z-[60] w-80 rounded-control border border-border bg-surface/95 backdrop-blur-md shadow-lg px-4 py-3 space-y-2 text-xs text-primary animate-in fade-in duration-200">
           <div className="flex items-center space-x-2 font-semibold">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
             <span>{progressMsg || '正在处理模组下载与安全解压...'}</span>
           </div>
-          <div className="w-56 bg-surface-2 border border-border rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-surface-2 border border-border rounded-full h-2 overflow-hidden">
             <div
               className="bg-primary h-full transition-all duration-200"
               style={{ width: `${progressPercent}%` }}
@@ -873,7 +873,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                                 )
                               }
                             >
-                              {isDownloadingThis ? '安装中...' : '安全安装'}
+                              {isDownloadingThis ? `安装中 ${Math.min(100, Math.max(0, Math.round(progressPercent)))}%` : '安全安装'}
                             </Button>
                           </div>
                         )
