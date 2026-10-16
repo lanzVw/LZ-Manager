@@ -100,6 +100,7 @@ npm start
 - 本机 `node`/`npm` 不在默认 PATH 上，实际位于 `F:\Hermes_data\node\runtime`（另有 `~/bin` 下的 `node.cmd`/`npm.cmd` shim）；纯 bash 环境直接跑 `npm` 会 command not found
 - `debug.log`（Electron ICU 报错）被 `.gitignore` 的 `*.log` 覆盖但仍在仓库根目录，属残留
 - 启动入口只有 `electron.exe`（`npm start` 或直接双击 `node_modules/electron/dist/electron.exe`）；仓库原有的 `启动FlairX.bat` / `启动LZ Manager.bat` 已按维护者要求删除
+- **main 进程用到的 node 内置子路径必须同时写进 `vite.config.main.ts` 的 `rollupOptions.external`**：`stream/promises` 曾漏配，被 rolldown 替换成返回 `{}` 的 `__vite-browser-external` shim，GameBanana 下载因此在打包产物里恒抛 `pipeline is not a function`。自查方法：`dist/main/index.cjs` 里出现 `require___vite_browser_external()` 调用点即漏配
 
 ## 工作流约定
 
