@@ -1280,6 +1280,24 @@ function setupIpc() {
     return detectCharacterForMod(modInfo, targetGame)
   })
 
+  // 为什么：缓存放程序目录便于集中管理与同盘移动，但 Program Files / asar 内不可写，必须探测后再用
+  const gbDownloadCacheDir = (() => {
+    const candidates: string[] = []
+    try {
+      candidates.push(app.isPackaged ? path.dirname(app.getPath('exe')) : path.resolve(__dirname, '..', '..'))
+    } catch {}
+    for (const base of candidates) {
+      try {
+        const dir = path.join(base, 'cache', 'gb_downloads')
+        fs.mkdirSync(dir, { recursive: true })
+        fs.accessSync(dir, fs.constants.W_OK)
+        return dir
+      } catch {}
+    }
+    return ''
+  })()
+  console.log('[LZ Main] GameBanana 下载缓存目录:', gbDownloadCacheDir || '(程序目录不可写，回退到应用数据目录)')
+
   let activeGameBananaInstallController: AbortController | null = null
 
   ipcMain.handle('gamebanana:install', async (event, params: any) => {
@@ -1344,6 +1362,7 @@ function setupIpc() {
     try {
       return await installMod({
         ...params,
+        downloadRoot: gbDownloadCacheDir,
         characterName: resolvedChar || params.characterName,
         sourceUrl: finalSourceUrl,
         profileUrl: finalSourceUrl,

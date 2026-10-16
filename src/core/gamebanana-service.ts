@@ -141,8 +141,7 @@ function resolveUnrarPath(customPath = null) {
 }
 
 /**
- * 为什么：清理软件（如 Wise Care 365 / 360 等）默认只扫 %TEMP% 与 Windows 临时目录，
- * 迁移到应用自有缓存目录（%LOCALAPPDATA%\QAQManager\cache\gb_downloads）可避免下载中的文件被外部误删
+ * 为什么：程序目录不可写时（Program Files / asar）回退到应用数据目录，绝不使用 %TEMP%
  */
 function resolveDownloadRoot() {
   const baseDir = process.env.LOCALAPPDATA || process.env.APPDATA || os.tmpdir();
@@ -1354,6 +1353,7 @@ async function installMod(rawParams: any = {}) {
     sevenZipPath,
     onProgress,
     signal,
+    downloadRoot,
     sourceUrl,
     profileUrl,
     modId,
@@ -1373,7 +1373,8 @@ async function installMod(rawParams: any = {}) {
 
   fs.mkdirSync(safeTargetParentDir, { recursive: true });
 
-  const tempBase = resolveDownloadRoot();
+  // 为什么：缓存目录由主进程按「程序目录优先、不可写则回退」决定，core 侧只保留兜底，便于单测与脱离 Electron 调用
+  const tempBase = typeof downloadRoot === "string" && downloadRoot.trim() ? downloadRoot.trim() : resolveDownloadRoot();
   fs.mkdirSync(tempBase, { recursive: true });
 
   const runId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;

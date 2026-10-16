@@ -68,7 +68,7 @@ describe('downloadFile 停滞超时', () => {
   })
 })
 
-describe('resolveDownloadRoot 下载根目录位置', () => {
+describe('resolveDownloadRoot 兜底下载根目录位置', () => {
   it('下载根目录包含 QAQManager 与 gb_downloads，且不位于 os.tmpdir()', () => {
     const root = resolveDownloadRoot()
     expect(root).toContain('QAQManager')
@@ -92,6 +92,42 @@ describe('installMod 失败语义', () => {
 
     expect(res.success).toBe(false)
     expect(typeof res.error).toBe('string')
+  })
+})
+
+describe('外部传入 downloadRoot 优先', () => {
+  it('外部传入 downloadRoot 优先且用后清理，兜底目录不新增残留', async () => {
+    const target = path.join(tmpRoot, 'install-target-custom', 'TestChar')
+    const customRoot = path.join(tmpRoot, 'custom-cache-root')
+    const fallbackRoot = resolveDownloadRoot()
+    const fallbackBefore = fs.existsSync(fallbackRoot)
+      ? fs.readdirSync(fallbackRoot).filter((n) => n.startsWith('dl_') || n.startsWith('staging_'))
+      : []
+
+    // 400 是 fetchWithRetry 明确不重试的分支，保证用例离网、快速
+    vi.stubGlobal('fetch', async () => new Response('nope', { status: 400, statusText: 'Bad Request' }))
+
+    const res: any = await installMod({
+      downloadUrl: 'https://gamebanana.com/dl/1',
+      targetParentDir: target,
+      modName: 'Probe Mod',
+      fileName: 'demo_ver_52_-MqgcoX.zip',
+      downloadRoot: customRoot
+    })
+
+    expect(res.success).toBe(false)
+    expect(typeof res.error).toBe('string')
+    expect(res.error.length).toBeGreaterThan(0)
+
+    expect(fs.existsSync(customRoot)).toBe(true)
+    const customLeftovers = fs.readdirSync(customRoot).filter((n) => n.startsWith('dl_') || n.startsWith('staging_'))
+    expect(customLeftovers).toEqual([])
+
+    const fallbackAfter = fs.existsSync(fallbackRoot)
+      ? fs.readdirSync(fallbackRoot).filter((n) => n.startsWith('dl_') || n.startsWith('staging_'))
+      : []
+    const newlyAdded = fallbackAfter.filter((n) => !fallbackBefore.includes(n))
+    expect(newlyAdded).toEqual([])
   })
 })
 
