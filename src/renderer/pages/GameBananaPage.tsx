@@ -88,6 +88,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
 
   const [loading, setLoading] = useState<boolean>(false)
   const [installingId, setInstallingId] = useState<number | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const [progressMsg, setProgressMsg] = useState<string>('')
   const [progressPercent, setProgressPercent] = useState<number>(0)
   const [pendingInstallTarget, setPendingInstallTarget] = useState<{ modInfo: any; targetFile: any } | null>(null)
@@ -398,19 +399,43 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           setTimeout(() => {
             setInstallingId(null)
             setProgressMsg('')
+            setCancelling(false)
             if (onInstallSuccess) onInstallSuccess()
           }, 1500)
+        } else if (res?.cancelled) {
+          toast.info('已取消安装', '未对 Mod 目录做任何改动')
+          setInstallingId(null)
+          setProgressMsg('')
+          setCancelling(false)
         } else {
           toast.error('安装模组失败', res?.error || '未知错误')
           setInstallingId(null)
+          setCancelling(false)
         }
       } catch (err: any) {
         toast.error('安装过程异常', err.message)
         setInstallingId(null)
+        setCancelling(false)
       }
     },
     [installingId, activeGame, onInstallSuccess]
   )
+
+  const handleCancelInstall = useCallback(async () => {
+    if (cancelling) return
+    setCancelling(true)
+    setProgressMsg('正在取消安装...')
+    try {
+      const r: any = await window.flairx.cancelGameBananaInstall()
+      if (!r?.success) {
+        toast.error('无法取消安装', r?.error || '未知错误')
+        setCancelling(false)
+      }
+    } catch (err: any) {
+      toast.error('取消失败', err.message)
+      setCancelling(false)
+    }
+  }, [cancelling, toast])
 
   // 触发安装单个指定文件 (智能自动识别目标角色，若无法识别则弹窗供用户指认)
   const executeInstallFile = useCallback(
@@ -572,6 +597,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           <div className="flex items-center space-x-2 font-semibold">
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
             <span>{progressMsg || '正在处理模组下载与安全解压...'}</span>
+            <Button variant="ghost" size="xs" onClick={handleCancelInstall} disabled={cancelling} className="ml-auto shrink-0">取消</Button>
           </div>
           <div className="w-full bg-surface-2 border border-border rounded-full h-2 overflow-hidden">
             <div

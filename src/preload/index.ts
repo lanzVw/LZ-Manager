@@ -211,6 +211,7 @@ const flairxApi = {
   searchGameBanana: (params: any) => ipcRenderer.invoke('gamebanana:search', params),
   getGameBananaDetails: (params: any) => ipcRenderer.invoke('gamebanana:details', params),
   installGameBananaMod: (params: any) => ipcRenderer.invoke('gamebanana:install', params),
+  cancelGameBananaInstall: () => ipcRenderer.invoke('gamebanana:cancelInstall'),
   onInstallProgress: (callback: (data: any) => void) => {
     const handler = (_: any, data: any) => callback(data)
     ipcRenderer.on('gamebanana:installProgress', handler)

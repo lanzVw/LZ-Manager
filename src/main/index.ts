@@ -1280,6 +1280,8 @@ function setupIpc() {
     return detectCharacterForMod(modInfo, targetGame)
   })
 
+  let activeGameBananaInstallController: AbortController | null = null
+
   ipcMain.handle('gamebanana:install', async (event, params: any) => {
     const g = configStore.getActiveGame()
     let resolvedChar = params.characterName
@@ -1337,17 +1339,31 @@ function setupIpc() {
       params.profileUrl ||
       (params.modId ? `https://gamebanana.com/mods/${params.modId}` : '')
 
-    return installMod({
-      ...params,
-      characterName: resolvedChar || params.characterName,
-      sourceUrl: finalSourceUrl,
-      profileUrl: finalSourceUrl,
-      previewImageUrl: previewUrl,
-      targetParentDir: targetParentDir || (g ? g.modFolderPath : ''),
-      onProgress: (p: any) => {
-        event.sender.send('gamebanana:installProgress', p)
-      }
-    })
+    const controller = new AbortController()
+    activeGameBananaInstallController = controller
+    try {
+      return await installMod({
+        ...params,
+        characterName: resolvedChar || params.characterName,
+        sourceUrl: finalSourceUrl,
+        profileUrl: finalSourceUrl,
+        previewImageUrl: previewUrl,
+        targetParentDir: targetParentDir || (g ? g.modFolderPath : ''),
+        signal: controller.signal,
+        onProgress: (p: any) => {
+          event.sender.send('gamebanana:installProgress', p)
+        }
+      })
+    } finally {
+      // 为什么：单飞引用不清掉的话，后续「取消」会打到已经结束的旧任务
+      if (activeGameBananaInstallController === controller) activeGameBananaInstallController = null
+    }
+  })
+
+  ipcMain.handle('gamebanana:cancelInstall', () => {
+    if (!activeGameBananaInstallController) return { success: false, error: '当前没有进行中的安装任务' }
+    activeGameBananaInstallController.abort()
+    return { success: true }
   })
 
   // 外观分区 (Appearance Sections)
