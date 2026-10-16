@@ -1060,6 +1060,9 @@ async function downloadFile({
     30000
   );
 
+  // 为什么：fetch（含最多 3 次重试 / 单次 30s 超时）期间 %TEMP% 下载目录可能被系统清理，此时 open 会抛原始 ENOENT
+  fs.mkdirSync(targetDir, { recursive: true });
+
   const totalBytes = parseInt(response.headers.get("content-length") || "0", 10);
   let downloadedBytes = 0;
   let lastReportTime = Date.now();
@@ -1097,20 +1100,25 @@ async function downloadFile({
     }
   });
 
+  const writeStream = fs.createWriteStream(partPath);
+  let streamError = null;
+  // 为什么：pipeline 结算后会撤走自己的监听，此后残余的写流 error 事件会变成 uncaughtException
+  // 直接击穿主进程（现场表现就是原始 fs ENOENT + 系统错误框，绕过渲染层安装失败提示）
+  writeStream.on("error", (err) => {
+    streamError = err;
+  });
+
   try {
     if (!response.body) {
       throw new Error("响应体为空，无法下载");
     }
-    await pipeline(
-      Readable.fromWeb(response.body),
-      progressCounter,
-      fs.createWriteStream(partPath)
-    );
+    await pipeline(Readable.fromWeb(response.body), progressCounter, writeStream);
   } catch (err) {
     if (fs.existsSync(partPath)) {
       try { fs.unlinkSync(partPath); } catch {}
     }
-    throw new Error(`流式下载中断: ${err.message}`);
+    const cause = streamError || err;
+    throw new Error(`流式下载中断: ${cause.message}`);
   }
 
   // Verify Magic Bytes
@@ -1448,6 +1456,9 @@ async function installMod(rawParams: any = {}) {
       previewSaved,
       format: dlResult.format
     };
+  } catch (err) {
+    console.error('[GameBananaService] 安装失败:', err?.message || String(err));
+    return { success: false, error: err?.message || String(err) };
   } finally {
     // 7. Cleanup temp files
     try {
