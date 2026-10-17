@@ -124,7 +124,7 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
     })
   })
 
-  describe('ensureXxmiManualMode 配置修改', () => {
+  describe('ensureXxmiLaunchMode / ensureXxmiManualMode 配置修改', () => {
     it('正确向上查找到 XXMI Launcher Config.json 并将 DIRECT 改为 MANUAL，同时调整 start_timeout', () => {
       const xxmiRoot = path.join(tmpDir, 'XXMI')
       const binDir = path.join(xxmiRoot, 'Resources', 'Bin')
@@ -149,7 +149,7 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
       }
       fs.writeFileSync(configPath, JSON.stringify(initialConfig, null, 2), 'utf8')
 
-      launcher.ensureXxmiManualMode(loaderPath, 'EFMI')
+      launcher.ensureXxmiLaunchMode(loaderPath, 'EFMI', 'MANUAL')
 
       const updated = JSON.parse(fs.readFileSync(configPath, 'utf8'))
       expect(updated.Importers.EFMI.Importer.game_launch).toBe('MANUAL')
@@ -157,6 +157,40 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
       expect(updated.Launcher.start_timeout).toBe(60)
       // 验证备份文件生成
       expect(fs.existsSync(`${configPath}.bak`)).toBe(true)
+    })
+
+    it('能正确将 MANUAL 改回 DIRECT，并保留原有字段', () => {
+      const xxmiRoot = path.join(tmpDir, 'XXMI')
+      const binDir = path.join(xxmiRoot, 'Resources', 'Bin')
+      fs.mkdirSync(binDir, { recursive: true })
+
+      const loaderPath = path.join(binDir, 'XXMI Launcher.exe')
+      fs.writeFileSync(loaderPath, 'dummy')
+
+      const configPath = path.join(xxmiRoot, 'XXMI Launcher Config.json')
+      const initialConfig = {
+        Launcher: {
+          start_timeout: 60
+        },
+        Importers: {
+          EFMI: {
+            Importer: {
+              game_launch: 'MANUAL',
+              start_timeout: 60,
+              custom_flag: 'keep_me'
+            }
+          }
+        }
+      }
+      fs.writeFileSync(configPath, JSON.stringify(initialConfig, null, 2), 'utf8')
+
+      launcher.ensureXxmiLaunchMode(loaderPath, 'EFMI', 'DIRECT')
+
+      const updated = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+      expect(updated.Importers.EFMI.Importer.game_launch).toBe('DIRECT')
+      expect(updated.Importers.EFMI.Importer.start_timeout).toBe(60)
+      expect(updated.Importers.EFMI.Importer.custom_flag).toBe('keep_me')
+      expect(updated.Launcher.start_timeout).toBe(60)
     })
 
     it('当配置文件已处于 MANUAL 且 timeout >= 60 时保持稳定', () => {
@@ -256,13 +290,26 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
       expect(launchedElevated).toEqual([officialExe])
     })
 
-    it('终末地模式为 EFMI 且存在官方启动器时，自动双向兜底走 EFMI_OFFICIAL 联动流程并提权拉起', async () => {
+    it('终末地模式为 EFMI 时即使检测到官方启动器，也不劫持为联动模式，而是尊重用户配置以 EFMI 传统模式调起并重置 XXMI 为 DIRECT', async () => {
       const xxmiRoot = path.join(tmpDir, 'XXMI')
       const binDir = path.join(xxmiRoot, 'Resources', 'Bin')
       fs.mkdirSync(binDir, { recursive: true })
 
       const loaderPath = path.join(binDir, 'XXMI Launcher.exe')
       fs.writeFileSync(loaderPath, 'dummy')
+
+      const configPath = path.join(xxmiRoot, 'XXMI Launcher Config.json')
+      const initialConfig = {
+        Importers: {
+          EFMI: {
+            Importer: {
+              game_launch: 'MANUAL',
+              start_timeout: 60
+            }
+          }
+        }
+      }
+      fs.writeFileSync(configPath, JSON.stringify(initialConfig, null, 2), 'utf8')
 
       const launcherDir = path.join(tmpDir, 'Hypergryph Launcher')
       const gameDir = path.join(launcherDir, 'games', 'Endfield Game')
@@ -284,8 +331,7 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
         return Promise.resolve({ success: true })
       })
 
-      // 模拟老配置中未切换为 EFMI_OFFICIAL 的终末地配置 (依然是 EFMI)
-      const legacyGame: GameConfig = {
+      const customEFMIGame: GameConfig = {
         id: 'endfield',
         name: '终末地',
         shortName: '终末地',
@@ -295,11 +341,15 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
         launchMode: 'EFMI'
       }
 
-      const res = await launcher.launchGame(legacyGame)
+      const res = await launcher.launchGame(customEFMIGame)
       expect(res.success).toBe(true)
-      expect(res.message).toContain('EFMI 注入监听已就绪，已唤起官方启动器')
+      // 验证未被劫持为 EFMI_OFFICIAL，未提权拉起官方启动器，而是常规模式以 EFMI 调起 loader
       expect(launchedViaStart).toEqual([loaderPath])
-      expect(launchedElevated).toEqual([officialExe])
+      expect(launchedElevated).toEqual([])
+
+      // 验证 XXMI 配置被恢复为 DIRECT
+      const updatedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+      expect(updatedConfig.Importers.EFMI.Importer.game_launch).toBe('DIRECT')
     })
 
     it('终末地模式为 EFMI 且未检测到官方启动器时，正常回退至常规 EFMI 加载器模式', async () => {
@@ -373,11 +423,17 @@ describe('GameLauncher - EFMI_OFFICIAL 官方启动器联动模式', () => {
 
 describe('ConfigStore - EFMI_OFFICIAL 兼容与初始化', () => {
   it('默认 endfield 配置包含 EFMI_OFFICIAL 启动模式且默认模式为 EFMI_OFFICIAL', () => {
-    const store = new ConfigStore()
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-cfg-empty-'))
+    const store = new ConfigStore(emptyDir)
     const endfield = store.getConfig().games.find((g) => g.id === 'endfield')
     expect(endfield).toBeDefined()
     expect(endfield?.supportedLaunchModes).toContain('EFMI_OFFICIAL')
     expect(endfield?.launchMode).toBe('EFMI_OFFICIAL')
+    try {
+      fs.rmSync(emptyDir, { recursive: true, force: true })
+    } catch {
+      // 容灾清理
+    }
   })
 
   it('旧配置如果未包含 EFMI_OFFICIAL，加载后自动追加兼容并将 launchMode 迁移至 EFMI_OFFICIAL', () => {
@@ -406,6 +462,39 @@ describe('ConfigStore - EFMI_OFFICIAL 兼容与初始化', () => {
     expect(endfield?.supportedLaunchModes).toContain('EFMI')
     expect(endfield?.supportedLaunchModes).toContain('XXMI')
     expect(endfield?.launchMode).toBe('EFMI_OFFICIAL')
+
+    try {
+      fs.rmSync(legacyDir, { recursive: true, force: true })
+    } catch {
+      // 容灾清理
+    }
+  })
+
+  it('当 supportedLaunchModes 已包含 EFMI_OFFICIAL 时，加载后保留用户显式选择的 EFMI，不予重复覆盖', () => {
+    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-cfg-user-efmi-'))
+    const cfgPath = path.join(legacyDir, 'config.json')
+    const userCustomData = {
+      activeGameId: 'endfield',
+      games: [
+        {
+          id: 'endfield',
+          name: '明日方舟：终末地',
+          shortName: '终末地',
+          gamePath: 'E:\\Hypergryph Launcher\\games\\Endfield Game\\Endfield.exe',
+          modFolderPath: 'F:\\XXMI\\EFMI\\Mods',
+          modLoaderPath: 'F:\\XXMI\\Resources\\Bin\\XXMI Launcher.exe',
+          launchMode: 'EFMI',
+          supportedLaunchModes: ['EFMI', 'EFMI_OFFICIAL', 'XXMI']
+        }
+      ]
+    }
+    fs.writeFileSync(cfgPath, JSON.stringify(userCustomData, null, 2), 'utf8')
+
+    const store = new ConfigStore(legacyDir)
+    const endfield = store.getConfig().games.find((g) => g.id === 'endfield')
+    expect(endfield?.supportedLaunchModes).toContain('EFMI_OFFICIAL')
+    // 用户显式配置为 EFMI，必须保持 EFMI，不被重复迁移覆盖
+    expect(endfield?.launchMode).toBe('EFMI')
 
     try {
       fs.rmSync(legacyDir, { recursive: true, force: true })

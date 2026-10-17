@@ -436,7 +436,7 @@ function setupIpc() {
     'theme', 'palette', 'characterSectionsByGame'
   ])
   const GAME_CONFIG_KEYS = new Set([
-    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'officialLauncherPath', 'launchMode', 'hidden'
+    'name', 'shortName', 'description', 'gamePath', 'modFolderPath', 'modLoaderPath', 'officialLauncherPath', 'launchMode', 'launchArgs', 'hidden'
   ])
   const sanitizePatch = (patch: any, allowed: Set<string>): any => {
     if (!patch || typeof patch !== 'object') return {}
@@ -450,6 +450,7 @@ function setupIpc() {
     }
     if ('persistBridgeCacheSize' in out && typeof out.persistBridgeCacheSize !== 'number') delete out.persistBridgeCacheSize
     if ('overlayHotkey' in out && (typeof out.overlayHotkey !== 'string' || out.overlayHotkey.length > 64)) delete out.overlayHotkey
+    if ('launchArgs' in out && typeof out.launchArgs !== 'string') delete out.launchArgs
     if ('hidden' in out && typeof out.hidden !== 'boolean') delete out.hidden
     return out
   }

@@ -457,10 +457,14 @@ export class GameLauncher {
   }
 
   /**
-   * 确保 XXMI 配置中对应 importer 的启动模式为 MANUAL 并设置充足超时，
-   * 适配游戏启动器强校验下的手动挂起监听注入机制
+   * 确保 XXMI 配置中对应 importer 的启动模式与目标模式 (MANUAL / DIRECT) 同步，
+   * 避免用户切换模式后 XXMI 配置文件仍残留旧模式导致无法拉起或无法注入
    */
-  public ensureXxmiManualMode(modLoaderPath: string, importerId: string): void {
+  public ensureXxmiLaunchMode(
+    modLoaderPath: string,
+    importerId: string,
+    targetLaunch: 'MANUAL' | 'DIRECT' = 'MANUAL'
+  ): void {
     try {
       const configPath = this.findXxmiConfigPath(modLoaderPath)
       if (!configPath) return
@@ -471,20 +475,24 @@ export class GameLauncher {
 
       const importer = data?.Importers?.[importerId]?.Importer
       if (importer && typeof importer === 'object') {
-        if ('game_launch' in importer && importer.game_launch !== 'MANUAL') {
-          importer.game_launch = 'MANUAL'
+        if ('game_launch' in importer && importer.game_launch !== targetLaunch) {
+          importer.game_launch = targetLaunch
           modified = true
         }
-        if (typeof importer.start_timeout === 'number' && importer.start_timeout < 60) {
-          importer.start_timeout = 60
-          modified = true
+        if (targetLaunch === 'MANUAL') {
+          if (typeof importer.start_timeout === 'number' && importer.start_timeout < 60) {
+            importer.start_timeout = 60
+            modified = true
+          }
         }
       }
 
-      if (data?.Launcher && typeof data.Launcher === 'object') {
-        if (typeof data.Launcher.start_timeout === 'number' && data.Launcher.start_timeout < 60) {
-          data.Launcher.start_timeout = 60
-          modified = true
+      if (targetLaunch === 'MANUAL') {
+        if (data?.Launcher && typeof data.Launcher === 'object') {
+          if (typeof data.Launcher.start_timeout === 'number' && data.Launcher.start_timeout < 60) {
+            data.Launcher.start_timeout = 60
+            modified = true
+          }
         }
       }
 
@@ -503,8 +511,15 @@ export class GameLauncher {
         }
       }
     } catch (err) {
-      console.warn('[GameLauncher] ensureXxmiManualMode failed:', err)
+      console.warn('[GameLauncher] ensureXxmiLaunchMode failed:', err)
     }
+  }
+
+  /**
+   * 向后兼容简易封装：确保 XXMI 配置中对应 importer 的启动模式为 MANUAL
+   */
+  public ensureXxmiManualMode(modLoaderPath: string, importerId: string): void {
+    this.ensureXxmiLaunchMode(modLoaderPath, importerId, 'MANUAL')
   }
 
   /**
@@ -528,15 +543,6 @@ export class GameLauncher {
       else mode = 'VANILLA'
     }
 
-    // 双向兜底：如果 mode 为 EFMI 且游戏为 endfield，若检测到官方启动器存在，自动走官方启动器联动流程
-    // 避免老配置尚未切换时，点击开始游戏未拉起官方启动器导致 Mod 无法生效
-    if (game.id === 'endfield' && mode === 'EFMI') {
-      const officialCandidate = this.resolveOfficialLauncherPath(game)
-      if (officialCandidate) {
-        mode = 'EFMI_OFFICIAL'
-      }
-    }
-
     const customArgs = (game.launchArgs || '').trim()
     const customArgsList = customArgs ? customArgs.split(/\s+/).filter(Boolean) : []
 
@@ -555,7 +561,7 @@ export class GameLauncher {
     // 1. EFMI 官方启动器联动模式 (终末地 1.6+ 官方启动器强校验注入解法)
     if (mode === 'EFMI_OFFICIAL') {
       if (game.modLoaderPath && fs.existsSync(game.modLoaderPath)) {
-        this.ensureXxmiManualMode(game.modLoaderPath, 'EFMI')
+        this.ensureXxmiLaunchMode(game.modLoaderPath, 'EFMI', 'MANUAL')
         const loaderDir = path.dirname(game.modLoaderPath)
         const args = ['--nogui', '--xxmi', 'EFMI', ...customArgsList]
         console.log(`[GameLauncher] 正在以 EFMI_OFFICIAL 模式调起加载器:`, game.modLoaderPath, args)
@@ -591,6 +597,10 @@ export class GameLauncher {
     // 2. XXMI 专属注入模式 (ZZMI / EFMI / WWMI / SRMI)
     if (['ZZMI', 'EFMI', 'WWMI', 'SRMI'].includes(mode)) {
       if (game.modLoaderPath && fs.existsSync(game.modLoaderPath)) {
+        if (mode === 'EFMI') {
+          // 切换回传统直启模式时，将 XXMI 内部模式恢复为 DIRECT，确保 XXMI 主动拉起游戏
+          this.ensureXxmiLaunchMode(game.modLoaderPath, 'EFMI', 'DIRECT')
+        }
         const loaderDir = path.dirname(game.modLoaderPath)
         const args = ['--nogui', '--xxmi', mode, ...customArgsList]
         console.log(`[GameLauncher] 正在以 ${mode} 模式调起加载器:`, game.modLoaderPath, args)

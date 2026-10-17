@@ -10,10 +10,14 @@ export class ConfigStore {
   private config: AppConfig
   private presets: PresetsData
 
-  constructor() {
-    // 优先读取原版 QAQManager 目录，实现 100% 无缝继承用户既有数据
-    const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library/Application Support') : path.join(os.homedir(), '.config'))
-    this.configDir = path.join(appData, 'QAQManager')
+  constructor(customDir?: string) {
+    if (customDir) {
+      this.configDir = customDir
+    } else {
+      // 优先读取原版 QAQManager 目录，实现 100% 无缝继承用户既有数据
+      const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library/Application Support') : path.join(os.homedir(), '.config'))
+      this.configDir = path.join(appData, 'QAQManager')
+    }
     
     if (!fs.existsSync(this.configDir)) {
       try {
@@ -166,18 +170,22 @@ export class ConfigStore {
           if (games.length === 0) {
             games = this.getDefaultGames(data)
           } else {
-            // 老版本配置升级兼容：确保终末地游戏拥有 EFMI_OFFICIAL 支持选项与推荐启动模式
+            // 老版本配置升级兼容：确保终末地游戏拥有 EFMI_OFFICIAL 支持选项与首次升级迁移
             for (const g of games) {
               if (g.id === 'endfield') {
                 if (!g.supportedLaunchModes) {
                   g.supportedLaunchModes = ['EFMI', 'EFMI_OFFICIAL', 'XXMI']
+                  if (g.launchMode === 'EFMI') {
+                    g.launchMode = 'EFMI_OFFICIAL'
+                  }
                 } else if (!g.supportedLaunchModes.includes('EFMI_OFFICIAL')) {
                   g.supportedLaunchModes.push('EFMI_OFFICIAL')
+                  // 仅在首次迁移老配置时自动将 EFMI 升级至推荐的 EFMI_OFFICIAL
+                  if (g.launchMode === 'EFMI') {
+                    g.launchMode = 'EFMI_OFFICIAL'
+                  }
                 }
-                // 老配置平滑迁移：终末地 1.6+ 官方启动器强校验注入，将 EFMI 自动升级为 EFMI_OFFICIAL
-                if (g.launchMode === 'EFMI') {
-                  g.launchMode = 'EFMI_OFFICIAL'
-                }
+                // 若 supportedLaunchModes 已包含 EFMI_OFFICIAL 说明已完成过升级，尊重用户手动切回 EFMI 的选择
               }
             }
           }
