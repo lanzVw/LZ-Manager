@@ -56,13 +56,16 @@ import { Switch } from '../components/ui/Switch'
 import { Modal } from '../components/ui/Modal'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/Toast'
+import { GameBananaDetailDrawer } from '../components/GameBananaDetailDrawer'
 
 interface ModDetailPageProps {
   modFullPath: string
+  activeGame?: any
   onBack: () => void
   onToggleActive: (charName: string, modName: string, enabled: boolean) => Promise<void>
   onNavigateToMarket?: (modId?: number, searchKeyword?: string) => void
   onDeleteSuccess?: () => void
+  onInstallSuccess?: () => void
 }
 
 const formatDateTime = (val?: string | number | Date | null): string => {
@@ -156,14 +159,17 @@ const mergeHotkeyMeta = (
 
 export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   modFullPath,
+  activeGame,
   onBack,
   onToggleActive,
   onNavigateToMarket,
-  onDeleteSuccess
+  onDeleteSuccess,
+  onInstallSuccess
 }) => {
   const toast = useToast()
   const [details, setDetails] = useState<ModDetailedInfo | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
+  const [isMarketDrawerOpen, setIsMarketDrawerOpen] = useState(false)
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(0)
   // 主图加载失败兜底：裂图时回退到占位块；切换 Mod / 切图 / 重载详情后自动复位
   const [mainImageError, setMainImageError] = useState<boolean>(false)
@@ -777,7 +783,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     sourceUrl && (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'))
   )
 
-  const canJumpToInAppMarket = Boolean(isGameBanana && (detectedModId || details?.name) && onNavigateToMarket)
+  const canOpenMarketDrawer = Boolean(isGameBanana && (detectedModId || details?.name))
 
   // 外部浏览器打开链接
   const handleOpenExternal = () => {
@@ -1208,7 +1214,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               <Button
                 variant="primary"
                 size="sm"
-                onClick={handleJumpToMarket}
+                onClick={() => setIsMarketDrawerOpen(true)}
                 icon={<ShoppingBag className="w-3.5 h-3.5" />}
               >
                 在市场中获取更新
@@ -1508,12 +1514,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                     </Button>
                   )}
 
-                  {/* 应用内市场联动跳转 */}
-                  {canJumpToInAppMarket && (
+                  {/* 应用内市场联动详情抽屉 */}
+                  {canOpenMarketDrawer && (
                     <Button
                       variant="primary"
                       size="sm"
-                      onClick={handleJumpToMarket}
+                      onClick={() => setIsMarketDrawerOpen(true)}
                       title="在 LZ Manager 模组市场中查看该模组详情"
                       icon={<ShoppingBag className="w-3.5 h-3.5" />}
                     >
@@ -2201,6 +2207,25 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           )}
         </div>
       </Modal>
+
+      <GameBananaDetailDrawer
+        isOpen={isMarketDrawerOpen}
+        onClose={() => setIsMarketDrawerOpen(false)}
+        modId={detectedModId}
+        modName={details?.name}
+        activeGame={activeGame}
+        defaultCharacterName={details?.characterName}
+        onInstallSuccess={async () => {
+          await loadDetails()
+          onInstallSuccess?.()
+        }}
+        onNavigateToMarketAuthor={(authorName) => {
+          setIsMarketDrawerOpen(false)
+          if (onNavigateToMarket) {
+            onNavigateToMarket(undefined, authorName)
+          }
+        }}
+      />
     </div>
   )
 }

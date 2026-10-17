@@ -275,6 +275,7 @@ export default function App() {
           (selectedModPath ? (
             <ModDetailPage
               modFullPath={selectedModPath}
+              activeGame={activeGame}
               onBack={() => {
                 setSelectedModPath(null)
                 scanMods()
@@ -283,6 +284,7 @@ export default function App() {
                 setSelectedModPath(null)
                 scanMods()
               }}
+              onInstallSuccess={() => scanMods()}
               onToggleActive={async (char, mod, state) => {
                 await handleToggleMod(char, mod, state)
               }}
