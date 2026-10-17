@@ -212,9 +212,6 @@ export class ModEngine {
    */
   public getCharacterAvatars(gameId?: string): Record<string, string> {
     const result: Record<string, string> = {}
-    if (!this.modFolderPath || !fs.existsSync(this.modFolderPath)) {
-      return result
-    }
 
     const exts = [
       '_cover.webp',
@@ -253,93 +250,7 @@ export class ModEngine {
       }
     }
 
-    try {
-      const charDirs = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
-      for (const charDirent of charDirs) {
-        if (!charDirent.isDirectory()) continue
-        const charName = charDirent.name
-        if (charName.startsWith('.') || charName === 'System Volume Information') continue
-
-        const canonicalName = normalizeCharacterName(charName, gameId)
-        const charPath = path.join(this.modFolderPath, charName)
-        let avatarPath: string | null = null
-
-        // 1. 优先从角色本目录下匹配缩略图文件
-        for (const ext of exts) {
-          const p = path.join(charPath, ext)
-          if (fs.existsSync(p)) {
-            avatarPath = p
-            break
-          }
-        }
-
-        // 2. 从 QAQM 系统资源池检索（同时尝试规范名与原始名）
-        if (!avatarPath && foundQaqmBase && gameId) {
-          const gameFolders = [gameId, gameId.toLowerCase()]
-          if (gameId === 'zzz' || gameId === '19567') gameFolders.push('zzz')
-          if (gameId === 'genshin' || gameId === '8552') gameFolders.push('genshin-impact', 'genshin')
-          if (gameId === 'hsr' || gameId === '18366') gameFolders.push('honkai-star-rail')
-          if (gameId === 'wuwa' || gameId === '20357') gameFolders.push('wuthering-waves', 'wuwa')
-          if (gameId === 'endfield' || gameId === '21842') gameFolders.push('endfield')
-
-          const candidateNames = Array.from(new Set([canonicalName, charName]))
-          for (const gf of gameFolders) {
-            for (const cn of candidateNames) {
-              const qCharDir = path.join(foundQaqmBase, gf, cn)
-              if (fs.existsSync(qCharDir)) {
-                for (const ext of exts) {
-                  const qp = path.join(qCharDir, ext)
-                  if (fs.existsSync(qp)) {
-                    avatarPath = qp
-                    break
-                  }
-                }
-              }
-              if (avatarPath) break
-            }
-            if (avatarPath) break
-          }
-        }
-
-        // 3. Fallback: 从角色所属的子 Mod 目录中提取封面
-        if (!avatarPath) {
-          try {
-            const modDirs = fs.readdirSync(charPath, { withFileTypes: true })
-            // 先尝试从启用的 mod 中获取
-            for (const mDirent of modDirs) {
-              if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
-              if (!mDirent.name.startsWith('DISABLED_')) {
-                const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
-                if (coverPath) {
-                  avatarPath = coverPath
-                  break
-                }
-              }
-            }
-            // 若无已启用 mod 封面，尝试从任意 mod 获取
-            if (!avatarPath) {
-              for (const mDirent of modDirs) {
-                if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
-                const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
-                if (coverPath) {
-                  avatarPath = coverPath
-                  break
-                }
-              }
-            }
-          } catch (_) {}
-        }
-
-        if (avatarPath) {
-          result[canonicalName] = avatarPath
-          result[charName] = avatarPath
-        }
-      }
-    } catch (err) {
-      console.error('Error scanning character avatars:', err)
-    }
-
-    // 4. 补充 QAQM 全局官方角色图鉴头像（覆盖尚未在本地建文件夹但已在官方图鉴的角色）
+    // 1. 官方底图层：未安装游戏或未建本地目录时仍需保证图鉴展示完整头像
     if (foundQaqmBase && gameId) {
       try {
         const gameFolders = [gameId, gameId.toLowerCase()]
@@ -356,22 +267,87 @@ export class ModEngine {
             for (const qe of qEntries) {
               if (!qe.isDirectory()) continue
               const rawName = qe.name
+              if (rawName.startsWith('.') || rawName === 'System Volume Information') continue
+
               const canonicalName = normalizeCharacterName(rawName, gameId)
-              if (!result[canonicalName] || !result[rawName]) {
-                const qCharDir = path.join(qGameDir, rawName)
-                for (const ext of exts) {
-                  const qp = path.join(qCharDir, ext)
-                  if (fs.existsSync(qp)) {
-                    if (!result[canonicalName]) result[canonicalName] = qp
-                    if (!result[rawName]) result[rawName] = qp
-                    break
-                  }
+              if (result[canonicalName] && result[rawName]) continue
+
+              const qCharDir = path.join(qGameDir, rawName)
+              for (const ext of exts) {
+                const qp = path.join(qCharDir, ext)
+                if (fs.existsSync(qp)) {
+                  if (!result[canonicalName]) result[canonicalName] = qp
+                  if (!result[rawName]) result[rawName] = qp
+                  break
                 }
               }
             }
           }
         }
-      } catch (_) {}
+      } catch (err) {
+        console.error('[ModEngine] Error loading official character avatars:', err)
+      }
+    }
+
+    // 2. 本地覆盖层：若本地存在角色文件夹，其中的自定义封面及 Mod 封面具有最高优先级
+    if (this.modFolderPath && fs.existsSync(this.modFolderPath)) {
+      try {
+        const charDirs = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
+        for (const charDirent of charDirs) {
+          if (!charDirent.isDirectory()) continue
+          const charName = charDirent.name
+          if (charName.startsWith('.') || charName === 'System Volume Information') continue
+
+          const canonicalName = normalizeCharacterName(charName, gameId)
+          const charPath = path.join(this.modFolderPath, charName)
+          let avatarPath: string | null = null
+
+          // 2.1 优先从角色本目录下匹配缩略图文件
+          for (const ext of exts) {
+            const p = path.join(charPath, ext)
+            if (fs.existsSync(p)) {
+              avatarPath = p
+              break
+            }
+          }
+
+          // 2.2 若本地无图片文件，但存在子 Mod 且能提取到 Mod 封面
+          if (!avatarPath) {
+            try {
+              const modDirs = fs.readdirSync(charPath, { withFileTypes: true })
+              // 先尝试从启用的 mod 中获取
+              for (const mDirent of modDirs) {
+                if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
+                if (!mDirent.name.startsWith('DISABLED_')) {
+                  const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
+                  if (coverPath) {
+                    avatarPath = coverPath
+                    break
+                  }
+                }
+              }
+              // 若无已启用 mod 封面，尝试从任意 mod 获取
+              if (!avatarPath) {
+                for (const mDirent of modDirs) {
+                  if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
+                  const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
+                  if (coverPath) {
+                    avatarPath = coverPath
+                    break
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
+          if (avatarPath) {
+            result[canonicalName] = avatarPath
+            result[charName] = avatarPath
+          }
+        }
+      } catch (err) {
+        console.error('[ModEngine] Error scanning character avatars:', err)
+      }
     }
 
     return result
@@ -950,24 +926,44 @@ export class ModEngine {
     const scopeId = gameId || 'zzz'
     let cached = this.skinCatalogCache.get(scopeId)
     if (!cached) {
-      const candidates = [
-        path.resolve(process.cwd(), 'resources/games', scopeId, 'character-skins/catalog.json'),
-        path.resolve(process.cwd(), 'LZ Manager/resources/games', scopeId, 'character-skins/catalog.json'),
-        path.resolve(__dirname, '../../resources/games', scopeId, 'character-skins/catalog.json'),
-        path.resolve(__dirname, '../../../resources/games', scopeId, 'character-skins/catalog.json'),
-        path.resolve(__dirname, '../resources/games', scopeId, 'character-skins/catalog.json'),
-        path.join(process.resourcesPath || '', 'games', scopeId, 'character-skins/catalog.json')
-      ]
+      const scopeDirs = [scopeId]
+      if (scopeId === 'wuwa' || scopeId === '20357' || scopeId === 'wuthering-waves') {
+        scopeDirs.push('wuwa', 'wuthering-waves')
+      }
+      if (scopeId === 'honkai-star-rail' || scopeId === 'hsr' || scopeId === '18366') {
+        scopeDirs.push('honkai-star-rail', 'hsr')
+      }
+      if (scopeId === 'zzz' || scopeId === '19567') {
+        scopeDirs.push('zzz')
+      }
+      if (scopeId === 'endfield' || scopeId === '21842') {
+        scopeDirs.push('endfield')
+      }
+
+      const uniqueScopeDirs = Array.from(new Set(scopeDirs))
+      const candidates: string[] = []
+      for (const sd of uniqueScopeDirs) {
+        candidates.push(
+          path.resolve(process.cwd(), 'resources/games', sd, 'character-skins/catalog.json'),
+          path.resolve(process.cwd(), 'LZ Manager/resources/games', sd, 'character-skins/catalog.json'),
+          path.resolve(__dirname, '../../resources/games', sd, 'character-skins/catalog.json'),
+          path.resolve(__dirname, '../../../resources/games', sd, 'character-skins/catalog.json'),
+          path.resolve(__dirname, '../resources/games', sd, 'character-skins/catalog.json'),
+          path.join(process.resourcesPath || '', 'games', sd, 'character-skins/catalog.json')
+        )
+      }
 
       for (const cand of candidates) {
         if (fs.existsSync(cand)) {
           try {
             const parsed = JSON.parse(fs.readFileSync(cand, 'utf-8'))
             cached = { catalog: parsed, catalogDir: path.dirname(cand) }
-            this.skinCatalogCache.set(scopeId, cached)
+            for (const sd of uniqueScopeDirs) {
+              this.skinCatalogCache.set(sd, cached)
+            }
             break
           } catch (err) {
-            console.error(`Failed to parse skin catalog from ${cand}:`, err)
+            console.error(`[ModEngine] Failed to parse skin catalog from ${cand}:`, err)
           }
         }
       }
@@ -1063,8 +1059,10 @@ export class ModEngine {
     }
     if (!baseCoverUrl) {
       const charAvatars = this.getCharacterAvatars(gameId || 'zzz')
-      if (charAvatars[characterName]) {
-        baseCoverUrl = charAvatars[characterName].replace(/\\/g, '/')
+      const canonicalName = normalizeCharacterName(characterName, gameId || 'zzz')
+      const foundAvatar = charAvatars[characterName] || charAvatars[canonicalName]
+      if (foundAvatar) {
+        baseCoverUrl = foundAvatar.replace(/\\/g, '/')
       }
     }
 
