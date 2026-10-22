@@ -52,6 +52,19 @@ describe('角色库：新增角色', () => {
       }
     }
   })
+
+  /**
+   * 赛维里安·洛威尔是新版本角色，GameBanana 上尚无他的 Mod 与分类，
+   * gbCatId 只能先留 null —— 代码会降级为按 enName 关键词搜索，功能不受影响。
+   * 等市场出现分类后再补 gbCatId。
+   */
+  it('尚无市场分类的角色允许 gbCatId 为 null，且仍能按英文名检索', () => {
+    const zzz = getCharactersForGame('zzz')
+    const entry = zzz.find((c) => c.name === '赛维里安·洛威尔')
+    expect(entry, '缺少角色 赛维里安·洛威尔').toBeTruthy()
+    expect(entry.gbCatId).toBeNull()
+    expect(entry.enName).toBe('Severian Lowell')
+  })
 })
 
 describe('角色库：别名归一', () => {
@@ -64,7 +77,11 @@ describe('角色库：别名归一', () => {
     ['希格莉德', 'zzz', '希格丽德'],
     ['Si', 'endfield', '祀'],
     ['Typhoeus', 'endfield', '提弗洛斯'],
-    ['Mi Fu', 'endfield', '弭弗']
+    ['Mi Fu', 'endfield', '弭弗'],
+    ['赛维里安', 'zzz', '赛维里安·洛威尔'],
+    ['塞维里安', 'zzz', '赛维里安·洛威尔'],
+    ['Severian', 'zzz', '赛维里安·洛威尔'],
+    ['Severian Lowell', 'zzz', '赛维里安·洛威尔']
   ]
   for (const [raw, game, expected] of cases) {
     it(`${raw} → ${expected}`, () => {

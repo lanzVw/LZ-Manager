@@ -1336,6 +1336,12 @@ const CHARACTERS_BY_GAME = {
       "pinyin": "wln"
     },
     {
+      "id": "severian",
+      "name": "赛维里安·洛威尔",
+      "enName": "Severian Lowell",
+      "gbCatId": null,
+      "pinyin": "swlawe"
+    },    {
       "id": "trigger",
       "name": "扳机",
       "enName": "Trigger",
@@ -2224,6 +2230,10 @@ const CN_NAME_ALIASES = {
   "浮波柚叶": "柚叶",
   "叶舜光": "叶瞬光",
   "薇莉娜": "维琳娜",
+  "赛维里安": "赛维里安·洛威尔",
+  "塞维里安": "赛维里安·洛威尔",
+  "Severian": "赛维里安·洛威尔",
+  "Severian Lowell": "赛维里安·洛威尔",
   "浅羽悠真": "悠真",
   "伊德哈里": "伊德海莉",
   "露西亚": "卢西娅",
