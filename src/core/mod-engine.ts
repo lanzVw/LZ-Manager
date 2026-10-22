@@ -1725,23 +1725,26 @@ export class ModEngine {
       }
     } catch (_) {}
 
-    const seenHashes = new Set<string>()
-    try {
-      if (fs.existsSync(imgDir)) {
-        for (const n of fs.readdirSync(imgDir)) {
-          if (thumbnails.has(n)) continue
-          try {
-            seenHashes.add(hashBuffer(fs.readFileSync(path.join(imgDir, n))))
-          } catch (_) {}
+    // 记下「当前封面是哪张图的内容」——重建后文件名会变，
+    // 只有按内容哈希才能找回同一张图，否则用户选的封面会指向别的图。
+    const coverRelBefore = this.readCoverPointer(safeModDir)
+    let coverHashBefore = ''
+    let coverBufBefore: Buffer | null = null
+    if (coverRelBefore) {
+      const coverAbs = path.join(safeModDir, coverRelBefore.split('/').join(path.sep))
+      try {
+        if (fs.existsSync(coverAbs)) {
+          coverBufBefore = fs.readFileSync(coverAbs)
+          coverHashBefore = hashBuffer(coverBufBefore)
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
 
-    // 先全部下载到内存并去重，再统一落盘：避免中途失败时把旧图清空后留下残缺状态
+    // 先全部下载到内存，再统一落盘：避免中途失败时把旧图清空后留下残缺状态
     const collected: { name: string; buf: Buffer }[] = []
+    const seenHashes = new Set<string>()
     let failed = 0
     let skipped = 0
-    let seq = 0
     for (const url of imageUrls) {
       if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
         failed++
@@ -1759,13 +1762,13 @@ export class ModEngine {
           continue
         }
         const h = hashBuffer(buf)
+        // 只对本轮下载结果去重（同一 URL 重复出现 / 市场返回重复图）
         if (seenHashes.has(h)) {
           skipped++
           continue
         }
         seenHashes.add(h)
-        seq++
-        collected.push({ name: `market_${String(seq).padStart(2, '0')}.png`, buf })
+        collected.push({ name: `market_${String(collected.length + 1).padStart(2, '0')}.png`, buf })
       } catch (_) {
         failed++
       }
@@ -1782,16 +1785,14 @@ export class ModEngine {
       }
     }
 
-    // market_* 每次补全都会整批重写，序号对应的图片可能完全变化。
-    // 若当前封面正指向其中一张，先把它固化成 _cover.png 再重写，
-    // 否则用户选的封面会在下次补全后悄悄变成另一张图。
-    this.pinMarketCoverBeforeRewrite(safeModDir, imgDir)
-
+    // 安装阶段写的是 image_*.png，补全写的是 market_*.png，两套命名混在一起时
+    // 按文件名排序会让缩略图顺序与市场顺序不一致（image_02 会排在 market_01 前面）。
+    // 这里整批重建为 market_*，让「文件序号 == 市场顺序」始终成立。
+    let coverRestoreName = ''
     try {
       fs.mkdirSync(imgDir, { recursive: true })
-      // 只清掉上一轮的 market_* 结果，不动 _cover.* 和迁移来的 legacy_*
       for (const n of fs.readdirSync(imgDir)) {
-        if (/^market_/i.test(n)) {
+        if (/^(market_|image_|legacy_)/i.test(n)) {
           try {
             fs.unlinkSync(path.join(imgDir, n))
           } catch (_) {}
@@ -1800,19 +1801,34 @@ export class ModEngine {
       for (const item of collected) {
         fs.writeFileSync(path.join(imgDir, item.name), item.buf)
       }
-      // 重新下载成功后，旧缩略图就没有存在价值了，删掉免得继续占位
-      for (const n of thumbnails) {
-        try {
-          fs.unlinkSync(path.join(imgDir, n))
-        } catch (_) {}
+      // 用户原来的封面若不在市场返回的图里（如旧版 preview.png、已下架的截图），
+      // 整批重建会把它删掉。这里按内容补写一份，避免用户的封面凭空消失。
+      if (coverBufBefore && coverHashBefore && !collected.some((c) => hashBuffer(c.buf) === coverHashBefore)) {
+        coverRestoreName = `_cover${path.extname(coverRelBefore) || '.png'}`
+        fs.writeFileSync(path.join(imgDir, coverRestoreName), coverBufBefore)
       }
     } catch (err: any) {
       return { success: false, saved: 0, failed, skipped, moved, error: `写入截图失败: ${err.message}` }
     }
 
-    // 旧数据可能从来没有 coverImage 字段（旧版安装只写 preview.png）。
-    // 补全后若仍无指针，按文件名顺序挑第一张建指针。
-    this.ensureCoverPointer(safeModDir)
+    // 封面按内容找回：文件名已重排，只有哈希能确定是同一张图。
+    // 找不到（用户原来选的那张已下架）就回落到第一张，避免指向不存在的文件。
+    let restoredCover = ''
+    if (coverHashBefore) {
+      const hit = collected.find((c) => hashBuffer(c.buf) === coverHashBefore)
+      if (hit) restoredCover = `${IMAGES_DIR_NAME}/${hit.name}`
+    }
+    if (!restoredCover && coverRestoreName) {
+      restoredCover = `${IMAGES_DIR_NAME}/${coverRestoreName}`
+    }
+    if (!restoredCover && collected.length > 0) {
+      restoredCover = `${IMAGES_DIR_NAME}/${collected[0].name}`
+    }
+    if (restoredCover) {
+      this.saveModMetadata(safeModDir, { coverImage: restoredCover })
+    } else {
+      this.ensureCoverPointer(safeModDir)
+    }
 
     return { success: true, saved: collected.length, failed, skipped, moved, dir: imgDir }
   }
@@ -1845,27 +1861,6 @@ export class ModEngine {
     } catch (_) {
       return ''
     }
-  }
-
-  /**
-   * 补全前把「指向 market_* 的封面」固化成 _cover.png
-   *
-   * market_* 的序号是每次补全时重新分配的，同一序号在两次补全后可能是两张
-   * 完全不同的图。若不先固化，用户选定的封面会在下次补全后悄悄变成别的图。
-   */
-  private pinMarketCoverBeforeRewrite(modDir: string, imgDir: string): void {
-    const rel = this.readCoverPointer(modDir)
-    if (!rel) return
-    const base = path.basename(rel.split('/').join(path.sep))
-    if (!/^market_/i.test(base)) return
-
-    const src = path.join(imgDir, base)
-    if (!fs.existsSync(src)) return
-    try {
-      const pinned = path.join(imgDir, '_cover.png')
-      fs.copyFileSync(src, pinned)
-      this.saveModMetadata(modDir, { coverImage: `${IMAGES_DIR_NAME}/_cover.png` })
-    } catch (_) {}
   }
 
   /**
@@ -1908,11 +1903,33 @@ export class ModEngine {
     const imgDir = path.join(safeModDir, IMAGES_DIR_NAME)
     try {
       if (!fs.existsSync(imgDir)) return []
-      return fs
+      const names = fs
         .readdirSync(imgDir)
         .filter((n) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(n))
-        .sort()
-        .map((n) => path.join(imgDir, n))
+      // 不能直接用字母序：image_* 会整批排在 market_* 前面，
+      // 于是缩略图顺序与市场顺序错位（image_02 跑到 market_01 之前）。
+      // 这里按「前缀优先级 + 序号」排：封面置顶，market 其次，image 兼容旧数据，其余垫底。
+      const rank = (n: string): number => {
+        if (/^_cover\./i.test(n)) return 0
+        if (/^market_/i.test(n)) return 1
+        if (/^image_/i.test(n)) return 2
+        if (/^legacy_/i.test(n)) return 3
+        return 4
+      }
+      const seqOf = (n: string): number => {
+        const m = n.match(/(\d+)/)
+        return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER
+      }
+      names.sort((a, b) => {
+        const ra = rank(a)
+        const rb = rank(b)
+        if (ra !== rb) return ra - rb
+        const sa = seqOf(a)
+        const sb = seqOf(b)
+        if (sa !== sb) return sa - sb
+        return a.localeCompare(b)
+      })
+      return names.map((n) => path.join(imgDir, n))
     } catch (_) {
       return []
     }

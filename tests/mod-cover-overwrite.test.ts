@@ -236,7 +236,7 @@ describe('封面：只记指针，不复制文件', () => {
 })
 
 describe('懒迁移：旧结构归位到 .lz_images/', () => {
-  it('根目录 preview.png 被搬进 .lz_images/ 并成为封面', async () => {
+  it('根目录 preview.png 被搬进 .lz_images/，旧位置清空', async () => {
     const modDir = makeMod()
     fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_A)
 
@@ -250,10 +250,8 @@ describe('懒迁移：旧结构归位到 .lz_images/', () => {
     expect(fs.existsSync(path.join(modDir, 'preview.png'))).toBe(false)
     const imgDir = path.join(modDir, '.lz_images')
     const names = fs.readdirSync(imgDir)
-    expect(names.some((n) => n.startsWith('legacy_'))).toBe(true)
-
-    const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
-    expect(meta.coverImage).toMatch(/^\.lz_images\/legacy_/)
+    // 补全会整批重建为 market_*，但原封面内容必须被保留下来
+    expect(names.length).toBeGreaterThan(0)
   })
 
   it('旧 .lz_previews/ 里的图被搬过来，旧目录删除', async () => {
@@ -291,24 +289,28 @@ describe('懒迁移：旧结构归位到 .lz_images/', () => {
     expect(fs.existsSync(path.join(modDir, 'preview.png'))).toBe(false)
   })
 
-  it('迁移结果参与去重：与市场图相同的内容不会重复下载', async () => {
+  it('迁移来的封面内容不会因重建而丢失', async () => {
     const modDir = makeMod()
     fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_A)
 
-    const s = await startImageServer(PNG_A)
+    const s = await startImageServer(PNG_B)
     try {
-      const res = await engine.saveMarketPreviews(modDir, [s.url])
-      // 市场图与已迁移的 legacy 图内容相同，应被跳过
-      expect(res.skipped).toBe(1)
-      expect(res.saved).toBe(0)
+      await engine.saveMarketPreviews(modDir, [s.url])
     } finally {
       await closeServer(s.server)
     }
+
+    // 原封面不在市场返回的图里，应被单独保留下来并可继续作为封面
+    const imgDir = path.join(modDir, '.lz_images')
+    const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
+    const coverAbs = path.join(modDir, meta.coverImage.split('/').join(path.sep))
+    expect(fs.existsSync(coverAbs), '原封面文件丢失了').toBe(true)
+    expect(fs.readFileSync(coverAbs).equals(PNG_A), '原封面内容被改写了').toBe(true)
   })
 })
 
-describe('重复补全：只清 market_*，保留 legacy_* 与用户图', () => {
-  it('第二次补全不会删掉迁移过来的 legacy 图', async () => {
+describe('重复补全：整批重建，序号始终与市场顺序一致', () => {
+  it('第二次补全不会残留上一轮的多余图片', async () => {
     const modDir = makeMod()
     fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_A)
 
@@ -326,9 +328,11 @@ describe('重复补全：只清 market_*，保留 legacy_* 与用户图', () => 
       await closeServer(s2.server)
     }
 
-    const names = fs.readdirSync(path.join(modDir, '.lz_images'))
-    expect(names.some((n) => n.startsWith('legacy_'))).toBe(true)
+    const names = fs.readdirSync(path.join(modDir, '.lz_images')).sort()
     expect(names).toContain('market_01.png')
+    // 上一轮的 market_* 与迁移来的 legacy_* 都被清掉，只留本轮结果 + 保留下来的原封面
+    const marketFiles = names.filter((n) => n.startsWith('market_'))
+    expect(marketFiles).toEqual(['market_01.png'])
   })
 })
 
@@ -399,5 +403,68 @@ describe('补全的边界行为', () => {
     }
     const names = fs.readdirSync(path.join(modDir, '.lz_images'))
     expect(names.filter((n) => n.startsWith('market_'))).toEqual(['market_01.png', 'market_02.png'])
+  })
+})
+
+describe('缩略图顺序必须与市场顺序一致', () => {
+  /**
+   * 回归来源：用户反馈「下载的封面跟市场排序不一致」。
+   * 根因是安装写 image_*.png、补全写 market_*.png，两套命名混在一起后
+   * 按字母排序会把 image_02 排到 market_01 前面。
+   */
+  it('安装留下的 image_* 与补全的 market_* 不会导致顺序错乱', async () => {
+    const modDir = makeMod('Order Test')
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+    // 模拟安装只下了后两张（第 0 张失败），留下 image_02 / image_03
+    fs.writeFileSync(path.join(imgDir, 'image_02.png'), PNG_B)
+    fs.writeFileSync(path.join(imgDir, 'image_03.png'), PNG_C)
+
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png' })
+      if (req.url?.includes('a')) res.end(PNG_A)
+      else if (req.url?.includes('b')) res.end(PNG_B)
+      else res.end(PNG_C)
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const addr = server.address() as any
+    const base = `http://127.0.0.1:${addr.port}`
+    try {
+      await engine.saveMarketPreviews(modDir, [`${base}/a.png`, `${base}/b.png`, `${base}/c.png`])
+    } finally {
+      await closeServer(server)
+    }
+
+    const names = fs.readdirSync(imgDir).filter((n) => /^(market_|image_)/i.test(n)).sort()
+    expect(names).toEqual(['market_01.png', 'market_02.png', 'market_03.png'])
+    expect(fs.readFileSync(path.join(imgDir, 'market_01.png')).equals(PNG_A)).toBe(true)
+    expect(fs.readFileSync(path.join(imgDir, 'market_02.png')).equals(PNG_B)).toBe(true)
+    expect(fs.readFileSync(path.join(imgDir, 'market_03.png')).equals(PNG_C)).toBe(true)
+  })
+
+  it('getMarketPreviews 返回的顺序与市场顺序一致', async () => {
+    const modDir = makeMod('Order Test 2')
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png' })
+      if (req.url?.includes('a')) res.end(PNG_A)
+      else res.end(PNG_B)
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const addr = server.address() as any
+    const base = `http://127.0.0.1:${addr.port}`
+    try {
+      await engine.saveMarketPreviews(modDir, [`${base}/a.png`, `${base}/b.png`])
+    } finally {
+      await closeServer(server)
+    }
+
+    const list = engine.getMarketPreviews(modDir)
+    const names = list.map((p) => path.basename(p))
+    expect(names[0]).toBe('market_01.png')
+    expect(names[1]).toBe('market_02.png')
+    expect(fs.readFileSync(list[0]).equals(PNG_A)).toBe(true)
   })
 })

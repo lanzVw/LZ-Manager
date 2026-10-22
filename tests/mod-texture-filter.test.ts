@@ -203,7 +203,7 @@ describe('旧版缩略图在补全时被替换', () => {
     expect(fs.existsSync(path.join(imgDir, 'market_01.png'))).toBe(true)
   })
 
-  it('正常尺寸的 legacy_* 不会被当成缩略图删掉', async () => {
+  it('补全会整批重建图片，legacy_* 被替换为按市场顺序的 market_*', async () => {
     const modDir = makeMod('Legacy HiRes')
     const imgDir = path.join(modDir, '.lz_images')
     fs.mkdirSync(imgDir, { recursive: true })
@@ -214,7 +214,9 @@ describe('旧版缩略图在补全时被替换', () => {
       await engine.saveMarketPreviews(modDir, [url])
     })
 
-    expect(fs.existsSync(path.join(imgDir, 'legacy_01.png')), '高清 legacy 图被误删').toBe(true)
+    // 整批重建：legacy 被清掉，统一为 market_*，保证序号与市场顺序一致
+    expect(fs.existsSync(path.join(imgDir, 'legacy_01.png'))).toBe(false)
+    expect(fs.existsSync(path.join(imgDir, 'market_01.png'))).toBe(true)
   })
 
   it('Mod 自带的普通小图不会被当成缩略图删除', async () => {
@@ -274,7 +276,7 @@ describe('旧数据收敛：缺 coverImage 指针时自动补', () => {
     expect(meta.coverImage).toMatch(/^\.lz_images\//)
   })
 
-  it('封面指向 market_* 时，补全会先固化成 _cover.png，不因序号重排而换图', async () => {
+  it('封面按内容跟随：序号重排后仍指向同一张图', async () => {
     const modDir = makeMod('Legacy With Pointer')
     const imgDir = path.join(modDir, '.lz_images')
     fs.mkdirSync(imgDir, { recursive: true })
@@ -287,23 +289,24 @@ describe('旧数据收敛：缺 coverImage 指针时自动补', () => {
     )
 
     const http = await import('http')
-    const server = http.createServer((_req, res) => {
+    // 市场返回两张：第一张是新图，第二张正是用户原来的封面
+    const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'image/png' })
-      res.end(makePng(1400, 800))
+      res.end(req.url?.includes('second') ? originalCover : makePng(1400, 800))
     })
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     const addr = server.address() as any
+    const base = `http://127.0.0.1:${addr.port}`
     try {
-      await engine.saveMarketPreviews(modDir, [`http://127.0.0.1:${addr.port}/a.png`])
+      await engine.saveMarketPreviews(modDir, [`${base}/first.png`, `${base}/second.png`])
     } finally {
       await new Promise<void>((r) => server.close(() => r()))
     }
 
     const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
-    // 指针改为指向固化副本
-    expect(meta.coverImage).toBe('.lz_images/_cover.png')
-    // 固化副本的内容必须是用户原来选的那张
-    const pinned = fs.readFileSync(path.join(imgDir, '_cover.png'))
-    expect(pinned.equals(originalCover), '固化后的封面内容变了').toBe(true)
+    // 原封面内容落在 market_02.png，指针应跟随内容而不是死守旧序号
+    expect(meta.coverImage).toBe('.lz_images/market_02.png')
+    const coverFile = fs.readFileSync(path.join(imgDir, 'market_02.png'))
+    expect(coverFile.equals(originalCover), '封面内容变了').toBe(true)
   })
 })
