@@ -1082,6 +1082,10 @@ function setupIpc() {
     return modEngine.setAsCoverImage(modFullPath, imagePath)
   })
 
+  ipcMain.handle('mods:clearCover', (_, modFullPath: string) => {
+    return modEngine.clearCoverImage(modFullPath)
+  })
+
   ipcMain.handle('mods:saveCoverFromData', (_, modFullPath: string, dataUrl: string) => {
     return modEngine.saveCoverFromDataUrl(modFullPath, dataUrl)
   })

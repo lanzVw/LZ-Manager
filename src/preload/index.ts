@@ -50,6 +50,7 @@ const flairxApi = {
   openModFolder: (modFullPath: string) => ipcRenderer.invoke('mods:openFolder', modFullPath),
   setAsCoverImage: (modFullPath: string, imagePath: string) =>
     ipcRenderer.invoke('mods:setAsCover', modFullPath, imagePath),
+  clearCoverImage: (modFullPath: string) => ipcRenderer.invoke('mods:clearCover', modFullPath),
   saveModCover: (modFullPath: string, dataUrl: string) =>
     ipcRenderer.invoke('mods:saveCoverFromData', modFullPath, dataUrl),
   hasCoverBackup: (modFullPath: string) =>

@@ -1182,19 +1182,61 @@ export class ModEngine {
   /**
    * 设置指定图片为封面
    */
+  /**
+   * 把指定图片设为 Mod 封面
+   *
+   * 早期实现是把它复制成 preview.png，但这会覆盖原图本身：
+   * preview.png 既是「封面」又是一张真实截图，覆盖后原封面就永久丢失，
+   * 用户反馈的「设为封面把其他图覆盖了」即由此而来。
+   *
+   * 现在改用独立的 _cover.<ext> 作为封面标记：它不占用任何既有图片的路径，
+   * 在 inspectModFolder / getModDetails 的优先级里排第一，删掉它即可恢复原封面。
+   */
   public setAsCoverImage(modFullPath: string, imagePath: string): boolean {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
     const safeSource = this.resolveInsideModRoot(imagePath)
     if (!safeModDir || !safeSource || !fs.existsSync(safeModDir) || !fs.existsSync(safeSource)) return false
     try {
-      const ext = path.extname(safeSource)
-      const targetPath = path.join(safeModDir, `preview${ext}`)
-      if (safeSource !== targetPath) {
+      const ext = path.extname(safeSource).toLowerCase() || '.png'
+      const targetPath = path.join(safeModDir, `_cover${ext}`)
+
+      // 换封面时先清掉旧的 _cover.*，避免 png/webp 并存导致优先级不确定
+      try {
+        for (const f of fs.readdirSync(safeModDir)) {
+          if (/^_cover\.(png|jpe?g|webp)$/i.test(f) && path.join(safeModDir, f) !== targetPath) {
+            fs.unlinkSync(path.join(safeModDir, f))
+          }
+        }
+      } catch (_) {}
+
+      // 选中的图本身就叫 _cover.<ext> 时无需复制
+      if (path.resolve(safeSource) !== path.resolve(targetPath)) {
         fs.copyFileSync(safeSource, targetPath)
       }
       return true
     } catch (err) {
       console.error('Failed to set cover image:', err)
+      return false
+    }
+  }
+
+  /**
+   * 移除自定义封面，恢复到按优先级自动选取
+   */
+  public clearCoverImage(modFullPath: string): boolean {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) return false
+    try {
+      let removed = false
+      for (const f of fs.readdirSync(safeModDir)) {
+        if (/^_cover\.(png|jpe?g|webp)$/i.test(f)) {
+          fs.unlinkSync(path.join(safeModDir, f))
+          removed = true
+        }
+      }
+      return removed
+    } catch (err) {
+      console.error('Failed to clear cover image:', err)
       return false
     }
   }

@@ -930,6 +930,18 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     await loadDetails()
   }
 
+  // 取消自定义封面：删除 _cover.*，回落到按优先级自动选取
+  const handleClearCover = async () => {
+    const ok = await window.lz.clearCoverImage(modFullPath)
+    if (ok) {
+      toast.success('已取消自定义封面')
+      setCurrentImageIndex(0)
+      await loadDetails()
+    } else {
+      toast.error('取消封面失败')
+    }
+  }
+
   // 确认删除图片
   const handleConfirmDeleteImage = async () => {
     if (!deleteImageTarget) return
@@ -1339,6 +1351,18 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                       icon={<Star className="w-3.5 h-3.5 text-amber-500" />}
                     >
                       设为Mod封面
+                    </Button>
+                  )}
+
+                  {/* 取消自定义封面：删掉 _cover.* 后回落到自动选取 */}
+                  {activeImage.isCover && activeImage.name.startsWith('_cover.') && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleClearCover}
+                      icon={<Star className="w-3.5 h-3.5 text-text-tertiary" />}
+                    >
+                      取消封面
                     </Button>
                   )}
 
