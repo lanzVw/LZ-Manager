@@ -316,9 +316,10 @@ function normalizeModRecord(raw) {
       type: img._sType || "screenshot",
       url: file ? `${base}/${file}` : "",
       thumbUrl: file100 ? `${base}/${file100}` : file220 ? `${base}/${file220}` : file530 ? `${base}/${file530}` : `${base}/${file}`,
-      medUrl: file530 ? `${base}/${file530}` : file800 ? `${base}/${file800}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
-      width: img._wFile530 || img._wFile220 || img._wFile100 || 0,
-      height: img._hFile530 || img._hFile220 || img._hFile100 || 0,
+      // 800 比 530 大，优先取 800；两者都不存在时退回更小的变体
+      medUrl: file800 ? `${base}/${file800}` : file530 ? `${base}/${file530}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
+      width: img._wFile800 || img._wFile530 || img._wFile220 || img._wFile100 || 0,
+      height: img._hFile800 || img._hFile530 || img._hFile220 || img._hFile100 || 0,
       caption: img._sCaption || ""
     };
   });
@@ -357,7 +358,9 @@ function normalizeModRecord(raw) {
     },
     images,
     previewImage: images[0]?.medUrl || images[0]?.thumbUrl || images[0]?.url || "",
-    previewImages: images.map((img: any) => img.medUrl || img.url || img.thumbUrl || "").filter(Boolean),
+    // 补全截图用原图（_sFile）：多数图的 530/800 变体并不存在，只有 100px 缩略图，
+    // 按 medUrl 取会存下一堆 100×134 的模糊图。medUrl 仅用于列表缩略展示。
+    previewImages: images.map((img: any) => img.url || img.medUrl || img.thumbUrl || "").filter(Boolean),
     author: raw._aSubmitter?._sName || "未知作者",
     likesCount: raw._nLikeCount || 0,
     stats: {
@@ -706,9 +709,10 @@ async function getModDetails(params: any = {}) {
       type: img._sType || "screenshot",
       url: file ? `${base}/${file}` : "",
       thumbUrl: file100 ? `${base}/${file100}` : file220 ? `${base}/${file220}` : file530 ? `${base}/${file530}` : `${base}/${file}`,
-      medUrl: file530 ? `${base}/${file530}` : file800 ? `${base}/${file800}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
-      width: img._wFile530 || img._wFile220 || img._wFile100 || 0,
-      height: img._hFile530 || img._hFile220 || img._hFile100 || 0,
+      // 800 比 530 大，优先取 800；两者都不存在时退回更小的变体
+      medUrl: file800 ? `${base}/${file800}` : file530 ? `${base}/${file530}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
+      width: img._wFile800 || img._wFile530 || img._wFile220 || img._wFile100 || 0,
+      height: img._hFile800 || img._hFile530 || img._hFile220 || img._hFile100 || 0,
       caption: img._sCaption || ""
     };
   });
@@ -754,7 +758,9 @@ async function getModDetails(params: any = {}) {
     },
     images,
     previewImage: images[0]?.medUrl || images[0]?.thumbUrl || images[0]?.url || "",
-    previewImages: images.map((img: any) => img.medUrl || img.url || img.thumbUrl || "").filter(Boolean),
+    // 补全截图用原图（_sFile）：多数图的 530/800 变体并不存在，只有 100px 缩略图，
+    // 按 medUrl 取会存下一堆 100×134 的模糊图。medUrl 仅用于列表缩略展示。
+    previewImages: images.map((img: any) => img.url || img.medUrl || img.thumbUrl || "").filter(Boolean),
     author: p._aSubmitter?._sName || "未知作者",
     likesCount: p._nLikeCount || 0,
     version: p._sVersion || "",
