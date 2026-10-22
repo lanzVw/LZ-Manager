@@ -1056,6 +1056,15 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             >
               返回角色库
             </Button>
+
+            <div className="flex items-center space-x-2 pl-2 border-l border-border">
+              <h1 className="text-sm font-bold text-text tracking-wide truncate max-w-sm sm:max-w-md">
+                {details.name}
+              </h1>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-2 text-text-muted font-medium border border-border">
+                {version}
+              </span>
+            </div>
           </div>
 
           {/* Right Actions: Open Folder, Move Mod, Delete Mod & Equip / Unequip */}
