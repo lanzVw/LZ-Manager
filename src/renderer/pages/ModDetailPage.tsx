@@ -68,6 +68,8 @@ interface ModDetailPageProps {
   onNavigateToMarket?: (modId?: number, searchKeyword?: string) => void
   onDeleteSuccess?: () => void
   onInstallSuccess?: () => void
+  /** 重命名成功后目录路径已变，交给上层更新导航目标 */
+  onRenamed?: (newPath: string) => void | Promise<void>
 }
 
 const formatDateTime = (val?: string | number | Date | null): string => {
@@ -166,7 +168,8 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   onToggleActive,
   onNavigateToMarket,
   onDeleteSuccess,
-  onInstallSuccess
+  onInstallSuccess,
+  onRenamed
 }) => {
   const toast = useToast()
   const [details, setDetails] = useState<ModDetailedInfo | null>(null)
@@ -1062,9 +1065,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       if (res?.success) {
         toast.success('重命名成功', next)
         setShowRenameModal(false)
-        // 目录变了，父组件持有的路径会失效，交给上层重新扫描
+        // 目录已改名：把导航目标切到新路径并留在详情页，
+        // 不能停留在旧路径（会加载失败），也不该退出（用户还在看这个 Mod）
         if (res.newPath) {
-          onBack()
+          await onRenamed?.(res.newPath)
+        } else {
+          await loadDetails()
         }
       } else {
         toast.error('重命名失败', res?.error || '未知错误')
@@ -1083,7 +1089,11 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       if (res?.success) {
         toast.success('已还原为作者原名', res.restoredName || '')
         setShowRenameModal(false)
-        onBack()
+        if (res.newPath) {
+          await onRenamed?.(res.newPath)
+        } else {
+          await loadDetails()
+        }
       } else {
         toast.error('还原失败', res?.error || '未知错误')
       }

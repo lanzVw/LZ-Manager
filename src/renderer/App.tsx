@@ -313,6 +313,12 @@ export default function App() {
               onBack={handleBackToMods}
               onDeleteSuccess={handleBackToMods}
               onInstallSuccess={() => scanMods()}
+              onRenamed={async (newPath: string) => {
+                // 目录已改名，旧路径失效：把导航指向新路径并留在详情页，
+                // 同时刷新列表数据，避免返回角色库时看到旧名字
+                setSelectedModPath(newPath)
+                await scanMods()
+              }}
               onToggleActive={async (char, mod, state) => {
                 await handleToggleMod(char, mod, state)
               }}
