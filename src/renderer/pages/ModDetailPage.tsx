@@ -1061,9 +1061,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               <h1 className="text-sm font-bold text-text tracking-wide truncate max-w-sm sm:max-w-md">
                 {details.name}
               </h1>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-2 text-text-muted font-medium border border-border">
-                {version}
-              </span>
             </div>
           </div>
 
