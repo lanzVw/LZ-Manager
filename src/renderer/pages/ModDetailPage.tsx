@@ -1057,7 +1057,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               返回角色库
             </Button>
 
-            <div className="flex items-center space-x-2 pl-2 border-l border-border">
+            <div className="flex items-center space-x-2">
               <h1 className="text-sm font-bold text-text tracking-wide truncate max-w-sm sm:max-w-md">
                 {details.name}
               </h1>
