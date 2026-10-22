@@ -40,7 +40,8 @@ import {
   SlidersHorizontal,
   Wrench,
   History,
-  Play
+  Play,
+  Pencil
 } from 'lucide-react'
 import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
 import { toFileUrl } from '../utils/fileUrl'
@@ -227,6 +228,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
 
   // 移动模组到其他角色分类弹窗
   const [showMoveModal, setShowMoveModal] = useState<boolean>(false)
+
+  // 重命名 Mod（名称即磁盘目录名）
+  const [showRenameModal, setShowRenameModal] = useState<boolean>(false)
+  const [renameInput, setRenameInput] = useState<string>('')
+  const [renameOriginal, setRenameOriginal] = useState<string>('')
+  const [renameBusy, setRenameBusy] = useState<boolean>(false)
 
   // Mod 修复、重置与回滚状态
   const [fixingMod, setFixingMod] = useState<boolean>(false)
@@ -1007,6 +1014,86 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     window.lz.openModFolder(modFullPath)
   }
 
+  // 打开重命名弹窗：名称即目录名，先拉取已记录的作者原名
+  const handleOpenRename = async () => {
+    if (!details) return
+    setRenameInput(details.name || '')
+    setRenameOriginal('')
+    setRenameBusy(false)
+    setShowRenameModal(true)
+    try {
+      const orig = await window.lz.readOriginalModName(modFullPath)
+      setRenameOriginal(orig || '')
+    } catch (_) {}
+  }
+
+  const handleTranslateTitle = async () => {
+    const source = renameInput.trim() || (details?.name || '')
+    if (!source) return
+    setRenameBusy(true)
+    try {
+      const res = await window.lz.translateModTitle(source)
+      if (res?.success && res.translated) {
+        setRenameInput(res.translated)
+        toast.success('已生成中文译名', '确认无误后点「保存」才会生效')
+      } else {
+        toast.error('翻译失败', res?.error || '未取得译名，请手动输入')
+      }
+    } catch (err: any) {
+      toast.error('翻译失败', err?.message)
+    } finally {
+      setRenameBusy(false)
+    }
+  }
+
+  const handleConfirmRename = async () => {
+    const next = renameInput.trim()
+    if (!next) {
+      toast.error('名称不能为空')
+      return
+    }
+    if (details && next === details.name) {
+      setShowRenameModal(false)
+      return
+    }
+    setRenameBusy(true)
+    try {
+      const res = await window.lz.renameMod(modFullPath, next)
+      if (res?.success) {
+        toast.success('重命名成功', next)
+        setShowRenameModal(false)
+        // 目录变了，父组件持有的路径会失效，交给上层重新扫描
+        if (res.newPath) {
+          onBack()
+        }
+      } else {
+        toast.error('重命名失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('重命名失败', err?.message)
+    } finally {
+      setRenameBusy(false)
+    }
+  }
+
+  const handleRestoreOriginalName = async () => {
+    setRenameBusy(true)
+    try {
+      const res = await window.lz.restoreOriginalModName(modFullPath)
+      if (res?.success) {
+        toast.success('已还原为作者原名', res.restoredName || '')
+        setShowRenameModal(false)
+        onBack()
+      } else {
+        toast.error('还原失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('还原失败', err?.message)
+    } finally {
+      setRenameBusy(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
@@ -1076,6 +1163,18 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               icon={<FolderOpen className="w-4 h-4 text-primary" />}
             >
               <span>打开文件夹</span>
+            </Button>
+
+            {/* Rename Mod Button */}
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={handleOpenRename}
+              className="border-border hover:border-primary/50 text-text-muted hover:text-text transition-colors cursor-pointer"
+              title="重命名该模组（会同时改动磁盘目录名）"
+              icon={<Pencil className="w-4 h-4 text-primary" />}
+            >
+              <span>重命名</span>
             </Button>
 
             {/* Move to Character Button */}
@@ -2101,6 +2200,76 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           }}
         />
       )}
+
+      {/* 重命名 Mod：名称即磁盘目录名 */}
+      <Modal
+        isOpen={showRenameModal}
+        onClose={() => !renameBusy && setShowRenameModal(false)}
+        onConfirm={handleConfirmRename}
+        title={
+          <span className="flex items-center space-x-2">
+            <Pencil className="w-4 h-4 text-primary" />
+            <span>重命名 Mod</span>
+          </span>
+        }
+        confirmText={renameBusy ? '处理中...' : '保存'}
+        cancelText="取消"
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-text">名称（即磁盘目录名）</label>
+            <Input
+              placeholder="输入新的 Mod 名称"
+              value={renameInput}
+              onChange={(e) => setRenameInput(e.target.value)}
+              autoFocus
+              disabled={renameBusy}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleConfirmRename()
+              }}
+            />
+          </div>
+
+          {/* 作者原名：仅当重命名过才显示，供一键还原 */}
+          {renameOriginal && (
+            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-border">
+              <div className="min-w-0">
+                <div className="text-[11px] text-text-muted">作者原名</div>
+                <div className="text-xs font-mono truncate" title={renameOriginal}>
+                  {renameOriginal}
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={renameBusy}
+                onClick={handleRestoreOriginalName}
+                className="shrink-0"
+              >
+                还原
+              </Button>
+            </div>
+          )}
+
+          {/* 中文译名：在线翻译，只填入输入框，需用户确认 */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={renameBusy}
+              onClick={handleTranslateTitle}
+              icon={<Languages className="w-3.5 h-3.5 text-primary" />}
+            >
+              {renameBusy ? '翻译中...' : '翻译为中文'}
+            </Button>
+          </div>
+
+          <p className="text-[11px] text-text-muted leading-relaxed">
+            名称会同时改动磁盘目录（停用状态的前缀会自动保留）。
+            重命名后可从上方「作者原名」一键还原。
+          </p>
+        </div>
+      </Modal>
 
       {/* Delete Image Confirmation Modal */}
       <Modal

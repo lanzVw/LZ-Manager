@@ -18,9 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertOctagon,
-  ArrowUpCircle,
-  Pencil,
-  Languages
+  ArrowUpCircle
 } from 'lucide-react'
 import { CharacterConflictReport, ModConflictSummary, AppearanceSection } from '../../core/types'
 import { useTheme } from '../contexts/ThemeContext'
@@ -352,14 +350,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const [deletingSection, setDeletingSection] = useState<AppearanceSection | null>(null)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
   const [moveTargetMod, setMoveTargetMod] = useState<any | null>(null)
-
-  // 重命名 Mod（双击卡片触发）
-  const [isRenameOpen, setIsRenameOpen] = useState<boolean>(false)
-  const [renameTarget, setRenameTarget] = useState<any | null>(null)
-  const [renameInput, setRenameInput] = useState<string>('')
-  const [renameOriginal, setRenameOriginal] = useState<string>('')
-  const [renameTranslated, setRenameTranslated] = useState<string>('')
-  const [renameBusy, setRenameBusy] = useState<boolean>(false)
 
   const handleCreateSection = async () => {
     const name = newSectionName.trim()
@@ -774,95 +764,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     setMoveTargetMod(mod)
   }, [])
 
-  /**
-   * 双击卡片打开重命名对话框
-   *
-   * 名称即目录名，所以这里改的是磁盘目录。默认填入当前名，
-   * 若该 Mod 从未重命名过，可一键拉取在线中文译名作为起点。
-   */
-  const handleOpenRename = useCallback(async (mod: any) => {
-    const rawName = String(mod.name || '')
-    setRenameTarget(mod)
-    setRenameInput(rawName)
-    setRenameOriginal('')
-    setRenameTranslated('')
-    setRenameBusy(false)
-    setIsRenameOpen(true)
-    try {
-      const orig = await window.lz.readOriginalModName(mod.fullPath)
-      setRenameOriginal(orig || '')
-    } catch (_) {}
-  }, [])
-
-  const handleTranslateTitle = useCallback(async () => {
-    if (!renameTarget) return
-    const source = renameInput.trim() || String(renameTarget.name || '')
-    if (!source) return
-    setRenameBusy(true)
-    try {
-      const res = await window.lz.translateModTitle(source)
-      if (res?.success && res.translated) {
-        setRenameTranslated(res.translated)
-        setRenameInput(res.translated)
-        toast.success('已生成中文译名', '确认无误后点「保存」才会生效')
-      } else {
-        toast.error('翻译失败', res?.error || '未取得译名，请手动输入')
-      }
-    } catch (err: any) {
-      toast.error('翻译失败', err?.message)
-    } finally {
-      setRenameBusy(false)
-    }
-  }, [renameTarget, renameInput, toast])
-
-  const handleConfirmRename = useCallback(async () => {
-    if (!renameTarget) return
-    const next = renameInput.trim()
-    if (!next) {
-      toast.error('名称不能为空')
-      return
-    }
-    if (next === String(renameTarget.name || '')) {
-      setIsRenameOpen(false)
-      return
-    }
-    setRenameBusy(true)
-    try {
-      const res = await window.lz.renameMod(renameTarget.fullPath, next)
-      if (res?.success) {
-        toast.success('重命名成功', next)
-        setIsRenameOpen(false)
-        setRenameTarget(null)
-        onRefresh()
-      } else {
-        toast.error('重命名失败', res?.error || '未知错误')
-      }
-    } catch (err: any) {
-      toast.error('重命名失败', err?.message)
-    } finally {
-      setRenameBusy(false)
-    }
-  }, [renameTarget, renameInput, onRefresh, toast])
-
-  const handleRestoreOriginalName = useCallback(async () => {
-    if (!renameTarget) return
-    setRenameBusy(true)
-    try {
-      const res = await window.lz.restoreOriginalModName(renameTarget.fullPath)
-      if (res?.success) {
-        toast.success('已还原为作者原名', res.restoredName || '')
-        setIsRenameOpen(false)
-        setRenameTarget(null)
-        onRefresh()
-      } else {
-        toast.error('还原失败', res?.error || '未知错误')
-      }
-    } catch (err: any) {
-      toast.error('还原失败', err?.message)
-    } finally {
-      setRenameBusy(false)
-    }
-  }, [renameTarget, onRefresh, toast])
 
   const totalEnabledInAll = useMemo(() => {
     let count = 0
@@ -1608,7 +1509,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                   onToggle={handleToggle}
                   onMoveSection={handleMoveModSection}
                   onOpenMove={handleOpenMoveMod}
-                  onRename={handleOpenRename}
                 />
               ))}
             </div>
@@ -1617,83 +1517,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       </main>
 
       {/* 新建外观分区模态框 */}
-      {/* 重命名 Mod 模态框（双击卡片触发） */}
-      <Modal
-        isOpen={isRenameOpen}
-        onClose={() => {
-          setIsRenameOpen(false)
-          setRenameTarget(null)
-        }}
-        title={
-          <span className="flex items-center space-x-2">
-            <Pencil className="w-4 h-4 text-primary" />
-            <span>重命名 Mod</span>
-          </span>
-        }
-        confirmText={renameBusy ? '处理中...' : '保存'}
-        cancelText="取消"
-        onConfirm={handleConfirmRename}
-      >
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-semibold text-text">名称（即磁盘目录名）</label>
-            <Input
-              placeholder="输入新的 Mod 名称"
-              value={renameInput}
-              onChange={(e) => setRenameInput(e.target.value)}
-              autoFocus
-              disabled={renameBusy}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleConfirmRename()
-              }}
-            />
-          </div>
-
-          {/* 作者原名：仅当重命名过才显示，供一键还原 */}
-          {renameOriginal && (
-            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-border">
-              <div className="min-w-0">
-                <div className="text-[11px] text-text-muted">作者原名</div>
-                <div className="text-xs font-mono truncate" title={renameOriginal}>
-                  {renameOriginal}
-                </div>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={renameBusy}
-                onClick={handleRestoreOriginalName}
-                className="shrink-0"
-              >
-                还原
-              </Button>
-            </div>
-          )}
-
-          {/* 中文译名：在线翻译，只填入输入框，需用户确认 */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={renameBusy}
-              onClick={handleTranslateTitle}
-              icon={<Languages className="w-3.5 h-3.5 text-primary" />}
-            >
-              {renameBusy ? '翻译中...' : '翻译为中文'}
-            </Button>
-            {renameTranslated && (
-              <span className="text-[11px] text-text-muted">
-                已生成译名，确认后再保存
-              </span>
-            )}
-          </div>
-
-          <p className="text-[11px] text-text-muted leading-relaxed">
-            名称会同时改动磁盘目录（停用状态的前缀会自动保留）。
-            重命名后可从上方「作者原名」一键还原。
-          </p>
-        </div>
-      </Modal>
 
       <Modal
         isOpen={isCreateSectionOpen}

@@ -28,7 +28,6 @@ export interface ModCardProps {
   onToggle: (charName: string, modName: string, currentState: boolean) => void
   onMoveSection: (mod: any, nextSectionId: string) => void
   onOpenMove: (mod: any) => void
-  onRename: (mod: any) => void
 }
 
 // 模组卡片 (React.memo: 仅当相关 props 变化时重渲染)
@@ -43,8 +42,7 @@ const ModCardBase: React.FC<ModCardProps> = ({
   onSelect,
   onToggle,
   onMoveSection,
-  onOpenMove,
-  onRename
+  onOpenMove
 }) => {
   const isBroken = Boolean(mod.modBroken)
   const hasUpdate = Boolean(updateItem?.hasUpdate)
@@ -64,12 +62,6 @@ const ModCardBase: React.FC<ModCardProps> = ({
       hoverable
       selected={mod.enabled}
       onClick={() => onSelect(mod.fullPath)}
-      onDoubleClick={(e) => {
-        // 双击卡片进入重命名；阻止冒泡避免同时触发单击打开详情
-        e.preventDefault()
-        e.stopPropagation()
-        onRename(mod)
-      }}
       className={`overflow-hidden flex flex-col group ${
         isBroken
           ? 'border-danger/60 ring-1 ring-danger/30'
