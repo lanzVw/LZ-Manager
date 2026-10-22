@@ -51,6 +51,13 @@ const flairxApi = {
   setAsCoverImage: (modFullPath: string, imagePath: string) =>
     ipcRenderer.invoke('mods:setAsCover', modFullPath, imagePath),
   clearCoverImage: (modFullPath: string) => ipcRenderer.invoke('mods:clearCover', modFullPath),
+  renameMod: (modFullPath: string, newName: string) =>
+    ipcRenderer.invoke('mods:rename', modFullPath, newName),
+  restoreOriginalModName: (modFullPath: string) =>
+    ipcRenderer.invoke('mods:restoreOriginalName', modFullPath),
+  translateModTitle: (title: string) => ipcRenderer.invoke('mods:translateTitle', title),
+  readOriginalModName: (modFullPath: string) =>
+    ipcRenderer.invoke('mods:readOriginalName', modFullPath),
   saveModCover: (modFullPath: string, dataUrl: string) =>
     ipcRenderer.invoke('mods:saveCoverFromData', modFullPath, dataUrl),
   hasCoverBackup: (modFullPath: string) =>

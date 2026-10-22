@@ -1086,6 +1086,28 @@ function setupIpc() {
     return modEngine.clearCoverImage(modFullPath)
   })
 
+  ipcMain.handle('mods:rename', (_, modFullPath: string, newName: string) => {
+    return modEngine.renameMod(modFullPath, newName)
+  })
+
+  ipcMain.handle('mods:restoreOriginalName', (_, modFullPath: string) => {
+    return modEngine.restoreOriginalModName(modFullPath)
+  })
+
+  // 复用已有的在线翻译（Google GTX + MyMemory 兜底），只返回译名供用户确认，不落盘
+  ipcMain.handle('mods:translateTitle', async (_, title: string) => {
+    try {
+      const res = await translateModDetails({ title })
+      return { success: true, translated: res.translatedTitle || '' }
+    } catch (err: any) {
+      return { success: false, translated: '', error: err?.message || '翻译失败' }
+    }
+  })
+
+  ipcMain.handle('mods:readOriginalName', (_, modFullPath: string) => {
+    return modEngine.readOriginalName(modFullPath)
+  })
+
   ipcMain.handle('mods:saveCoverFromData', (_, modFullPath: string, dataUrl: string) => {
     return modEngine.saveCoverFromDataUrl(modFullPath, dataUrl)
   })

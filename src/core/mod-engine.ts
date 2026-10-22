@@ -578,6 +578,127 @@ export class ModEngine {
   }
 
   /**
+   * 重命名 Mod 目录
+   *
+   * 名称即目录名（列表与详情都直接读文件夹名），所以「重命名」必然是改磁盘目录。
+   * 首次重命名时把原目录名记进 mod.json 的 originalName，供「还原为作者原名」使用；
+   * 后续再改不会覆盖它，否则还原点会一路漂移，永远回不到作者原名。
+   *
+   * DISABLED_ 前缀表示停用状态，重命名时必须原样保留，否则会意外启用 Mod。
+   */
+  public renameMod(
+    modFullPath: string,
+    newName: string
+  ): { success: boolean; newPath?: string; error?: string } {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) {
+      return { success: false, error: 'Mod 目录不存在' }
+    }
+
+    const trimmed = (newName || '').trim()
+    if (!trimmed) return { success: false, error: '名称不能为空' }
+    // 目录名不能含路径分隔符与 Windows 非法字符，否则 rename 会失败或跳出角色目录
+    if (/[\\/:*?"<>|]/.test(trimmed)) {
+      return { success: false, error: '名称不能包含 \\ / : * ? " < > |' }
+    }
+    if (trimmed === '.' || trimmed === '..') {
+      return { success: false, error: '名称无效' }
+    }
+    // 与启用状态前缀冲突会造成 toggle 误判，直接禁止
+    if (/^DISABLED_/i.test(trimmed)) {
+      return { success: false, error: '名称不能以 DISABLED_ 开头' }
+    }
+    if (trimmed.length > 120) {
+      return { success: false, error: '名称过长（最多 120 个字符）' }
+    }
+
+    const parentDir = path.dirname(safeModDir)
+    const currentFolderName = path.basename(safeModDir)
+    const wasDisabled = currentFolderName.startsWith('DISABLED_')
+    const currentRawName = wasDisabled ? currentFolderName.substring('DISABLED_'.length) : currentFolderName
+
+    if (trimmed === currentRawName) {
+      return { success: true, newPath: safeModDir }
+    }
+
+    const targetFolderName = wasDisabled ? `DISABLED_${trimmed}` : trimmed
+    const targetPath = path.join(parentDir, targetFolderName)
+    if (fs.existsSync(targetPath)) {
+      return { success: false, error: `已存在同名 Mod: ${trimmed}` }
+    }
+
+    // 先记录原名再改名：改名成功但写元数据失败会留下「无法还原」的状态，
+    // 反过来（先写后改名失败）只是多一条无害的 originalName
+    try {
+      const metaPath = path.join(safeModDir, 'mod.json')
+      let meta: any = {}
+      if (fs.existsSync(metaPath)) {
+        try {
+          meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) || {}
+        } catch (_) {
+          meta = {}
+        }
+      }
+      if (!meta.originalName) {
+        meta.originalName = currentRawName
+      }
+      // 用户主动改名后，name 跟随目录名，避免详情页标题与目录名不一致
+      meta.name = trimmed
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8')
+    } catch (err: any) {
+      return { success: false, error: `写入元数据失败: ${err.message}` }
+    }
+
+    try {
+      fs.renameSync(safeModDir, targetPath)
+    } catch (renameErr: any) {
+      return { success: false, error: `重命名失败 (目录可能被游戏或其他程序占用): ${renameErr.message}` }
+    }
+
+    return { success: true, newPath: targetPath }
+  }
+
+  /**
+   * 读取记录的作者原名（未重命名过则返回空串）
+   */
+  public readOriginalName(modFullPath: string): string {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir) return ''
+    try {
+      const metaPath = path.join(safeModDir, 'mod.json')
+      if (!fs.existsSync(metaPath)) return ''
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+      return typeof meta?.originalName === 'string' ? meta.originalName : ''
+    } catch (_) {
+      return ''
+    }
+  }
+
+  /**
+   * 还原为作者原名（取 mod.json 的 originalName）
+   */
+  public restoreOriginalModName(modFullPath: string): { success: boolean; newPath?: string; restoredName?: string; error?: string } {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) {
+      return { success: false, error: 'Mod 目录不存在' }
+    }
+    let originalName = ''
+    try {
+      const metaPath = path.join(safeModDir, 'mod.json')
+      if (fs.existsSync(metaPath)) {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+        originalName = typeof meta?.originalName === 'string' ? meta.originalName : ''
+      }
+    } catch (_) {}
+    if (!originalName) {
+      return { success: false, error: '没有记录作者原名（该 Mod 从未被重命名）' }
+    }
+    const res = this.renameMod(safeModDir, originalName)
+    if (!res.success) return { success: false, error: res.error }
+    return { success: true, newPath: res.newPath, restoredName: originalName }
+  }
+
+  /**
    * 将指定 Mod 文件夹完整移动到另一个角色目录下
    */
   public async moveModToCharacter(
