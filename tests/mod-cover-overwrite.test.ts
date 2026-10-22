@@ -171,6 +171,47 @@ describe('封面：只记指针，不复制文件', () => {
     const details = await engine.getModDetails(modDir)
     expect(details.images.length).toBe(0)
   })
+
+  /**
+   * 回归来源：详情页能显示封面，但角色库列表卡片显示「无预览图」。
+   * 原因是列表走 inspectModFolder（只扫根目录），封面指针指向 .lz_images/ 时找不到。
+   */
+  it('列表卡片封面与详情页封面必须一致（不能显示无预览图）', async () => {
+    const modDir = makeMod()
+    const s = await startImageServer(PNG_A)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+    const target = engine.getMarketPreviews(modDir)[0]
+    engine.setAsCoverImage(modDir, target)
+
+    // 列表路径
+    const mods = await engine.scanMods()
+    const item = mods['菲欧妮']?.find((m: any) => m.name === 'Goth Leotard Phoenix')
+    expect(item, '列表里找不到该 Mod').toBeTruthy()
+    expect(item.coverPath, '列表卡片封面为空，会显示「无预览图」').toBeTruthy()
+
+    // 详情路径
+    const details = await engine.getModDetails(modDir)
+    const detailCover = details.images.find((i: any) => i.isCover)
+    expect(detailCover?.path).toBe(item.coverPath)
+  })
+
+  it('只有 .lz_images/ 里的图时，列表也能取到封面', async () => {
+    const modDir = makeMod()
+    const s = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+    // 不设指针，走自动选取；此时根目录没有任何图片
+    const mods = await engine.scanMods()
+    const item = mods['菲欧妮']?.find((m: any) => m.name === 'Goth Leotard Phoenix')
+    expect(item?.coverPath).toBeTruthy()
+  })
 })
 
 describe('懒迁移：旧结构归位到 .lz_images/', () => {

@@ -591,6 +591,19 @@ export class ModEngine {
         }
       }
 
+      // 市场图片在 .lz_images/ 子目录，必须一并纳入候选，
+      // 否则封面指针指向子目录时这里找不到，列表卡片会显示「无预览图」
+      const imgDir = path.join(folderPath, IMAGES_DIR_NAME)
+      try {
+        if (fs.existsSync(imgDir)) {
+          for (const n of fs.readdirSync(imgDir)) {
+            if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(n)) {
+              previewImages.push(path.join(imgDir, n))
+            }
+          }
+        }
+      } catch (_) {}
+
       // 1) mod.json 的 coverImage 指针优先，保持与详情页封面一致
       try {
         const metaPath = path.join(folderPath, 'mod.json')
