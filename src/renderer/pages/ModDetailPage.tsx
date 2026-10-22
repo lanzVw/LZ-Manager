@@ -861,9 +861,15 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       }
       const res = await window.lz.downloadGameBananaPreviews(details.fullPath, urls)
       if (res?.success) {
-        toast.success('截图补全完成', `已保存 ${res.saved} 张截图${res.failed ? `，${res.failed} 张失败` : ''}`)
+        const extra = res.skipped ? `，跳过 ${res.skipped} 张重复` : ''
+        toast.success('截图补全完成', `已保存 ${res.saved} 张截图${extra}`)
         await loadDetails()
       } else {
+        // 全部图片都已存在时不算失败，只是没有新截图
+        if (res?.skipped && !res?.failed) {
+          toast.info('截图已是最新', `市场截图均已存在，跳过 ${res.skipped} 张重复`)
+          return
+        }
         toast.error('补全失败', res?.error || '未能下载截图')
       }
     } catch (err: any) {

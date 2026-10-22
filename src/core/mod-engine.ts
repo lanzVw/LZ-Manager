@@ -1,9 +1,15 @@
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import { ModItem, ModDetailedInfo, AppearanceSection } from './types'
 import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
+
+/** 内容哈希，用于市场截图去重（同一张图可能既在根目录又出现在市场接口里） */
+function hashBuffer(buf: Buffer): string {
+  return crypto.createHash('sha1').update(buf).digest('hex')
+}
 
 export class ModEngine {
   private modFolderPath: string
@@ -1341,30 +1347,40 @@ export class ModEngine {
    * inspectModFolder / getModDetails 会把根目录里所有非贴图图片都当成预览图，
    * 直接铺开会让用户自定义的封面被一堆市场截图挤掉；独立子目录便于整体清理，
    * 也不会被 Mod 的 ini 误引用。
+   *
+   * 去重逻辑：安装时已把 previewImages[0] 存成 preview.png，补全若再下载全部 URL
+   * 就会让首图出现两份。这里按内容哈希跳过与既有图片重复的下载结果，
+   * 既处理上述情况，也顺带兼容市场接口返回重复 URL 的情形。
    */
   public async saveMarketPreviews(
     modFullPath: string,
     imageUrls: string[]
-  ): Promise<{ success: boolean; saved: number; failed: number; dir?: string; error?: string }> {
+  ): Promise<{ success: boolean; saved: number; failed: number; skipped: number; dir?: string; error?: string }> {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
     if (!safeModDir || !fs.existsSync(safeModDir)) {
-      return { success: false, saved: 0, failed: 0, error: 'Mod 目录不存在' }
+      return { success: false, saved: 0, failed: 0, skipped: 0, error: 'Mod 目录不存在' }
     }
     if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
-      return { success: false, saved: 0, failed: 0, error: '没有可下载的截图' }
+      return { success: false, saved: 0, failed: 0, skipped: 0, error: '没有可下载的截图' }
     }
 
     const previewDir = path.join(safeModDir, '.lz_previews')
-    try {
-      fs.mkdirSync(previewDir, { recursive: true })
-    } catch (err: any) {
-      return { success: false, saved: 0, failed: 0, error: `创建目录失败: ${err.message}` }
+
+    // 既有封面（安装时保存的首图）参与去重，否则首图会重复出现
+    const seenHashes = new Set<string>()
+    for (const existing of ['preview.png', 'preview.jpg', 'preview.webp', '_cover.png', '_cover.webp', '_cover.jpg']) {
+      const p = path.join(safeModDir, existing)
+      try {
+        if (fs.existsSync(p)) seenHashes.add(hashBuffer(fs.readFileSync(p)))
+      } catch (_) {}
     }
 
-    let saved = 0
+    // 先全部下载到内存并去重，再统一落盘：避免下载中途失败时把旧截图清空后留下残缺状态
+    const collected: { name: string; buf: Buffer }[] = []
     let failed = 0
-    for (let i = 0; i < imageUrls.length; i++) {
-      const url = imageUrls[i]
+    let skipped = 0
+    let seq = 0
+    for (const url of imageUrls) {
       if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
         failed++
         continue
@@ -1380,16 +1396,45 @@ export class ModEngine {
           failed++
           continue
         }
-        // 用序号命名保证稳定顺序，前缀区分来源便于将来识别
-        const fileName = `market_${String(i + 1).padStart(2, '0')}.png`
-        fs.writeFileSync(path.join(previewDir, fileName), buf)
-        saved++
+        const h = hashBuffer(buf)
+        if (seenHashes.has(h)) {
+          skipped++
+          continue
+        }
+        seenHashes.add(h)
+        seq++
+        collected.push({ name: `market_${String(seq).padStart(2, '0')}.png`, buf })
       } catch (_) {
         failed++
       }
     }
 
-    return { success: saved > 0, saved, failed, dir: previewDir }
+    if (collected.length === 0) {
+      return {
+        success: false,
+        saved: 0,
+        failed,
+        skipped,
+        error: failed > 0 ? '截图下载失败' : '没有更多截图'
+      }
+    }
+
+    try {
+      fs.mkdirSync(previewDir, { recursive: true })
+      // 清掉上一轮结果，保证重复点击不会残留旧序号文件
+      for (const n of fs.readdirSync(previewDir)) {
+        try {
+          fs.unlinkSync(path.join(previewDir, n))
+        } catch (_) {}
+      }
+      for (const item of collected) {
+        fs.writeFileSync(path.join(previewDir, item.name), item.buf)
+      }
+    } catch (err: any) {
+      return { success: false, saved: 0, failed, skipped, error: `写入截图失败: ${err.message}` }
+    }
+
+    return { success: true, saved: collected.length, failed, skipped, dir: previewDir }
   }
 
   /**
