@@ -2,41 +2,59 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import http from 'http'
 import { ModEngine } from '../src/core/mod-engine'
 
 /**
- * 回归来源：用户反馈「设为 mod 封面把其他图覆盖了」。
+ * 回归来源：封面与图片资产长期混在一起——
+ * preview.png 既是「市场首图」又是「封面」，一改封面就覆盖原图（踩过两次）。
  *
- * 旧实现把选中的图复制成 preview.png，而 preview.png 本身就是一张真实截图，
- * 于是设置封面 = 永久覆盖原图。截图里缩略图第 1 张被替换成新选的图，
- * 原封面再也找不回来。
- *
- * 现在改用独立的 _cover.<ext> 作为封面标记，任何既有图片都不被改写。
+ * 新设计把两者彻底拆开：
+ * - 图片资产统一放 .lz_images/，只增不改
+ * - 封面只由 mod.json 的 coverImage 指针决定，不产生任何新文件
+ * - 旧结构（根目录 preview.*、旧 .lz_previews/）在用户点「补全」时懒迁移
  */
 
 let tmpRoot: string
 let modsRoot: string
 let engine: ModEngine
 
-const PNG_RED = Buffer.from(
+const PNG_A = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
 )
-const PNG_BLUE = Buffer.concat([PNG_RED, Buffer.from('blue-variant')])
-const PNG_GREEN = Buffer.concat([PNG_RED, Buffer.from('green-variant')])
+const PNG_B = Buffer.concat([PNG_A, Buffer.from('b')])
+const PNG_C = Buffer.concat([PNG_A, Buffer.from('c')])
+
+function startImageServer(payload: Buffer): Promise<{ server: http.Server; url: string }> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png' })
+      res.end(payload)
+    })
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address()
+      if (addr && typeof addr === 'object') {
+        resolve({ server, url: `http://127.0.0.1:${addr.port}/img.png` })
+      } else reject(new Error('无法获取端口'))
+    })
+  })
+}
+
+function closeServer(server: http.Server): Promise<void> {
+  return new Promise((resolve) => server.close(() => resolve()))
+}
 
 function makeMod(): string {
   const modDir = path.join(modsRoot, '菲欧妮', 'Goth Leotard Phoenix')
   fs.mkdirSync(modDir, { recursive: true })
   fs.writeFileSync(path.join(modDir, 'mod.ini'), '[TextureOverride]\nhash = abc\n')
-  fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_RED)
-  fs.writeFileSync(path.join(modDir, 'shot_a.png'), PNG_BLUE)
-  fs.writeFileSync(path.join(modDir, 'shot_b.png'), PNG_GREEN)
   return modDir
 }
 
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-cover-'))
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lz-cover-design-'))
   modsRoot = path.join(tmpRoot, 'Mods')
   fs.mkdirSync(modsRoot, { recursive: true })
   engine = new ModEngine()
@@ -49,95 +67,275 @@ afterEach(() => {
   } catch (_) {}
 })
 
-describe('设为 Mod 封面：不得覆盖任何既有图片', () => {
-  it('设置封面后 preview.png 内容保持不变', () => {
+describe('封面：只记指针，不复制文件', () => {
+  it('设为封面后不产生任何新图片文件', async () => {
     const modDir = makeMod()
-    const before = fs.readFileSync(path.join(modDir, 'preview.png'))
+    const s = await startImageServer(PNG_A)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url, s.url + '?2'])
+    } finally {
+      await closeServer(s.server)
+    }
+    const imgDir = path.join(modDir, '.lz_images')
+    const filesBefore = fs.readdirSync(imgDir).sort()
 
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
+    const target = engine.getMarketPreviews(modDir)[0]
+    expect(engine.setAsCoverImage(modDir, target)).toBe(true)
 
-    const after = fs.readFileSync(path.join(modDir, 'preview.png'))
-    expect(after.equals(before), 'preview.png 被覆盖了').toBe(true)
+    const filesAfter = fs.readdirSync(imgDir).sort()
+    expect(filesAfter).toEqual(filesBefore)
   })
 
-  it('设置封面后 shot_a.png / shot_b.png 都还在且内容不变', () => {
+  it('设为封面后 mod.json 写入 coverImage 指针', async () => {
     const modDir = makeMod()
-    const aBefore = fs.readFileSync(path.join(modDir, 'shot_a.png'))
-    const bBefore = fs.readFileSync(path.join(modDir, 'shot_b.png'))
+    const s = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+    const target = engine.getMarketPreviews(modDir)[0]
+    engine.setAsCoverImage(modDir, target)
 
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_b.png'))
-
-    expect(fs.existsSync(path.join(modDir, 'shot_a.png'))).toBe(true)
-    expect(fs.existsSync(path.join(modDir, 'shot_b.png'))).toBe(true)
-    expect(fs.readFileSync(path.join(modDir, 'shot_a.png')).equals(aBefore)).toBe(true)
-    expect(fs.readFileSync(path.join(modDir, 'shot_b.png')).equals(bBefore)).toBe(true)
+    const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
+    expect(meta.coverImage).toBe('.lz_images/market_01.png')
   })
 
-  it('封面写入独立的 _cover.<ext>，且内容等于选中的图', () => {
+  it('换封面只改指针，原图内容不变', async () => {
     const modDir = makeMod()
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
+    const s1 = await startImageServer(PNG_A)
+    const s2 = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s1.url, s2.url])
+    } finally {
+      await closeServer(s1.server)
+      await closeServer(s2.server)
+    }
+    const [img1, img2] = engine.getMarketPreviews(modDir)
+    const buf1 = fs.readFileSync(img1)
 
-    const coverPath = path.join(modDir, '_cover.png')
-    expect(fs.existsSync(coverPath)).toBe(true)
-    expect(fs.readFileSync(coverPath).equals(PNG_BLUE)).toBe(true)
+    engine.setAsCoverImage(modDir, img1)
+    engine.setAsCoverImage(modDir, img2)
+
+    expect(fs.readFileSync(img1).equals(buf1)).toBe(true)
+    const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
+    expect(meta.coverImage).toBe('.lz_images/market_02.png')
   })
 
-  it('getModDetails 把 _cover 标为封面，原 preview.png 仍留在列表里', async () => {
+  it('getModDetails 按指针标记封面', async () => {
     const modDir = makeMod()
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
+    const s1 = await startImageServer(PNG_A)
+    const s2 = await startImageServer(PNG_C)
+    try {
+      await engine.saveMarketPreviews(modDir, [s1.url, s2.url])
+    } finally {
+      await closeServer(s1.server)
+      await closeServer(s2.server)
+    }
+    const imgs = engine.getMarketPreviews(modDir)
+    engine.setAsCoverImage(modDir, imgs[1])
 
-    const details = await engine.getModDetails(modDir)
-    const byName = new Map(details.images.map((i: any) => [i.name, i]))
-
-    expect(byName.has('preview.png'), '原 preview.png 消失了').toBe(true)
-    expect(byName.get('_cover.png')?.isCover).toBe(true)
-    expect(byName.get('preview.png')?.isCover).toBe(false)
-  })
-
-  it('换封面时旧的 _cover.* 被清掉，不会 png/webp 并存', () => {
-    const modDir = makeMod()
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
-    expect(fs.existsSync(path.join(modDir, '_cover.png'))).toBe(true)
-
-    // 造一个 webp 旧封面，再换成新封面
-    fs.writeFileSync(path.join(modDir, '_cover.webp'), PNG_GREEN)
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_b.png'))
-
-    const covers = fs.readdirSync(modDir).filter((f) => /^_cover\./i.test(f))
-    expect(covers).toEqual(['_cover.png'])
-  })
-
-  it('clearCoverImage 删除 _cover.*，封面回落到 preview.png', async () => {
-    const modDir = makeMod()
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
-    expect(engine.clearCoverImage(modDir)).toBe(true)
-
-    expect(fs.existsSync(path.join(modDir, '_cover.png'))).toBe(false)
     const details = await engine.getModDetails(modDir)
     const cover = details.images.find((i: any) => i.isCover)
-    expect(cover?.name).toBe('preview.png')
+    expect(cover?.path).toBe(imgs[1])
   })
 
-  it('重复把同一张图设为封面不会报错也不会产生副本', () => {
+  it('clearCoverImage 清掉指针，封面回落到自动选取', async () => {
     const modDir = makeMod()
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
-    expect(engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))).toBe(true)
-    const covers = fs.readdirSync(modDir).filter((f) => /^_cover\./i.test(f))
-    expect(covers).toEqual(['_cover.png'])
+    const s = await startImageServer(PNG_A)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+    const target = engine.getMarketPreviews(modDir)[0]
+    engine.setAsCoverImage(modDir, target)
+    expect(engine.clearCoverImage(modDir)).toBe(true)
+
+    const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
+    expect(meta.coverImage).toBeUndefined()
   })
 
-  it('把 _cover 自身再设为封面时不会自我复制报错', () => {
+  it('指针指向的图被删掉时，静默回落到自动选取而不报错', async () => {
     const modDir = makeMod()
-    engine.setAsCoverImage(modDir, path.join(modDir, 'shot_a.png'))
-    const coverPath = path.join(modDir, '_cover.png')
-    expect(engine.setAsCoverImage(modDir, coverPath)).toBe(true)
-    expect(fs.existsSync(coverPath)).toBe(true)
+    const s = await startImageServer(PNG_A)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+    const target = engine.getMarketPreviews(modDir)[0]
+    engine.setAsCoverImage(modDir, target)
+    fs.unlinkSync(target)
+
+    const details = await engine.getModDetails(modDir)
+    expect(details.images.length).toBe(0)
+  })
+})
+
+describe('懒迁移：旧结构归位到 .lz_images/', () => {
+  it('根目录 preview.png 被搬进 .lz_images/ 并成为封面', async () => {
+    const modDir = makeMod()
+    fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_A)
+
+    const s = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+
+    expect(fs.existsSync(path.join(modDir, 'preview.png'))).toBe(false)
+    const imgDir = path.join(modDir, '.lz_images')
+    const names = fs.readdirSync(imgDir)
+    expect(names.some((n) => n.startsWith('legacy_'))).toBe(true)
+
+    const meta = JSON.parse(fs.readFileSync(path.join(modDir, 'mod.json'), 'utf8'))
+    expect(meta.coverImage).toMatch(/^\.lz_images\/legacy_/)
   })
 
-  it('越界路径被守卫拦截', () => {
+  it('旧 .lz_previews/ 里的图被搬过来，旧目录删除', async () => {
     const modDir = makeMod()
-    const outside = path.join(tmpRoot, 'outside.png')
-    fs.writeFileSync(outside, PNG_RED)
-    expect(engine.setAsCoverImage(modDir, outside)).toBe(false)
+    const legacy = path.join(modDir, '.lz_previews')
+    fs.mkdirSync(legacy, { recursive: true })
+    fs.writeFileSync(path.join(legacy, 'market_01.png'), PNG_A)
+
+    const s = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+
+    expect(fs.existsSync(legacy)).toBe(false)
+    const imgDir = path.join(modDir, '.lz_images')
+    expect(fs.readdirSync(imgDir)).toContain('market_01.png')
+  })
+
+  it('Mod 自带的其它图片不被误迁移', async () => {
+    const modDir = makeMod()
+    fs.writeFileSync(path.join(modDir, 'screenshot.png'), PNG_A)
+    fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_C)
+
+    const s = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+
+    // 非封面命名的图原地不动
+    expect(fs.existsSync(path.join(modDir, 'screenshot.png'))).toBe(true)
+    expect(fs.existsSync(path.join(modDir, 'preview.png'))).toBe(false)
+  })
+
+  it('迁移结果参与去重：与市场图相同的内容不会重复下载', async () => {
+    const modDir = makeMod()
+    fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_A)
+
+    const s = await startImageServer(PNG_A)
+    try {
+      const res = await engine.saveMarketPreviews(modDir, [s.url])
+      // 市场图与已迁移的 legacy 图内容相同，应被跳过
+      expect(res.skipped).toBe(1)
+      expect(res.saved).toBe(0)
+    } finally {
+      await closeServer(s.server)
+    }
+  })
+})
+
+describe('重复补全：只清 market_*，保留 legacy_* 与用户图', () => {
+  it('第二次补全不会删掉迁移过来的 legacy 图', async () => {
+    const modDir = makeMod()
+    fs.writeFileSync(path.join(modDir, 'preview.png'), PNG_A)
+
+    const s1 = await startImageServer(PNG_B)
+    try {
+      await engine.saveMarketPreviews(modDir, [s1.url])
+    } finally {
+      await closeServer(s1.server)
+    }
+
+    const s2 = await startImageServer(PNG_C)
+    try {
+      await engine.saveMarketPreviews(modDir, [s2.url])
+    } finally {
+      await closeServer(s2.server)
+    }
+
+    const names = fs.readdirSync(path.join(modDir, '.lz_images'))
+    expect(names.some((n) => n.startsWith('legacy_'))).toBe(true)
+    expect(names).toContain('market_01.png')
+  })
+})
+
+describe('补全的边界行为', () => {
+  it('没有图片目录时返回空数组', () => {
+    const modDir = makeMod()
+    expect(engine.getMarketPreviews(modDir)).toEqual([])
+  })
+
+  it('非法 URL 计入 failed 而不是抛异常', async () => {
+    const modDir = makeMod()
+    const res = await engine.saveMarketPreviews(modDir, ['', 'ftp://x/y.png', 'not-a-url'])
+    expect(res.success).toBe(false)
+    expect(res.failed).toBe(3)
+    expect(res.saved).toBe(0)
+  })
+
+  it('空列表直接返回错误', async () => {
+    const modDir = makeMod()
+    const res = await engine.saveMarketPreviews(modDir, [])
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('没有可下载的截图')
+  })
+
+  it('目录越界被路径守卫拦截', async () => {
+    const outside = path.join(tmpRoot, 'outside')
+    fs.mkdirSync(outside, { recursive: true })
+    const res = await engine.saveMarketPreviews(outside, ['https://example.com/a.png'])
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('Mod 目录不存在')
+  })
+
+  it('getMarketPreviews 按文件名排序，顺序稳定', async () => {
+    const modDir = makeMod()
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+    fs.writeFileSync(path.join(imgDir, 'market_10.png'), PNG_A)
+    fs.writeFileSync(path.join(imgDir, 'market_02.png'), PNG_B)
+    fs.writeFileSync(path.join(imgDir, 'market_01.png'), PNG_C)
+
+    const list = engine.getMarketPreviews(modDir).map((p) => path.basename(p))
+    expect(list).toEqual(['market_01.png', 'market_02.png', 'market_10.png'])
+  })
+
+  it('补全的图会出现在 getModDetails 的图片列表里', async () => {
+    const modDir = makeMod()
+    const s = await startImageServer(PNG_A)
+    try {
+      await engine.saveMarketPreviews(modDir, [s.url])
+    } finally {
+      await closeServer(s.server)
+    }
+    const details = await engine.getModDetails(modDir)
+    expect(details.images.some((i: any) => i.name === 'market_01.png')).toBe(true)
+  })
+
+  it('内容相同的图只存一份', async () => {
+    const modDir = makeMod()
+    const s1 = await startImageServer(PNG_B)
+    const s2 = await startImageServer(PNG_C)
+    try {
+      const res = await engine.saveMarketPreviews(modDir, [s1.url, s2.url, s1.url])
+      expect(res.saved).toBe(2)
+      expect(res.skipped).toBe(1)
+    } finally {
+      await closeServer(s1.server)
+      await closeServer(s2.server)
+    }
+    const names = fs.readdirSync(path.join(modDir, '.lz_images'))
+    expect(names.filter((n) => n.startsWith('market_'))).toEqual(['market_01.png', 'market_02.png'])
   })
 })

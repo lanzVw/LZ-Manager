@@ -11,6 +11,15 @@ function hashBuffer(buf: Buffer): string {
   return crypto.createHash('sha1').update(buf).digest('hex')
 }
 
+/**
+ * 市场图片统一存放的子目录名。
+ * 与 gamebanana-service.ts 的 IMAGES_DIR_NAME 必须保持一致。
+ */
+const IMAGES_DIR_NAME = '.lz_images'
+
+/** 旧版补全目录，仅用于懒迁移 */
+const LEGACY_PREVIEW_DIR = '.lz_previews'
+
 export class ModEngine {
   private modFolderPath: string
   private isOptionAExclusive: boolean
@@ -582,24 +591,39 @@ export class ModEngine {
         }
       }
 
-      // Priority ranking for cover selection:
-      const priorityPatterns = [
-        /^_cover\.(png|jpg|jpeg|webp)$/i,
-        /^cover\.(png|jpg|jpeg|webp)$/i,
-        /^preview\.(png|jpg|jpeg|webp)$/i,
-        /^preview[-_]?0?1\.(png|jpg|jpeg|webp)$/i,
-        /^thumb\.(png|jpg|jpeg|webp)$/i,
-        /^preview[-_]/i,
-        /cover/i,
-        /preview/i,
-        /thumb/i
-      ]
+      // 1) mod.json 的 coverImage 指针优先，保持与详情页封面一致
+      try {
+        const metaPath = path.join(folderPath, 'mod.json')
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+          if (typeof meta.coverImage === 'string' && meta.coverImage) {
+            const wanted = path.join(folderPath, meta.coverImage.split('/').join(path.sep))
+            const hit = previewImages.find((p) => path.resolve(p) === path.resolve(wanted))
+            if (hit) coverPath = hit
+          }
+        }
+      } catch (_) {}
 
-      for (const pattern of priorityPatterns) {
-        const found = previewImages.find((p) => pattern.test(path.basename(p)))
-        if (found) {
-          coverPath = found
-          break
+      // 2) 没有显式指定时按文件名优先级自动选
+      if (!coverPath) {
+        const priorityPatterns = [
+          /^_cover\.(png|jpg|jpeg|webp)$/i,
+          /^cover\.(png|jpg|jpeg|webp)$/i,
+          /^preview\.(png|jpg|jpeg|webp)$/i,
+          /^preview[-_]?0?1\.(png|jpg|jpeg|webp)$/i,
+          /^thumb\.(png|jpg|jpeg|webp)$/i,
+          /^preview[-_]/i,
+          /cover/i,
+          /preview/i,
+          /thumb/i
+        ]
+
+        for (const pattern of priorityPatterns) {
+          const found = previewImages.find((p) => pattern.test(path.basename(p)))
+          if (found) {
+            coverPath = found
+            break
+          }
         }
       }
 
@@ -672,9 +696,9 @@ export class ModEngine {
         for (const entry of entries) {
           const full = path.join(dir, entry.name)
           if (entry.isDirectory()) {
-            // .lz_previews 由 getMarketPreviews 单独读取并追加到末尾，
+            // .lz_images 由 getMarketPreviews 单独读取并追加到末尾，
             // 这里跳过以免重复，也避免点号目录排到前面抢走封面
-            if (entry.name === '.lz_previews') continue
+            if (entry.name === IMAGES_DIR_NAME) continue
             scanDir(full)
           } else if (entry.isFile()) {
             fileCount++
@@ -699,30 +723,50 @@ export class ModEngine {
 
     scanDir(modFullPath)
 
-    // 市场补全的截图单独放在 .lz_previews/，排在用户自己的图片之后，
-    // 这样既能看到全部截图，又不会抢掉 Mod 自带的封面
+    // 市场图片单独放在 .lz_images/，排在用户自己的图片之后，
+    // 这样既能看到全部图片，又不会抢掉 Mod 自带的封面
     const marketPreviews = this.getMarketPreviews(modFullPath)
     for (const p of marketPreviews) {
       images.push({ path: p, name: path.basename(p), isCover: false })
     }
 
-    const priorityPatterns = [
-      /^_cover\.(png|jpg|jpeg|webp)$/i,
-      /^cover\.(png|jpg|jpeg|webp)$/i,
-      /^preview\.(png|jpg|jpeg|webp)$/i,
-      /^preview[-_]?0?1\.(png|jpg|jpeg|webp)$/i,
-      /^thumb\.(png|jpg|jpeg|webp)$/i,
-      /^preview[-_]/i,
-      /cover/i,
-      /preview/i,
-      /thumb/i
-    ]
+    // mod.json 要先读：封面指针 coverImage 存在里面
+    let metadata: any = {}
+    const metaPath = path.join(modFullPath, 'mod.json')
+    if (fs.existsSync(metaPath)) {
+      try {
+        metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+      } catch (_) {}
+    }
 
-    for (const pattern of priorityPatterns) {
-      const found = images.find((img) => pattern.test(img.name))
-      if (found) {
-        coverPath = found.path
-        break
+    // 1) 用户显式指定的封面优先（mod.json 的 coverImage 相对路径）
+    if (typeof metadata.coverImage === 'string' && metadata.coverImage) {
+      const wanted = path.join(modFullPath, metadata.coverImage.split('/').join(path.sep))
+      const hit = images.find((img) => path.resolve(img.path) === path.resolve(wanted))
+      // 图片可能已被用户删除，此时静默回落到自动选取
+      if (hit) coverPath = hit.path
+    }
+
+    // 2) 没有显式指定时按文件名优先级自动选
+    if (!coverPath) {
+      const priorityPatterns = [
+        /^_cover\.(png|jpg|jpeg|webp)$/i,
+        /^cover\.(png|jpg|jpeg|webp)$/i,
+        /^preview\.(png|jpg|jpeg|webp)$/i,
+        /^preview[-_]?0?1\.(png|jpg|jpeg|webp)$/i,
+        /^thumb\.(png|jpg|jpeg|webp)$/i,
+        /^preview[-_]/i,
+        /cover/i,
+        /preview/i,
+        /thumb/i
+      ]
+
+      for (const pattern of priorityPatterns) {
+        const found = images.find((img) => pattern.test(img.name))
+        if (found) {
+          coverPath = found.path
+          break
+        }
       }
     }
 
@@ -734,13 +778,6 @@ export class ModEngine {
       img.isCover = img.path === coverPath
     }
 
-    let metadata: any = {}
-    const metaPath = path.join(modFullPath, 'mod.json')
-    if (fs.existsSync(metaPath)) {
-      try {
-        metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
-      } catch (_) {}
-    }
 
     let mtime = 0
     let birthtime = 0
@@ -1180,39 +1217,23 @@ export class ModEngine {
   }
 
   /**
-   * 设置指定图片为封面
-   */
-  /**
    * 把指定图片设为 Mod 封面
    *
-   * 早期实现是把它复制成 preview.png，但这会覆盖原图本身：
-   * preview.png 既是「封面」又是一张真实截图，覆盖后原封面就永久丢失，
-   * 用户反馈的「设为封面把其他图覆盖了」即由此而来。
+   * 历史包袱：最早是复制成 preview.png（会永久覆盖原图），后来改成复制成 _cover.<ext>
+   * （不覆盖了，但磁盘上多一份副本，且会作为一张"图片"混进列表）。
    *
-   * 现在改用独立的 _cover.<ext> 作为封面标记：它不占用任何既有图片的路径，
-   * 在 inspectModFolder / getModDetails 的优先级里排第一，删掉它即可恢复原封面。
+   * 现在只记指针：mod.json 的 coverImage 存图片相对路径，不产生任何新文件。
+   * 换封面 / 取消封面都只改一个字符串，图片资产本身永远不被改写或复制。
    */
   public setAsCoverImage(modFullPath: string, imagePath: string): boolean {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
     const safeSource = this.resolveInsideModRoot(imagePath)
     if (!safeModDir || !safeSource || !fs.existsSync(safeModDir) || !fs.existsSync(safeSource)) return false
     try {
-      const ext = path.extname(safeSource).toLowerCase() || '.png'
-      const targetPath = path.join(safeModDir, `_cover${ext}`)
-
-      // 换封面时先清掉旧的 _cover.*，避免 png/webp 并存导致优先级不确定
-      try {
-        for (const f of fs.readdirSync(safeModDir)) {
-          if (/^_cover\.(png|jpe?g|webp)$/i.test(f) && path.join(safeModDir, f) !== targetPath) {
-            fs.unlinkSync(path.join(safeModDir, f))
-          }
-        }
-      } catch (_) {}
-
-      // 选中的图本身就叫 _cover.<ext> 时无需复制
-      if (path.resolve(safeSource) !== path.resolve(targetPath)) {
-        fs.copyFileSync(safeSource, targetPath)
-      }
+      const rel = path.relative(safeModDir, safeSource).split(path.sep).join('/')
+      if (!this.saveModMetadata(safeModDir, { coverImage: rel })) return false
+      // 清掉旧实现留下的 _cover.* 副本，避免它作为第 N 张图混在列表里
+      this.removeLegacyCoverCopies(safeModDir)
       return true
     } catch (err) {
       console.error('Failed to set cover image:', err)
@@ -1227,18 +1248,37 @@ export class ModEngine {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
     if (!safeModDir || !fs.existsSync(safeModDir)) return false
     try {
-      let removed = false
-      for (const f of fs.readdirSync(safeModDir)) {
-        if (/^_cover\.(png|jpe?g|webp)$/i.test(f)) {
-          fs.unlinkSync(path.join(safeModDir, f))
-          removed = true
+      const metaPath = path.join(safeModDir, 'mod.json')
+      if (fs.existsSync(metaPath)) {
+        let current: any = {}
+        try {
+          current = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+        } catch (_) {}
+        if (current.coverImage) {
+          delete current.coverImage
+          fs.writeFileSync(metaPath, JSON.stringify(current, null, 2), 'utf8')
         }
       }
-      return removed
+      this.removeLegacyCoverCopies(safeModDir)
+      return true
     } catch (err) {
       console.error('Failed to clear cover image:', err)
       return false
     }
+  }
+
+  /** 清理旧实现遗留的 _cover.* 副本，返回是否删过 */
+  private removeLegacyCoverCopies(modDir: string): boolean {
+    let removed = false
+    try {
+      for (const f of fs.readdirSync(modDir)) {
+        if (/^_cover\.(png|jpe?g|webp)$/i.test(f)) {
+          fs.unlinkSync(path.join(modDir, f))
+          removed = true
+        }
+      }
+    } catch (_) {}
+    return removed
   }
 
   /**
@@ -1292,7 +1332,11 @@ export class ModEngine {
   }
 
   /**
-   * 保存 Base64 裁剪图片为 Mod 封面 (带自动版本备份)
+   * 保存 Base64 裁剪图片为 Mod 封面
+   *
+   * 裁剪结果是一张「新生成的图」，不是对既有截图的改写，因此必须落到独立文件。
+   * 早期实现写的是 preview.png，会覆盖市场首图——与「设为封面」同一个坑。
+   * 现在统一写 _cover.png 并把指针记进 mod.json，原图始终保持原样。
    */
   public saveCoverFromDataUrl(modFullPath: string, dataUrl: string): { success: boolean; coverPath?: string; error?: string } {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
@@ -1302,27 +1346,16 @@ export class ModEngine {
 
     try {
       const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/)
-      // 校验 dataUrl 确实是图片，防止写入损坏的 preview.png
       if (!matches || !matches[1].startsWith('image/')) {
         return { success: false, error: '无效的图片数据' }
       }
-      const base64Data = matches[2]
-      const buffer = Buffer.from(base64Data, 'base64')
+      const buffer = Buffer.from(matches[2], 'base64')
 
-      const previewPngPath = path.join(safeModDir, 'preview.png')
-      const backupPath = path.join(safeModDir, 'preview.png.lz_bak')
+      const coverPath = path.join(safeModDir, '_cover.png')
+      fs.writeFileSync(coverPath, buffer)
+      this.saveModMetadata(safeModDir, { coverImage: '_cover.png' })
 
-      // 如果当前已存在封面图片，则创建安全回滚备份
-      if (fs.existsSync(previewPngPath)) {
-        try {
-          fs.copyFileSync(previewPngPath, backupPath)
-        } catch (_) {}
-      }
-
-      // 写入新封面
-      fs.writeFileSync(previewPngPath, buffer)
-
-      return { success: true, coverPath: previewPngPath }
+      return { success: true, coverPath }
     } catch (err: any) {
       console.error('Failed to save cover from dataUrl:', err)
       return { success: false, error: err.message }
@@ -1330,7 +1363,7 @@ export class ModEngine {
   }
 
   /**
-   * 检查是否存在封面备份
+   * 检查是否存在封面备份（旧版裁剪封面遗留的 preview.png.lz_bak）
    */
   public hasCoverBackup(modFullPath: string): boolean {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
@@ -1383,41 +1416,108 @@ export class ModEngine {
   }
 
   /**
-   * 保存市场补全的截图到 Mod 目录下的 .lz_previews/
+   * 把旧结构（图片散落在 Mod 根目录）迁移到统一的 .lz_images/
+   *
+   * 懒迁移：不在启动时批量动用户目录，只在用户主动触发「补全市场截图」时整理一次。
+   * 只搬「明显是市场预览图」的文件（preview.* / _cover.* / 旧的 .lz_previews/*），
+   * Mod 自带的其它图片一律不动，避免误伤。
+   */
+  private migrateLegacyImages(modDir: string): { moved: number; coverRel: string } {
+    const imgDir = path.join(modDir, IMAGES_DIR_NAME)
+    let moved = 0
+    let coverRel = ''
+
+    const moveIn = (srcPath: string, targetName: string): string | null => {
+      try {
+        fs.mkdirSync(imgDir, { recursive: true })
+        const dest = path.join(imgDir, targetName)
+        if (fs.existsSync(dest)) return `${IMAGES_DIR_NAME}/${targetName}`
+        fs.renameSync(srcPath, dest)
+        moved++
+        return `${IMAGES_DIR_NAME}/${targetName}`
+      } catch (_) {
+        return null
+      }
+    }
+
+    // 1. 旧版补全目录 .lz_previews/*
+    const legacyDir = path.join(modDir, LEGACY_PREVIEW_DIR)
+    if (fs.existsSync(legacyDir)) {
+      try {
+        for (const n of fs.readdirSync(legacyDir)) {
+          if (!/\.(png|jpe?g|webp|gif|bmp)$/i.test(n)) continue
+          moveIn(path.join(legacyDir, n), n)
+        }
+        fs.rmdirSync(legacyDir)
+      } catch (_) {}
+    }
+
+    // 2. 根目录的 preview.* / _cover.*（旧安装与旧「设为封面」的产物）
+    try {
+      const rootFiles = fs.readdirSync(modDir)
+      const legacyPatterns = [/^preview\.(png|jpe?g|webp)$/i, /^_cover\.(png|jpe?g|webp)$/i]
+      let seq = 0
+      for (const n of rootFiles) {
+        if (!legacyPatterns.some((p) => p.test(n))) continue
+        const isPreview = /^preview\./i.test(n)
+        seq++
+        const targetName = isPreview ? `legacy_${String(seq).padStart(2, '0')}${path.extname(n).toLowerCase()}` : n
+        const rel = moveIn(path.join(modDir, n), targetName)
+        // 原 preview.* 是旧封面，迁移后作为默认封面指针
+        if (rel && isPreview && !coverRel) coverRel = rel
+      }
+    } catch (_) {}
+
+    if (coverRel) {
+      try {
+        this.saveModMetadata(modDir, { coverImage: coverRel })
+      } catch (_) {}
+    }
+    return { moved, coverRel }
+  }
+
+  /**
+   * 保存市场截图到 Mod 目录下的 .lz_images/
    *
    * 为什么放子目录而不是直接铺在 Mod 根目录：
    * inspectModFolder / getModDetails 会把根目录里所有非贴图图片都当成预览图，
    * 直接铺开会让用户自定义的封面被一堆市场截图挤掉；独立子目录便于整体清理，
    * 也不会被 Mod 的 ini 误引用。
    *
-   * 去重逻辑：安装时已把 previewImages[0] 存成 preview.png，补全若再下载全部 URL
-   * 就会让首图出现两份。这里按内容哈希跳过与既有图片重复的下载结果，
-   * 既处理上述情况，也顺带兼容市场接口返回重复 URL 的情形。
+   * 触发时会先做一次懒迁移，把旧结构（根目录 preview.png、旧 .lz_previews/）
+   * 归位到 .lz_images/，之后所有图片只有一个来源。
+   *
+   * 去重按内容哈希：兼容市场接口返回重复 URL，也避免与已迁移的图重复。
    */
   public async saveMarketPreviews(
     modFullPath: string,
     imageUrls: string[]
-  ): Promise<{ success: boolean; saved: number; failed: number; skipped: number; dir?: string; error?: string }> {
+  ): Promise<{ success: boolean; saved: number; failed: number; skipped: number; moved: number; dir?: string; error?: string }> {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
     if (!safeModDir || !fs.existsSync(safeModDir)) {
-      return { success: false, saved: 0, failed: 0, skipped: 0, error: 'Mod 目录不存在' }
+      return { success: false, saved: 0, failed: 0, skipped: 0, moved: 0, error: 'Mod 目录不存在' }
     }
     if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
-      return { success: false, saved: 0, failed: 0, skipped: 0, error: '没有可下载的截图' }
+      return { success: false, saved: 0, failed: 0, skipped: 0, moved: 0, error: '没有可下载的截图' }
     }
 
-    const previewDir = path.join(safeModDir, '.lz_previews')
+    const imgDir = path.join(safeModDir, IMAGES_DIR_NAME)
 
-    // 既有封面（安装时保存的首图）参与去重，否则首图会重复出现
+    // 先整理旧结构，再以整理后的目录内容参与去重
+    const { moved } = this.migrateLegacyImages(safeModDir)
+
     const seenHashes = new Set<string>()
-    for (const existing of ['preview.png', 'preview.jpg', 'preview.webp', '_cover.png', '_cover.webp', '_cover.jpg']) {
-      const p = path.join(safeModDir, existing)
-      try {
-        if (fs.existsSync(p)) seenHashes.add(hashBuffer(fs.readFileSync(p)))
-      } catch (_) {}
-    }
+    try {
+      if (fs.existsSync(imgDir)) {
+        for (const n of fs.readdirSync(imgDir)) {
+          try {
+            seenHashes.add(hashBuffer(fs.readFileSync(path.join(imgDir, n))))
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
 
-    // 先全部下载到内存并去重，再统一落盘：避免下载中途失败时把旧截图清空后留下残缺状态
+    // 先全部下载到内存并去重，再统一落盘：避免中途失败时把旧图清空后留下残缺状态
     const collected: { name: string; buf: Buffer }[] = []
     let failed = 0
     let skipped = 0
@@ -1457,42 +1557,45 @@ export class ModEngine {
         saved: 0,
         failed,
         skipped,
+        moved,
         error: failed > 0 ? '截图下载失败' : '没有更多截图'
       }
     }
 
     try {
-      fs.mkdirSync(previewDir, { recursive: true })
-      // 清掉上一轮结果，保证重复点击不会残留旧序号文件
-      for (const n of fs.readdirSync(previewDir)) {
-        try {
-          fs.unlinkSync(path.join(previewDir, n))
-        } catch (_) {}
+      fs.mkdirSync(imgDir, { recursive: true })
+      // 只清掉上一轮的 market_* 结果，不动已迁移的 legacy_* 和 _cover.*
+      for (const n of fs.readdirSync(imgDir)) {
+        if (/^market_/i.test(n)) {
+          try {
+            fs.unlinkSync(path.join(imgDir, n))
+          } catch (_) {}
+        }
       }
       for (const item of collected) {
-        fs.writeFileSync(path.join(previewDir, item.name), item.buf)
+        fs.writeFileSync(path.join(imgDir, item.name), item.buf)
       }
     } catch (err: any) {
-      return { success: false, saved: 0, failed, skipped, error: `写入截图失败: ${err.message}` }
+      return { success: false, saved: 0, failed, skipped, moved, error: `写入截图失败: ${err.message}` }
     }
 
-    return { success: true, saved: collected.length, failed, skipped, dir: previewDir }
+    return { success: true, saved: collected.length, failed, skipped, moved, dir: imgDir }
   }
 
   /**
-   * 读取 Mod 目录下已补全的市场截图路径列表
+   * 读取 Mod 目录下 .lz_images/ 里的全部图片路径（按文件名排序保证顺序稳定）
    */
   public getMarketPreviews(modFullPath: string): string[] {
     const safeModDir = this.resolveInsideModRoot(modFullPath)
     if (!safeModDir) return []
-    const previewDir = path.join(safeModDir, '.lz_previews')
+    const imgDir = path.join(safeModDir, IMAGES_DIR_NAME)
     try {
-      if (!fs.existsSync(previewDir)) return []
+      if (!fs.existsSync(imgDir)) return []
       return fs
-        .readdirSync(previewDir)
+        .readdirSync(imgDir)
         .filter((n) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(n))
         .sort()
-        .map((n) => path.join(previewDir, n))
+        .map((n) => path.join(imgDir, n))
     } catch (_) {
       return []
     }

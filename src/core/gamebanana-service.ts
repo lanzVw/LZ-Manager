@@ -1371,6 +1371,9 @@ function sanitizeFileName(name) {
 
 const DISABLED_FOLDER_PREFIX = "DISABLED_";
 const COVER_BACKUP_SUFFIX = ".lz_bak";
+// 市场图片统一落在这个子目录，避免与 Mod 自身文件混在一起；
+// 与 mod-engine 的 IMAGES_DIR_NAME 必须保持一致
+const IMAGES_DIR_NAME = ".lz_images";
 // 封面判定只看「封面命名 + 图片后缀」，纹理贴图（normalmap / cover_map.dds 之类）不在此列
 const COVER_FILE_PATTERN = /^(preview|_cover|cover|thumb)[^\\/]*\.(png|jpe?g|webp|gif|bmp)(\.lz_bak)?$/i;
 // mod.json 里属于「用户手工设置」的键：更新时必须原样搬回来
@@ -1650,7 +1653,7 @@ function mergePreservedUserFiles(backupDir, targetDir) {
  * 4. Extract into an isolated staging folder.
  * 5. Identify mod root directory.
  * 6. Install to target folder: 同 modId 命中本地已有 Mod 时原地覆盖，否则新建 `DISABLED_<SafeName>`（重名加序号）。
- * 7. Fetch first high-res preview image and save as `preview.png`.
+ * 7. Download up to 3 preview images into `.lz_images/` and set `coverImage` pointer in mod.json.
  * 8. Cleanup temporary files and staging directory.
  *
  * @param {object} params
@@ -1662,6 +1665,7 @@ function mergePreservedUserFiles(backupDir, targetDir) {
  * @param {boolean} [params.forceNewInstall] - 用户明确要求保留多份时强制新建，跳过覆盖判定
  * @param {string} [params.expectedMd5]
  * @param {string} [params.previewImageUrl] - High-res preview image URL
+ * @param {string[]} [params.previewImageUrls] - 全部预览图 URL，安装时取前若干张
  * @param {string} [params.sevenZipPath]
  * @param {function} [params.onProgress] - Download/install progress callback
  * @returns {Promise<GameBananaInstallResult>}
@@ -1675,6 +1679,7 @@ async function installMod(rawParams: any = {}): Promise<GameBananaInstallResult>
     fileName = "",
     expectedMd5,
     previewImageUrl,
+    previewImageUrls,
     sevenZipPath,
     onProgress,
     signal,
@@ -1811,23 +1816,48 @@ async function installMod(rawParams: any = {}): Promise<GameBananaInstallResult>
       mergePreservedUserFiles(backupDir, targetModDir);
     }
 
-    // 6. Fetch first high-res preview image and save as preview.png
+    // 6. 下载预览图到 .lz_images/ 并写封面指针
+    //
+    // 为什么不再写 preview.png：那个文件既是「市场首图」又是「封面」，
+    // 用户一改封面就会覆盖原图（历史上踩过两次）。现在图片全部落在独立子目录，
+    // 封面只由 mod.json 的 coverImage 指针决定，任何图片文件都不会被改写。
     let previewSaved = false;
-    if (previewImageUrl) {
-      if (typeof onProgress === "function") {
-        onProgress({ stage: "preview", message: "获取高清封面并保存为 preview.png...", percent: 100 });
-      }
-      try {
-        const previewPath = path.join(targetModDir, "preview.png");
-        const imgRes = await fetchWithRetry(previewImageUrl, {}, 2, 10000);
-        const arrayBuf = await imgRes.arrayBuffer();
-        const imgBuf = Buffer.from(arrayBuf);
-        if (imgBuf.length > 32) {
-          fs.writeFileSync(previewPath, imgBuf);
-          previewSaved = true;
+    const urlsToFetch = (() => {
+      const list: string[] = [];
+      if (Array.isArray(previewImageUrls)) {
+        for (const u of previewImageUrls) {
+          if (typeof u === 'string' && /^https?:\/\//i.test(u) && !list.includes(u)) list.push(u);
         }
-      } catch (err) {
-        console.warn(`[GameBananaService] 保存预览图失败:`, err.message);
+      }
+      if (!list.length && typeof previewImageUrl === 'string' && /^https?:\/\//i.test(previewImageUrl)) {
+        list.push(previewImageUrl);
+      }
+      // 只取前 3 张：安装阶段优先保证速度，其余由「补全市场截图」按需拉取
+      return list.slice(0, 3);
+    })();
+
+    let firstSavedRel = '';
+    if (urlsToFetch.length > 0) {
+      if (typeof onProgress === "function") {
+        onProgress({ stage: "preview", message: `获取预览图（${urlsToFetch.length} 张）...`, percent: 100 });
+      }
+      const imgDir = path.join(targetModDir, IMAGES_DIR_NAME);
+      try {
+        fs.mkdirSync(imgDir, { recursive: true });
+      } catch (_) {}
+
+      for (let i = 0; i < urlsToFetch.length; i++) {
+        try {
+          const imgRes = await fetchWithRetry(urlsToFetch[i], {}, 2, 10000);
+          const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+          if (imgBuf.length <= 32) continue;
+          const name = `image_${String(i + 1).padStart(2, '0')}.png`;
+          fs.writeFileSync(path.join(imgDir, name), imgBuf);
+          if (!firstSavedRel) firstSavedRel = `${IMAGES_DIR_NAME}/${name}`;
+          previewSaved = true;
+        } catch (err: any) {
+          console.warn(`[GameBananaService] 保存预览图失败(${i + 1}):`, err?.message);
+        }
       }
     }
     throwIfAborted();
@@ -1894,6 +1924,11 @@ async function installMod(rawParams: any = {}): Promise<GameBananaInstallResult>
         updatedMeta.sourceUrl = finalSourceUrl;
         updatedMeta.url = finalSourceUrl;
         updatedMeta.gamebananaUrl = finalSourceUrl;
+      }
+      // 封面指针指向刚下载的首图；覆盖安装时保留用户已选定的封面
+      if (firstSavedRel) {
+        const keepExisting = isUpdate && typeof previousMeta.coverImage === 'string' && previousMeta.coverImage;
+        if (!keepExisting) updatedMeta.coverImage = firstSavedRel;
       }
       fs.writeFileSync(metaPath, JSON.stringify(updatedMeta, null, 2), "utf8");
     } catch (metaErr: any) {

@@ -1442,10 +1442,13 @@ function setupIpc() {
     } catch {
       return { success: false, error: '无效的下载地址' }
     }
+    const previewUrls: string[] = Array.isArray(params.previewImages)
+      ? params.previewImages.filter((u: any) => typeof u === 'string' && u)
+      : []
     const previewUrl =
       params.previewImageUrl ||
       params.previewImage ||
-      (Array.isArray(params.previewImages) ? params.previewImages[0] : '') ||
+      previewUrls[0] ||
       ''
 
     const finalSourceUrl =
@@ -1463,6 +1466,8 @@ function setupIpc() {
         sourceUrl: finalSourceUrl,
         profileUrl: finalSourceUrl,
         previewImageUrl: previewUrl,
+        // 安装阶段下载前 3 张，其余由「补全市场截图」按需拉取
+        previewImageUrls: previewUrls,
         targetParentDir: targetParentDir || (g ? g.modFolderPath : ''),
         // 为什么：覆盖安装要按 modId 在整个 Mods 树里找旧目录，只给角色目录会漏掉历史错位安装
         modsRoot: g ? g.modFolderPath : '',

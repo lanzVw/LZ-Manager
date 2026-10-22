@@ -855,19 +855,23 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         gameId: activeGame?.id
       })
       const urls: string[] = (info?.previewImages || []).filter(Boolean)
-      if (urls.length <= 1) {
-        toast.info('没有更多截图', '该模组在市场上只有一张预览图')
+      if (urls.length === 0) {
+        toast.info('没有可用截图', '该模组在市场上没有预览图')
         return
       }
       const res = await window.lz.downloadGameBananaPreviews(details.fullPath, urls)
       if (res?.success) {
-        const extra = res.skipped ? `，跳过 ${res.skipped} 张重复` : ''
-        toast.success('截图补全完成', `已保存 ${res.saved} 张截图${extra}`)
+        const parts: string[] = [`已保存 ${res.saved} 张`]
+        if (res.moved) parts.push(`整理旧图 ${res.moved} 张`)
+        if (res.skipped) parts.push(`跳过重复 ${res.skipped} 张`)
+        toast.success('截图补全完成', parts.join('，'))
         await loadDetails()
       } else {
-        // 全部图片都已存在时不算失败，只是没有新截图
+        // 图片都已存在时不算失败，只是没有新内容
         if (res?.skipped && !res?.failed) {
-          toast.info('截图已是最新', `市场截图均已存在，跳过 ${res.skipped} 张重复`)
+          const movedHint = res.moved ? `，并整理旧图 ${res.moved} 张` : ''
+          toast.info('截图已是最新', `市场截图均已存在${movedHint}`)
+          await loadDetails()
           return
         }
         toast.error('补全失败', res?.error || '未能下载截图')
@@ -1354,8 +1358,8 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                     </Button>
                   )}
 
-                  {/* 取消自定义封面：删掉 _cover.* 后回落到自动选取 */}
-                  {activeImage.isCover && activeImage.name.startsWith('_cover.') && (
+                  {/* 取消自定义封面：清掉 mod.json 的 coverImage 指针后回落到自动选取 */}
+                  {activeImage.isCover && Boolean(details?.metadata?.coverImage) && (
                     <Button
                       variant="secondary"
                       size="sm"
