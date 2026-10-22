@@ -666,6 +666,9 @@ export class ModEngine {
         for (const entry of entries) {
           const full = path.join(dir, entry.name)
           if (entry.isDirectory()) {
+            // .lz_previews 由 getMarketPreviews 单独读取并追加到末尾，
+            // 这里跳过以免重复，也避免点号目录排到前面抢走封面
+            if (entry.name === '.lz_previews') continue
             scanDir(full)
           } else if (entry.isFile()) {
             fileCount++
@@ -689,6 +692,13 @@ export class ModEngine {
     }
 
     scanDir(modFullPath)
+
+    // 市场补全的截图单独放在 .lz_previews/，排在用户自己的图片之后，
+    // 这样既能看到全部截图，又不会抢掉 Mod 自带的封面
+    const marketPreviews = this.getMarketPreviews(modFullPath)
+    for (const p of marketPreviews) {
+      images.push({ path: p, name: path.basename(p), isCover: false })
+    }
 
     const priorityPatterns = [
       /^_cover\.(png|jpg|jpeg|webp)$/i,
@@ -1322,6 +1332,83 @@ export class ModEngine {
     }
 
     return { success: true, disabledCount }
+  }
+
+  /**
+   * 保存市场补全的截图到 Mod 目录下的 .lz_previews/
+   *
+   * 为什么放子目录而不是直接铺在 Mod 根目录：
+   * inspectModFolder / getModDetails 会把根目录里所有非贴图图片都当成预览图，
+   * 直接铺开会让用户自定义的封面被一堆市场截图挤掉；独立子目录便于整体清理，
+   * 也不会被 Mod 的 ini 误引用。
+   */
+  public async saveMarketPreviews(
+    modFullPath: string,
+    imageUrls: string[]
+  ): Promise<{ success: boolean; saved: number; failed: number; dir?: string; error?: string }> {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir || !fs.existsSync(safeModDir)) {
+      return { success: false, saved: 0, failed: 0, error: 'Mod 目录不存在' }
+    }
+    if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
+      return { success: false, saved: 0, failed: 0, error: '没有可下载的截图' }
+    }
+
+    const previewDir = path.join(safeModDir, '.lz_previews')
+    try {
+      fs.mkdirSync(previewDir, { recursive: true })
+    } catch (err: any) {
+      return { success: false, saved: 0, failed: 0, error: `创建目录失败: ${err.message}` }
+    }
+
+    let saved = 0
+    let failed = 0
+    for (let i = 0; i < imageUrls.length; i++) {
+      const url = imageUrls[i]
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+        failed++
+        continue
+      }
+      try {
+        const res = await fetch(url)
+        if (!res.ok) {
+          failed++
+          continue
+        }
+        const buf = Buffer.from(await res.arrayBuffer())
+        if (buf.length < 32) {
+          failed++
+          continue
+        }
+        // 用序号命名保证稳定顺序，前缀区分来源便于将来识别
+        const fileName = `market_${String(i + 1).padStart(2, '0')}.png`
+        fs.writeFileSync(path.join(previewDir, fileName), buf)
+        saved++
+      } catch (_) {
+        failed++
+      }
+    }
+
+    return { success: saved > 0, saved, failed, dir: previewDir }
+  }
+
+  /**
+   * 读取 Mod 目录下已补全的市场截图路径列表
+   */
+  public getMarketPreviews(modFullPath: string): string[] {
+    const safeModDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeModDir) return []
+    const previewDir = path.join(safeModDir, '.lz_previews')
+    try {
+      if (!fs.existsSync(previewDir)) return []
+      return fs
+        .readdirSync(previewDir)
+        .filter((n) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(n))
+        .sort()
+        .map((n) => path.join(previewDir, n))
+    } catch (_) {
+      return []
+    }
   }
 }
 

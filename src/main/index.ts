@@ -1502,6 +1502,13 @@ function setupIpc() {
     return { success: true }
   })
 
+  // 从市场补全截图：安装时只存首图，其余截图由用户按需拉取
+  ipcMain.handle('gamebanana:downloadPreviews', async (_, modFullPath: string, imageUrls: string[]) => {
+    const g = configStore.getActiveGame()
+    if (g) modEngine.setModFolderPath(g.modFolderPath)
+    return modEngine.saveMarketPreviews(modFullPath, imageUrls)
+  })
+
   // 外观分区 (Appearance Sections)
   ipcMain.handle('appearance:getSections', async (_, characterName: string) => {
     const g = configStore.getActiveGame()

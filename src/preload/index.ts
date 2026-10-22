@@ -230,6 +230,9 @@ const flairxApi = {
   ): Promise<{ existing: ModInstallTarget | null; duplicates: ModInstallTarget[] }> =>
     ipcRenderer.invoke('gamebanana:inspectInstalled', modId),
   cancelGameBananaInstall: () => ipcRenderer.invoke('gamebanana:cancelInstall'),
+  // 安装时只保存首图，其余截图由用户按需补全
+  downloadGameBananaPreviews: (modFullPath: string, imageUrls: string[]) =>
+    ipcRenderer.invoke('gamebanana:downloadPreviews', modFullPath, imageUrls),
   onInstallProgress: (callback: (data: any) => void) => {
     const handler = (_: any, data: any) => callback(data)
     ipcRenderer.on('gamebanana:installProgress', handler)

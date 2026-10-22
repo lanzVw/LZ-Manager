@@ -27,6 +27,7 @@ import {
   Globe,
   ExternalLink,
   ShoppingBag,
+  Download,
   Layers,
   AlertOctagon,
   ArrowUpCircle,
@@ -220,6 +221,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   // 线上作者更新检测
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false)
   const [updateInfo, setUpdateInfo] = useState<any | null>(null)
+
+  // 从市场补全截图时的加载态
+  const [fetchingPreviews, setFetchingPreviews] = useState<boolean>(false)
 
   // 移动模组到其他角色分类弹窗
   const [showMoveModal, setShowMoveModal] = useState<boolean>(false)
@@ -839,6 +843,36 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     }
   }, [detectedModId, details?.fullPath])
 
+  // 从市场补全截图：安装时只保存首图，其余截图在这里按需拉取
+  const handleFetchMarketPreviews = React.useCallback(async () => {
+    if (!detectedModId || !details) return
+    setFetchingPreviews(true)
+    try {
+      const info = await window.lz.getGameBananaDetails({
+        itemType: 'Mod',
+        itemId: detectedModId,
+        modId: detectedModId,
+        gameId: activeGame?.id
+      })
+      const urls: string[] = (info?.previewImages || []).filter(Boolean)
+      if (urls.length <= 1) {
+        toast.info('没有更多截图', '该模组在市场上只有一张预览图')
+        return
+      }
+      const res = await window.lz.downloadGameBananaPreviews(details.fullPath, urls)
+      if (res?.success) {
+        toast.success('截图补全完成', `已保存 ${res.saved} 张截图${res.failed ? `，${res.failed} 张失败` : ''}`)
+        await loadDetails()
+      } else {
+        toast.error('补全失败', res?.error || '未能下载截图')
+      }
+    } catch (err: any) {
+      toast.error('补全失败', err.message)
+    } finally {
+      setFetchingPreviews(false)
+    }
+  }, [detectedModId, details, activeGame?.id])
+
   // 切换失效/损坏状态
   const handleToggleBroken = async (nextVal: boolean) => {
     if (!details) return
@@ -1299,6 +1333,19 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                       icon={<Star className="w-3.5 h-3.5 text-amber-500" />}
                     >
                       设为Mod封面
+                    </Button>
+                  )}
+
+                  {/* 市场截图补全：安装时只存首图，其余按需拉取 */}
+                  {isGameBanana && detectedModId && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={fetchingPreviews}
+                      onClick={handleFetchMarketPreviews}
+                      icon={<Download className="w-3.5 h-3.5 text-primary" />}
+                    >
+                      {fetchingPreviews ? '补全中...' : '补全市场截图'}
                     </Button>
                   )}
 
