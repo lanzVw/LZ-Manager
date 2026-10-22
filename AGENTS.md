@@ -95,6 +95,11 @@ npm start
 - **路径守卫**：`ModEngine` 中所有接受外部路径的文件操作必须先过 `resolveInsideModRoot()` / `sanitizeSegment()`，越界返回 `null`。新增任何以完整路径为参数的 IPC 都必须复用，否则渲染进程可读写删任意磁盘文件
 - **配置白名单**：`config:updateApp` / `config:updateGame` 的 patch 经 `APP_CONFIG_KEYS` / `GAME_CONFIG_KEYS` 白名单过滤（`src/main/index.ts`）。新增配置键必须同时加进白名单，否则写入会被静默丢弃
 - **启用/停用即目录改名**：磁盘上 `DISABLED_<name>` 前缀表示停用，无前缀表示启用。`toggleMod` 的顺序固定为「先 rename 目标 → 再写 Persist Bridge → 最后按 Option-A 互斥停用同角色其他 Mod」，不可调换，否则会产生半失败状态
+- **Mod 名称即目录名**：`scanMods` / `getModDetails` 的 `name` 直接取自文件夹名（剥掉 `DISABLED_` 前缀）。因此「重命名」必然改磁盘目录，`renameMod` 必须原样保留 `DISABLED_` 前缀，否则会意外启用 Mod；首次重命名把原名记进 `mod.json` 的 `originalName`，后续再改**不覆盖**，否则还原点会漂移
+- **市场图片与封面彻底分离**：图片统一放 `<modDir>/.lz_images/`，只增不改；封面只由 `mod.json` 的 `coverImage` 指针决定，**不复制任何文件**。历史上 `preview.png` 同时充当「市场首图」和「封面」，改封面等于覆盖原图，踩过两次坑，不要再回到那个设计
+- **`.lz_images/` 的命名与排序**：补全时整批重建为 `market_NN.png`，序号严格等于市场顺序；安装阶段写的 `image_*` 会在补全时一并替换。`getMarketPreviews` 必须按「前缀优先级 + 序号」排序，**不能用纯字母序**——`image_02` 会排到 `market_01` 前面，导致缩略图顺序与市场错位
+- **补全重建后封面按内容哈希找回**：文件名重排后只有哈希能确定是同一张图；若原封面不在市场返回的图里（旧版 `preview.png`、已下架截图），需单独补写为 `_cover.*` 保留，不能让它随重建消失
+- **纹理贴图不得进预览列表**：判据是「文件名命中关键字」**或**「正方形 + 边长 ≥1024 + 边长为 2 的幂」。只用文件名黑名单不够——实际文件常叫 `Normal.jpg` / `Material.jpg` / `Light.jpg`，一个都匹配不上；只用「正方形」也不够，775×775、1291×1291 这类正常截图会被误杀
 - **文本读写必须走 `readTextAuto` / `writeTextWithEncoding`**：Mod 的 ini 大量是 GBK 或 UTF-16LE，按 utf8 读会永久乱码。唯一例外：`wuwa-fix-engine.ts` 的 hash 替换必须按原始字节保真读写（latin1 + UTF-16 BOM 处理），**不要**改成编码探测回写，否则会破坏原文件编码
 - **修复/重置的备份语义**：`*.qaqm-inibak-<stamp>` 是修复前备份，由 `ini-backup.ts` 列出/回滚（部分失败必须保留备份）；`*.qaqm-persistbak` 是 Persist Bridge 留存的原始 ini 备份，`mod-engine.restorePersistBakFiles` 还原即「重置 ini」。`fix:*` 与 `iniBackup:restore` 必须走主进程侧单飞互斥，防止并发互踩备份
 - **切换游戏必须调用 `applyActiveGame()`**：它负责同步 `modEngine.setModFolderPath`、`modEngine.setPersistBridge(envRoot)`、`conflictDetector.setModFolderPath` 并向两个窗口广播。绕过它会留下指向旧游戏的服务状态

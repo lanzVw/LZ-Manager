@@ -1712,19 +1712,6 @@ export class ModEngine {
     // 先整理旧结构，再以整理后的目录内容参与去重
     const { moved } = this.migrateLegacyImages(safeModDir)
 
-    // 旧版「补全截图」取的是 medUrl，回退链会一路退到 file100，
-    // 于是留下 530×298 这类缩略图。这些图不能参与去重，
-    // 否则重新补全时会被当成「已存在」而跳过，模糊图永远换不掉。
-    const thumbnails = new Set<string>()
-    try {
-      if (fs.existsSync(imgDir)) {
-        for (const n of fs.readdirSync(imgDir)) {
-          const p = path.join(imgDir, n)
-          if (this.isLegacyThumbnail(p)) thumbnails.add(n)
-        }
-      }
-    } catch (_) {}
-
     // 记下「当前封面是哪张图的内容」——重建后文件名会变，
     // 只有按内容哈希才能找回同一张图，否则用户选的封面会指向别的图。
     const coverRelBefore = this.readCoverPointer(safeModDir)
@@ -1831,22 +1818,6 @@ export class ModEngine {
     }
 
     return { success: true, saved: collected.length, failed, skipped, moved, dir: imgDir }
-  }
-
-  /**
-   * 判断是否为旧版补全留下的缩略图
-   *
-   * 旧代码取 medUrl，回退链会退到 file100，于是存下 530×298、100×134 这类小图。
-   * 只对 market_* / legacy_* 这类「程序生成的」文件生效，
-   * Mod 自带的正常图片即使尺寸小也不在此列。
-   */
-  private isLegacyThumbnail(filePath: string): boolean {
-    const base = path.basename(filePath)
-    if (!/^(market_|legacy_|_cover\.)/i.test(base)) return false
-    const dim = readImageSize(filePath)
-    if (!dim) return false
-    // 市场原图普遍在 800px 以上；宽或高任一边小于 600 视为缩略图
-    return dim.width < 600 || dim.height < 600
   }
 
   /**
