@@ -11,6 +11,74 @@ function hashBuffer(buf: Buffer): string {
   return crypto.createHash('sha1').update(buf).digest('hex')
 }
 
+/** 是否为 2 的幂（纹理贴图的典型尺寸：256 / 512 / 1024 / 2048 / 4096） */
+function isPowerOfTwo(n: number): boolean {
+  return n > 0 && (n & (n - 1)) === 0
+}
+
+/**
+ * 判断一张图片是否「其实是纹理贴图」，不该出现在预览图列表里
+ *
+ * 早期只按文件名黑名单（normalmap / lightmap / ...）过滤，实际文件常叫
+ * Normal.jpg、Material.jpg、Light.jpg，一个都匹配不上，于是红紫灰的贴图
+ * 被当成预览图铺满详情页。
+ *
+ * 黑名单无法穷举，因此补一条内容特征：纹理贴图几乎都是正方形、边长 ≥1024、
+ * 且边长为 2 的幂。实测本机 45 张根目录图片，这条规则准确区分了
+ * 4096×4096 / 1024×1024 的贴图与最大 2559px 的正常截图，
+ * 而 775×775、1291×1291 这类正方形截图不会被误判（不是 2 的幂）。
+ */
+function looksLikeTexture(filePath: string, fileName: string): boolean {
+  const lower = fileName.toLowerCase()
+  if (
+    lower.includes('normalmap') ||
+    lower.includes('lightmap') ||
+    lower.includes('font_atlas') ||
+    lower.includes('shadowmap') ||
+    lower.includes('materialmap')
+  ) {
+    return true
+  }
+  // 只读文件头解析尺寸，不解码像素，开销很小
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    try {
+      const head = Buffer.alloc(32 * 1024)
+      const read = fs.readSync(fd, head, 0, head.length, 0)
+      const buf = head.subarray(0, read)
+      let w = 0
+      let h = 0
+      // PNG: 8 字节签名 + IHDR
+      if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+        w = buf.readUInt32BE(16)
+        h = buf.readUInt32BE(20)
+      } else if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+        // JPEG: 逐段找 SOFn
+        let off = 2
+        while (off + 9 < buf.length) {
+          if (buf[off] !== 0xff) {
+            off++
+            continue
+          }
+          const marker = buf[off + 1]
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            h = buf.readUInt16BE(off + 5)
+            w = buf.readUInt16BE(off + 7)
+            break
+          }
+          const segLen = buf.readUInt16BE(off + 2)
+          if (segLen < 2) break
+          off += 2 + segLen
+        }
+      }
+      if (w > 0 && h > 0 && w === h && w >= 1024 && isPowerOfTwo(w)) return true
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch (_) {}
+  return false
+}
+
 /**
  * 市场图片统一存放的子目录名。
  * 与 gamebanana-service.ts 的 IMAGES_DIR_NAME 必须保持一致。
@@ -582,9 +650,8 @@ export class ModEngine {
             hasIni = true
           }
           if (lower.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/)) {
-            const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap') || lower.includes('materialmap')
-            if (!isTexture) {
-              const abs = path.join(folderPath, f.name)
+            const abs = path.join(folderPath, f.name)
+            if (!looksLikeTexture(abs, f.name)) {
               previewImages.push(abs)
             }
           }
@@ -723,8 +790,7 @@ export class ModEngine {
                 iniFiles.push({ name: entry.name, fullPath: full, size: stat.size })
               }
               if (lower.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/)) {
-                const isTexture = lower.includes('normalmap') || lower.includes('lightmap') || lower.includes('font_atlas') || lower.includes('shadowmap') || lower.includes('materialmap')
-                if (!isTexture) {
+                if (!looksLikeTexture(full, entry.name)) {
                   images.push({ path: full, name: entry.name, isCover: false })
                 }
               }
@@ -1575,9 +1641,14 @@ export class ModEngine {
       }
     }
 
+    // market_* 每次补全都会整批重写，序号对应的图片可能完全变化。
+    // 若当前封面正指向其中一张，先把它固化成 _cover.png 再重写，
+    // 否则用户选的封面会在下次补全后悄悄变成另一张图。
+    this.pinMarketCoverBeforeRewrite(safeModDir, imgDir)
+
     try {
       fs.mkdirSync(imgDir, { recursive: true })
-      // 只清掉上一轮的 market_* 结果，不动已迁移的 legacy_* 和 _cover.*
+      // 只清掉上一轮的 market_* 结果，不动 _cover.* 和迁移来的 legacy_*
       for (const n of fs.readdirSync(imgDir)) {
         if (/^market_/i.test(n)) {
           try {
@@ -1592,7 +1663,77 @@ export class ModEngine {
       return { success: false, saved: 0, failed, skipped, moved, error: `写入截图失败: ${err.message}` }
     }
 
+    // 旧数据可能从来没有 coverImage 字段（旧版安装只写 preview.png）。
+    // 补全后若仍无指针，按文件名顺序挑第一张建指针。
+    this.ensureCoverPointer(safeModDir)
+
     return { success: true, saved: collected.length, failed, skipped, moved, dir: imgDir }
+  }
+
+  /**
+   * 读取 mod.json 的 coverImage 指针（相对路径，未校验文件是否存在）
+   */
+  private readCoverPointer(modDir: string): string {
+    try {
+      const metaPath = path.join(modDir, 'mod.json')
+      if (!fs.existsSync(metaPath)) return ''
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+      return typeof meta?.coverImage === 'string' ? meta.coverImage : ''
+    } catch (_) {
+      return ''
+    }
+  }
+
+  /**
+   * 补全前把「指向 market_* 的封面」固化成 _cover.png
+   *
+   * market_* 的序号是每次补全时重新分配的，同一序号在两次补全后可能是两张
+   * 完全不同的图。若不先固化，用户选定的封面会在下次补全后悄悄变成别的图。
+   */
+  private pinMarketCoverBeforeRewrite(modDir: string, imgDir: string): void {
+    const rel = this.readCoverPointer(modDir)
+    if (!rel) return
+    const base = path.basename(rel.split('/').join(path.sep))
+    if (!/^market_/i.test(base)) return
+
+    const src = path.join(imgDir, base)
+    if (!fs.existsSync(src)) return
+    try {
+      const pinned = path.join(imgDir, '_cover.png')
+      fs.copyFileSync(src, pinned)
+      this.saveModMetadata(modDir, { coverImage: `${IMAGES_DIR_NAME}/_cover.png` })
+    } catch (_) {}
+  }
+
+  /**
+   * 若 mod.json 没有有效的 coverImage，则按现有图片补一个
+   *
+   * 只在不覆盖用户已选封面的前提下写入，属于状态收敛而非改写用户选择。
+   */
+  private ensureCoverPointer(modDir: string): string {
+    try {
+      const metaPath = path.join(modDir, 'mod.json')
+      let meta: any = {}
+      if (fs.existsSync(metaPath)) {
+        try {
+          meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) || {}
+        } catch (_) {
+          meta = {}
+        }
+      }
+      // 已有指针且文件还在，尊重用户选择
+      if (typeof meta.coverImage === 'string' && meta.coverImage) {
+        const existing = path.join(modDir, meta.coverImage.split('/').join(path.sep))
+        if (fs.existsSync(existing)) return meta.coverImage
+      }
+      const first = this.getMarketPreviews(modDir)[0]
+      if (!first) return ''
+      const rel = path.relative(modDir, first).split(path.sep).join('/')
+      this.saveModMetadata(modDir, { coverImage: rel })
+      return rel
+    } catch (_) {
+      return ''
+    }
   }
 
   /**
