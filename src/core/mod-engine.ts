@@ -17,6 +17,46 @@ function isPowerOfTwo(n: number): boolean {
 }
 
 /**
+ * 只读文件头解析图片尺寸，不解码像素，开销很小
+ *
+ * 支持 PNG 与 JPEG；其它格式返回 null，调用方自行决定如何兜底。
+ */
+function readImageSize(filePath: string): { width: number; height: number } | null {
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    try {
+      const head = Buffer.alloc(32 * 1024)
+      const read = fs.readSync(fd, head, 0, head.length, 0)
+      const buf = head.subarray(0, read)
+      // PNG: 8 字节签名 + IHDR
+      if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+        return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
+      }
+      // JPEG: 逐段找 SOFn
+      if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+        let off = 2
+        while (off + 9 < buf.length) {
+          if (buf[off] !== 0xff) {
+            off++
+            continue
+          }
+          const marker = buf[off + 1]
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            return { width: buf.readUInt16BE(off + 7), height: buf.readUInt16BE(off + 5) }
+          }
+          const segLen = buf.readUInt16BE(off + 2)
+          if (segLen < 2) break
+          off += 2 + segLen
+        }
+      }
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch (_) {}
+  return null
+}
+
+/**
  * 判断一张图片是否「其实是纹理贴图」，不该出现在预览图列表里
  *
  * 早期只按文件名黑名单（normalmap / lightmap / ...）过滤，实际文件常叫
@@ -39,44 +79,10 @@ function looksLikeTexture(filePath: string, fileName: string): boolean {
   ) {
     return true
   }
-  // 只读文件头解析尺寸，不解码像素，开销很小
-  try {
-    const fd = fs.openSync(filePath, 'r')
-    try {
-      const head = Buffer.alloc(32 * 1024)
-      const read = fs.readSync(fd, head, 0, head.length, 0)
-      const buf = head.subarray(0, read)
-      let w = 0
-      let h = 0
-      // PNG: 8 字节签名 + IHDR
-      if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-        w = buf.readUInt32BE(16)
-        h = buf.readUInt32BE(20)
-      } else if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
-        // JPEG: 逐段找 SOFn
-        let off = 2
-        while (off + 9 < buf.length) {
-          if (buf[off] !== 0xff) {
-            off++
-            continue
-          }
-          const marker = buf[off + 1]
-          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-            h = buf.readUInt16BE(off + 5)
-            w = buf.readUInt16BE(off + 7)
-            break
-          }
-          const segLen = buf.readUInt16BE(off + 2)
-          if (segLen < 2) break
-          off += 2 + segLen
-        }
-      }
-      if (w > 0 && h > 0 && w === h && w >= 1024 && isPowerOfTwo(w)) return true
-    } finally {
-      fs.closeSync(fd)
-    }
-  } catch (_) {}
-  return false
+  const dim = readImageSize(filePath)
+  if (!dim) return false
+  const { width, height } = dim
+  return width === height && width >= 1024 && isPowerOfTwo(width)
 }
 
 /**
@@ -1585,10 +1591,24 @@ export class ModEngine {
     // 先整理旧结构，再以整理后的目录内容参与去重
     const { moved } = this.migrateLegacyImages(safeModDir)
 
+    // 旧版「补全截图」取的是 medUrl，回退链会一路退到 file100，
+    // 于是留下 530×298 这类缩略图。这些图不能参与去重，
+    // 否则重新补全时会被当成「已存在」而跳过，模糊图永远换不掉。
+    const thumbnails = new Set<string>()
+    try {
+      if (fs.existsSync(imgDir)) {
+        for (const n of fs.readdirSync(imgDir)) {
+          const p = path.join(imgDir, n)
+          if (this.isLegacyThumbnail(p)) thumbnails.add(n)
+        }
+      }
+    } catch (_) {}
+
     const seenHashes = new Set<string>()
     try {
       if (fs.existsSync(imgDir)) {
         for (const n of fs.readdirSync(imgDir)) {
+          if (thumbnails.has(n)) continue
           try {
             seenHashes.add(hashBuffer(fs.readFileSync(path.join(imgDir, n))))
           } catch (_) {}
@@ -1659,6 +1679,12 @@ export class ModEngine {
       for (const item of collected) {
         fs.writeFileSync(path.join(imgDir, item.name), item.buf)
       }
+      // 重新下载成功后，旧缩略图就没有存在价值了，删掉免得继续占位
+      for (const n of thumbnails) {
+        try {
+          fs.unlinkSync(path.join(imgDir, n))
+        } catch (_) {}
+      }
     } catch (err: any) {
       return { success: false, saved: 0, failed, skipped, moved, error: `写入截图失败: ${err.message}` }
     }
@@ -1668,6 +1694,22 @@ export class ModEngine {
     this.ensureCoverPointer(safeModDir)
 
     return { success: true, saved: collected.length, failed, skipped, moved, dir: imgDir }
+  }
+
+  /**
+   * 判断是否为旧版补全留下的缩略图
+   *
+   * 旧代码取 medUrl，回退链会退到 file100，于是存下 530×298、100×134 这类小图。
+   * 只对 market_* / legacy_* 这类「程序生成的」文件生效，
+   * Mod 自带的正常图片即使尺寸小也不在此列。
+   */
+  private isLegacyThumbnail(filePath: string): boolean {
+    const base = path.basename(filePath)
+    if (!/^(market_|legacy_|_cover\.)/i.test(base)) return false
+    const dim = readImageSize(filePath)
+    if (!dim) return false
+    // 市场原图普遍在 800px 以上；宽或高任一边小于 600 视为缩略图
+    return dim.width < 600 || dim.height < 600
   }
 
   /**

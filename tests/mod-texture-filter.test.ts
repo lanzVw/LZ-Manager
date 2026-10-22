@@ -164,6 +164,89 @@ describe('列表与详情使用同一套纹理过滤', () => {
   })
 })
 
+describe('旧版缩略图在补全时被替换', () => {
+  async function withServer(
+    payload: Buffer,
+    fn: (url: string) => Promise<void>
+  ): Promise<void> {
+    const http = await import('http')
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png' })
+      res.end(payload)
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const addr = server.address() as any
+    try {
+      await fn(`http://127.0.0.1:${addr.port}/img.png`)
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  }
+
+  it('530×298 的旧缩略图不参与去重，补全后会被原图替换', async () => {
+    const modDir = makeMod('Legacy Thumb')
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+    // 旧版留下的缩略图
+    const thumb = makePng(530, 298)
+    fs.writeFileSync(path.join(imgDir, 'legacy_01.png'), thumb)
+
+    // 市场返回同一张图的高清版（内容不同，尺寸更大）
+    const hiRes = makePng(1612, 976)
+    await withServer(hiRes, async (url) => {
+      const res = await engine.saveMarketPreviews(modDir, [url])
+      expect(res.saved).toBe(1)
+    })
+
+    // 缩略图已被删掉
+    expect(fs.existsSync(path.join(imgDir, 'legacy_01.png'))).toBe(false)
+    expect(fs.existsSync(path.join(imgDir, 'market_01.png'))).toBe(true)
+  })
+
+  it('正常尺寸的 legacy_* 不会被当成缩略图删掉', async () => {
+    const modDir = makeMod('Legacy HiRes')
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+    const hiRes = makePng(1920, 1080)
+    fs.writeFileSync(path.join(imgDir, 'legacy_01.png'), hiRes)
+
+    await withServer(makePng(1600, 900), async (url) => {
+      await engine.saveMarketPreviews(modDir, [url])
+    })
+
+    expect(fs.existsSync(path.join(imgDir, 'legacy_01.png')), '高清 legacy 图被误删').toBe(true)
+  })
+
+  it('Mod 自带的普通小图不会被当成缩略图删除', async () => {
+    const modDir = makeMod('User Small')
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+    fs.writeFileSync(path.join(modDir, 'icon.png'), makePng(64, 64))
+
+    await withServer(makePng(1600, 900), async (url) => {
+      await engine.saveMarketPreviews(modDir, [url])
+    })
+
+    expect(fs.existsSync(path.join(modDir, 'icon.png')), '用户的图被误删').toBe(true)
+  })
+
+  it('缩略图内容与市场原图相同也不参与去重（保证能换掉模糊图）', async () => {
+    const modDir = makeMod('Same Content')
+    const imgDir = path.join(modDir, '.lz_images')
+    fs.mkdirSync(imgDir, { recursive: true })
+    // 内容与市场图完全相同，但尺寸是缩略图——这种情况现实中不会发生，
+    // 这里验证的是「缩略图不进入 seenHashes」，因此不会被跳过
+    const payload = makePng(530, 298)
+    fs.writeFileSync(path.join(imgDir, 'market_01.png'), payload)
+
+    await withServer(payload, async (url) => {
+      const res = await engine.saveMarketPreviews(modDir, [url])
+      expect(res.saved).toBe(1)
+      expect(res.skipped).toBe(0)
+    })
+  })
+})
+
 describe('旧数据收敛：缺 coverImage 指针时自动补', () => {
   it('补全后若原本没有指针，自动按第一张图建立指针', async () => {
     const modDir = makeMod('Legacy No Pointer')

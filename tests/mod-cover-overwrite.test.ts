@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import zlib from 'zlib'
 import http from 'http'
 import { ModEngine } from '../src/core/mod-engine'
 
@@ -19,12 +20,32 @@ let tmpRoot: string
 let modsRoot: string
 let engine: ModEngine
 
-const PNG_A = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64'
-)
-const PNG_B = Buffer.concat([PNG_A, Buffer.from('b')])
-const PNG_C = Buffer.concat([PNG_A, Buffer.from('c')])
+/**
+ * 造一个可解析的 PNG（只含 IHDR，足以读出尺寸）
+ *
+ * 尺寸必须接近真实截图：1×1 之类的极小图会被 isLegacyThumbnail 判定为
+ * 旧版缩略图并在补全时清理，用来当夹具会干扰与本文件无关的断言。
+ */
+function makePng(width: number, height: number, salt = ''): Buffer {
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  const ihdrData = Buffer.alloc(13)
+  ihdrData.writeUInt32BE(width, 0)
+  ihdrData.writeUInt32BE(height, 4)
+  ihdrData[8] = 8
+  ihdrData[9] = 6
+  const chunkType = Buffer.from('IHDR')
+  const len = Buffer.alloc(4)
+  len.writeUInt32BE(13, 0)
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(zlib.crc32(Buffer.concat([chunkType, ihdrData])) >>> 0, 0)
+  const iend = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
+  const tail = salt ? Buffer.from(salt) : Buffer.alloc(0)
+  return Buffer.concat([sig, len, chunkType, ihdrData, crc, tail, iend])
+}
+
+const PNG_A = makePng(1920, 1080, 'a')
+const PNG_B = makePng(1600, 900, 'b')
+const PNG_C = makePng(1440, 810, 'c')
 
 function startImageServer(payload: Buffer): Promise<{ server: http.Server; url: string }> {
   return new Promise((resolve, reject) => {
