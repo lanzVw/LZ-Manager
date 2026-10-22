@@ -16,3 +16,6 @@
 - `Cissia` 正式展示为 `希希芙`，历史错名 `茜茜娅` 保留为兼容别名；`Nangong Yu` 使用 `南宫羽`，兼容 `南宫玉`
 - `character-config.json` 中：`defaultCharacters` 维护初始角色分类，`manualMappings` 维护特殊别名，`characterNameMap.pairs` 维护中英名字映射
 - 本文件中的英文名优先采用 BWIKI 角色条目里记录的官方英文名称
+- 本目录的 `character-config.json` 仅作离线参考，运行时角色数据以 `src/core/characters-data.ts` 为准
+
+角色头像与外观立绘的同步流程见 [`docs/角色头像与外观立绘同步指南.md`](../../../docs/角色头像与外观立绘同步指南.md)。

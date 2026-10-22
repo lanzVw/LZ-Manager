@@ -4,11 +4,18 @@ import type {
   AppConfig,
   CharacterConflictReport,
   EnvironmentStatus,
+  GameBananaInstallResult,
   GamePresets,
   ModDetailedInfo,
+  ModInstallTarget,
   ModItem,
   ModPersistInfo,
-  Preset
+  Preset,
+  PresetApplyMode,
+  PresetApplyResult,
+  PresetChangeReason,
+  PresetMutationResult,
+  PresetPruneResult
 } from '../core/types'
 
 const flairxApi = {
@@ -64,10 +71,6 @@ const flairxApi = {
   // Characters
   getCharacterAvatars: (gameId?: string): Promise<Record<string, string>> =>
     ipcRenderer.invoke('characters:getAvatars', gameId),
-  setCharacterAvatar: (characterName: string, imagePath: string) =>
-    ipcRenderer.invoke('characters:setAvatar', characterName, imagePath),
-  saveCharacterAvatar: (characterName: string, dataUrl: string) =>
-    ipcRenderer.invoke('characters:saveAvatarFromData', characterName, dataUrl),
   openCharacterFolder: (characterName: string) =>
     ipcRenderer.invoke('mods:openCharacterFolder', characterName),
 
@@ -184,18 +187,28 @@ const flairxApi = {
 
   // Presets
   getPresets: (): Promise<GamePresets> => ipcRenderer.invoke('presets:get'),
-  createPreset: (name: string, description?: string): Promise<Preset> =>
+  createPreset: (name: string, description?: string): Promise<PresetMutationResult> =>
     ipcRenderer.invoke('presets:create', name, description),
+  updatePreset: (
+    presetId: string,
+    patch: Partial<Pick<Preset, 'name' | 'description'>>
+  ): Promise<PresetMutationResult> => ipcRenderer.invoke('presets:update', presetId, patch),
+  duplicatePreset: (presetId: string): Promise<PresetMutationResult> =>
+    ipcRenderer.invoke('presets:duplicate', presetId),
+  overwritePresetFromCurrent: (presetId: string): Promise<PresetMutationResult> =>
+    ipcRenderer.invoke('presets:overwriteFromCurrent', presetId),
+  prunePresetMissing: (presetId: string): Promise<PresetPruneResult> =>
+    ipcRenderer.invoke('presets:pruneMissing', presetId),
   applyPreset: (
-    presetId: string
-  ): Promise<{
-    success: boolean
-    applied: number
-    error?: string
-    failed?: Array<{ characterName: string; modName: string; error?: string }>
-    message?: string
-  }> => ipcRenderer.invoke('presets:apply', presetId),
+    presetId: string,
+    options?: { mode?: PresetApplyMode }
+  ): Promise<PresetApplyResult> => ipcRenderer.invoke('presets:apply', presetId, options),
   deletePreset: (presetId: string): Promise<boolean> => ipcRenderer.invoke('presets:delete', presetId),
+  onPresetsChanged: (callback: (data: { reason: PresetChangeReason }) => void) => {
+    const listener = (_: any, data: any) => callback(data)
+    ipcRenderer.on('presets:changed', listener)
+    return () => ipcRenderer.removeListener('presets:changed', listener)
+  },
 
   // Launcher & F10 & Hotkeys
   launchGame: (asAdmin?: boolean): Promise<{ success: boolean; error?: string; message?: string }> =>
@@ -210,7 +223,12 @@ const flairxApi = {
     ipcRenderer.invoke('gamebanana:getCharacters', gameId),
   searchGameBanana: (params: any) => ipcRenderer.invoke('gamebanana:search', params),
   getGameBananaDetails: (params: any) => ipcRenderer.invoke('gamebanana:details', params),
-  installGameBananaMod: (params: any) => ipcRenderer.invoke('gamebanana:install', params),
+  installGameBananaMod: (params: any): Promise<GameBananaInstallResult> =>
+    ipcRenderer.invoke('gamebanana:install', params),
+  inspectInstalledGameBananaMod: (
+    modId: number
+  ): Promise<{ existing: ModInstallTarget | null; duplicates: ModInstallTarget[] }> =>
+    ipcRenderer.invoke('gamebanana:inspectInstalled', modId),
   cancelGameBananaInstall: () => ipcRenderer.invoke('gamebanana:cancelInstall'),
   onInstallProgress: (callback: (data: any) => void) => {
     const handler = (_: any, data: any) => callback(data)

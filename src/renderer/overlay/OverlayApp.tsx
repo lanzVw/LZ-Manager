@@ -41,6 +41,7 @@ import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
 import { ModDetailedInfo, ModPersistVariable } from '../../core/types'
+import { planPresetApply } from '../../core/preset-plan'
 import { MoveModModal } from '../components/MoveModModal'
 
 export const OverlayApp: React.FC = () => {
@@ -249,6 +250,17 @@ export const OverlayApp: React.FC = () => {
     }
   }, [])
 
+  // 预设变更只影响方案列表与激活标识，走 loadData 会连带重扫头像与配置，代价过高
+  const refreshPresets = useCallback(async () => {
+    try {
+      const presetData = await window.lz.getPresets()
+      setPresets(presetData.presets || [])
+      setActivePresetId(presetData.activePresetId || null)
+    } catch (err) {
+      console.error('Failed to refresh overlay presets:', err)
+    }
+  }, [])
+
   useEffect(() => {
     loadData()
 
@@ -268,11 +280,23 @@ export const OverlayApp: React.FC = () => {
       await loadData()
     })
 
+    const unsubPresets = window.lz.onPresetsChanged?.(async () => {
+      // 主窗应用或编辑方案后磁盘启停状态可能已变，悬浮窗不跟着重扫就会与主窗显示分叉
+      await refreshPresets()
+      try {
+        const updated = await window.lz.scanMods()
+        setModsData(updated || {})
+      } catch (err) {
+        console.error('Failed to refresh overlay mods after preset change:', err)
+      }
+    })
+
     return () => {
       unsubGame?.()
       unsubShow?.()
+      unsubPresets?.()
     }
-  }, [loadData])
+  }, [loadData, refreshPresets])
 
   // 智能三梯队角色排序：已装配(enabledCount > 0) -> 有Mod(total > 0) -> 空角色(total === 0)，同梯队按拼音A-Z排序
   const sortedCharacters = useMemo(() => {
@@ -523,18 +547,21 @@ export const OverlayApp: React.FC = () => {
     }
   }
 
-  // 一键应用方案预设
+  // 悬浮窗固定走严格还原，和主窗一键应用保持同一语义，避免两个入口行为分叉
   const handleApplyPreset = async (presetId: string) => {
     showToast('正在部署预设方案...')
     try {
-      const res = await window.lz.applyPreset(presetId)
+      const res = await window.lz.applyPreset(presetId, { mode: 'replace' })
       if (res && res.success) {
         setActivePresetId(presetId)
+        await refreshPresets()
         const updated = await window.lz.scanMods()
         setModsData(updated || {})
-        showToast('方案预设已生效！')
+        const skipped = res.missing.length > 0 ? ` · 跳过 ${res.missing.length} 项失效引用` : ''
+        showToast(`已生效：启用 ${res.enabled} 项 · 停用 ${res.disabled} 项${skipped}`)
       } else {
-        showToast('预设应用失败')
+        // 部分失败时引擎已给出「N 项成功 / M 项失败」的具体原因，优先透传
+        showToast(res?.message || '预设应用失败')
       }
     } catch {
       showToast('预设切换异常')
@@ -1511,7 +1538,12 @@ export const OverlayApp: React.FC = () => {
                 <span>预设:</span>
               </span>
               {presets.map((p) => {
-                const isActive = activePresetId === p.id
+                // 选中态按磁盘实时比对：应用后手动改动任一 Mod 会立即取消高亮；
+                // 首屏 modsData 还没到时无法比对，退回方案激活标记，避免全部胶囊误显示为未选中
+                const isActive =
+                  Object.keys(modsData).length > 0
+                    ? planPresetApply(p, modsData, 'replace').match
+                    : activePresetId === p.id
                 return (
                   <button
                     key={p.id}
@@ -2058,7 +2090,7 @@ export const OverlayApp: React.FC = () => {
               <div className="pt-2 flex items-center justify-center gap-1.5 opacity-60">
                 <Logo size={16} />
                 <span className="font-title text-[10px] font-bold tracking-wider text-text-muted">
-                  LZ MANAGER
+                  LZ Manager
                 </span>
               </div>
             </ScrollContainer>

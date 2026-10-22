@@ -1211,14 +1211,19 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             </div>
 
             <div className="flex items-center space-x-2 shrink-0">
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setIsMarketDrawerOpen(true)}
-                icon={<ShoppingBag className="w-3.5 h-3.5" />}
-              >
-                在市场中获取更新
-              </Button>
+              <div className="flex flex-col items-end gap-1">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsMarketDrawerOpen(true)}
+                  icon={<ShoppingBag className="w-3.5 h-3.5" />}
+                >
+                  在市场中获取更新
+                </Button>
+                <span className="text-[10px] text-text-muted leading-tight text-right">
+                  将就地覆盖当前模组，保留启用状态与自定义设置
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -1296,24 +1301,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                       设为Mod封面
                     </Button>
                   )}
-
-                  {/* Set as Character Avatar */}
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={async () => {
-                      if (!details) return
-                      const res = await window.lz.setCharacterAvatar(details.characterName, activeImage.path)
-                      if (res?.success) {
-                        toast.success('设置成功', `已将此图设为【${details.characterName}】的角色缩略图`)
-                      } else {
-                        toast.error('设置失败', res?.error || '无法设置角色头像')
-                      }
-                    }}
-                    icon={<User className="w-3.5 h-3.5 text-purple-500" />}
-                  >
-                    设为角色头像
-                  </Button>
 
                   {/* Delete Image */}
                   {images.length > 1 && (

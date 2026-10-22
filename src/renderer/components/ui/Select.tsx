@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect, useCallback, useId } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useId, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Check } from 'lucide-react'
+import { ChevronDown, Check, Search } from 'lucide-react'
 
 export interface SelectOption<T = string | number> {
   value: T
   label: React.ReactNode
+  /** 可搜索时的匹配文本；label 是 ReactNode 时必须给，否则回退到 string 类型的 label */
+  searchText?: string
   description?: string
   icon?: React.ReactNode
   disabled?: boolean
@@ -22,6 +24,9 @@ export interface SelectProps<T = string | number> {
   prefixIcon?: React.ReactNode
   align?: 'left' | 'right'
   title?: string
+  /** 展开后在面板顶部显示搜索框，按 searchText 做大小写不敏感的子串过滤 */
+  searchable?: boolean
+  searchPlaceholder?: string
 }
 
 export function Select<T = string | number>({
@@ -35,11 +40,16 @@ export function Select<T = string | number>({
   size = 'md',
   prefixIcon,
   align = 'left',
-  title
+  title,
+  searchable = false,
+  searchPlaceholder = '搜索...'
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   // 键盘导航高亮索引 (-1 表示无高亮)
@@ -58,12 +68,27 @@ export function Select<T = string | number>({
     placement: 'top' | 'bottom'
   } | null>(null)
 
+  // 可搜索时基于 searchText / label 过滤可见选项
+  const visibleOptions = useMemo(() => {
+    if (!searchable) return options
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return options
+    return options.filter((opt) => {
+      const text = opt.searchText ?? (typeof opt.label === 'string' ? opt.label : '')
+      return text.toLowerCase().includes(q)
+    })
+  }, [options, searchable, searchQuery])
+
   const selectedOption = options.find((opt) => opt.value === value)
 
   // 可用（非禁用）选项索引，用于键盘移动高亮时跳过禁用项
   const getEnabledIndexes = useCallback(
-    () => options.reduce<number[]>((acc, opt, idx) => (opt.disabled ? acc : [...acc, idx]), []),
-    [options]
+    () =>
+      visibleOptions.reduce<number[]>(
+        (acc, opt, idx) => (opt.disabled ? acc : [...acc, idx]),
+        []
+      ),
+    [visibleOptions]
   )
 
   // 计算全局悬浮位置 (基于视口与触发元素坐标，支持自动翻转与边界保护)
@@ -78,7 +103,7 @@ export function Select<T = string | number>({
     const showAbove = spaceBelow < 220 && spaceAbove > spaceBelow
 
     const availableHeight = showAbove ? Math.max(120, spaceAbove - 16) : Math.max(120, spaceBelow - 16)
-    const maxHeight = Math.min(240, availableHeight)
+    const maxHeight = Math.min(searchable ? 320 : 240, availableHeight)
 
     const coords: {
       top?: number
@@ -107,38 +132,61 @@ export function Select<T = string | number>({
     }
 
     return coords
-  }, [align])
+  }, [align, searchable])
 
   const openDropdown = () => {
     if (disabled) return
+    if (searchable) {
+      setSearchQuery('')
+    }
     const initialCoords = calculateCoords()
     if (initialCoords) setPopupCoords(initialCoords)
     // 初始高亮当前选中项；无选中时高亮第一个可用项
     const selectedIndex = options.findIndex((opt) => opt.value === value && !opt.disabled)
-    const enabled = getEnabledIndexes()
+    const enabled = options.reduce<number[]>(
+      (acc, opt, idx) => (opt.disabled ? acc : [...acc, idx]),
+      []
+    )
     setHighlightIndex(selectedIndex >= 0 ? selectedIndex : enabled[0] ?? -1)
     setIsOpen(true)
   }
 
-  const closeDropdown = (restoreFocus = false) => {
+  const closeDropdown = useCallback((restoreFocus = false) => {
     setIsOpen(false)
     setHighlightIndex(-1)
+    if (searchable) {
+      setSearchQuery('')
+    }
     if (restoreFocus) triggerRef.current?.focus()
-  }
+  }, [searchable])
 
-  // 打开时聚焦列表容器，保证键盘导航即刻生效
+  // 打开时聚焦搜索输入框（searchable 时）或列表容器，保证键盘导航即刻生效
   useEffect(() => {
-    if (isOpen) popupRef.current?.focus()
-  }, [isOpen])
+    if (isOpen) {
+      if (searchable) {
+        searchInputRef.current?.focus()
+      } else {
+        listRef.current?.focus()
+      }
+    }
+  }, [isOpen, searchable])
 
   // 高亮变化时滚动到可视区域
   useEffect(() => {
     if (!isOpen || highlightIndex < 0) return
-    const optionEl = popupRef.current?.querySelector<HTMLElement>(
+    const optionEl = listRef.current?.querySelector<HTMLElement>(
       `[data-option-index="${highlightIndex}"]`
     )
     optionEl?.scrollIntoView({ block: 'nearest' })
   }, [isOpen, highlightIndex])
+
+  // 过滤结果变化（query 改变）后重置高亮：当前选中项若在 visibleOptions 中则高亮它，否则高亮第一个可用项，无可用项时 -1
+  useEffect(() => {
+    if (!isOpen || !searchable) return
+    const selectedIndex = visibleOptions.findIndex((opt) => opt.value === value && !opt.disabled)
+    const enabled = getEnabledIndexes()
+    setHighlightIndex(selectedIndex >= 0 ? selectedIndex : enabled[0] ?? -1)
+  }, [searchQuery, isOpen, searchable, value, visibleOptions, getEnabledIndexes])
 
   // 展开状态下实时响应视口滚动或尺寸变化，自动修正吸附位置
   useEffect(() => {
@@ -150,6 +198,7 @@ export function Select<T = string | number>({
       // 触发器完全滑出屏幕时自动收起
       if (rect.bottom < 0 || rect.top > window.innerHeight) {
         setIsOpen(false)
+        if (searchable) setSearchQuery('')
         return
       }
       const updated = calculateCoords()
@@ -163,7 +212,7 @@ export function Select<T = string | number>({
       window.removeEventListener('resize', handleUpdate)
       window.removeEventListener('scroll', handleUpdate, true)
     }
-  }, [isOpen, calculateCoords])
+  }, [isOpen, calculateCoords, searchable])
 
   // 点击外部自动收起 (同时判断触发器与 Portaled 菜单面板)
   useEffect(() => {
@@ -177,6 +226,9 @@ export function Select<T = string | number>({
       ) {
         setIsOpen(false)
         setHighlightIndex(-1)
+        if (searchable) {
+          setSearchQuery('')
+        }
       }
     }
 
@@ -187,7 +239,7 @@ export function Select<T = string | number>({
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick)
     }
-  }, [isOpen])
+  }, [isOpen, searchable])
 
   // ESC 键关闭并还原焦点到触发按钮
   useEffect(() => {
@@ -202,7 +254,7 @@ export function Select<T = string | number>({
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen])
+  }, [isOpen, closeDropdown])
 
   const toggleDropdown = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -241,8 +293,11 @@ export function Select<T = string | number>({
     closeDropdown(true)
   }
 
-  // 列表容器键盘导航：↑/↓ 移动高亮、Home/End 首尾、Enter 选中
+  // 列表容器键盘导航：↑/↓ 移动高亮、Home/End 首尾（搜索框内保留光标跳首尾）、Enter 选中
   const handleListKeyDown = (e: React.KeyboardEvent) => {
+    // IME 组合输入中不拦截任何键（拼音输入法等）
+    if ((e.nativeEvent as any)?.isComposing || e.keyCode === 229) return
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -253,6 +308,10 @@ export function Select<T = string | number>({
         moveHighlight(-1)
         break
       case 'Home': {
+        // 搜索框内光标跳到开头，不拦截
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') {
+          break
+        }
         const enabled = getEnabledIndexes()
         if (enabled.length > 0) {
           e.preventDefault()
@@ -261,6 +320,10 @@ export function Select<T = string | number>({
         break
       }
       case 'End': {
+        // 搜索框内光标跳到末尾，不拦截
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') {
+          break
+        }
         const enabled = getEnabledIndexes()
         if (enabled.length > 0) {
           e.preventDefault()
@@ -270,7 +333,9 @@ export function Select<T = string | number>({
       }
       case 'Enter': {
         const option =
-          highlightIndex >= 0 && highlightIndex < options.length ? options[highlightIndex] : null
+          highlightIndex >= 0 && highlightIndex < visibleOptions.length
+            ? visibleOptions[highlightIndex]
+            : null
         if (option && !option.disabled) {
           e.preventDefault()
           selectOption(option)
@@ -344,14 +409,6 @@ export function Select<T = string | number>({
         createPortal(
           <div
             ref={popupRef}
-            id={listboxId}
-            role="listbox"
-            tabIndex={-1}
-            aria-activedescendant={
-              highlightIndex >= 0 && highlightIndex < options.length
-                ? optionId(highlightIndex)
-                : undefined
-            }
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleListKeyDown}
             style={{
@@ -365,70 +422,107 @@ export function Select<T = string | number>({
               maxHeight: `${popupCoords.maxHeight}px`,
               maxWidth: 'calc(100vw - 16px)'
             }}
-            className={`z-[99999] overflow-y-auto rounded-xl bg-surface/95 backdrop-blur-xl border border-border shadow-2xl ring-1 ring-black/5 dark:ring-white/10 p-1 animate-in fade-in outline-none ${
+            className={`z-[99999] flex flex-col overflow-hidden rounded-xl bg-surface/95 backdrop-blur-xl border border-border shadow-2xl ring-1 ring-black/5 dark:ring-white/10 p-1 animate-in fade-in outline-none ${
               popupCoords.placement === 'top'
                 ? 'slide-in-from-bottom-1'
                 : 'slide-in-from-top-1'
             } zoom-in-95 duration-fast ${filteredPopupClassName}`}
           >
-            {options.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-text-muted text-center font-mono">
-                无可选项目
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {options.map((opt, idx) => {
-                  const isSelected = opt.value === value
-                  const isHighlighted = idx === highlightIndex && !opt.disabled
-                  return (
-                    <button
-                      key={`${String(opt.value)}_${idx}`}
-                      id={optionId(idx)}
-                      data-option-index={idx}
-                      type="button"
-                      role="option"
-                      aria-selected={isSelected}
-                      tabIndex={-1}
-                      disabled={opt.disabled}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        selectOption(opt)
-                      }}
-                      onMouseEnter={() => {
-                        if (!opt.disabled) setHighlightIndex(idx)
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left cursor-pointer ${
-                        isSelected
-                          ? 'bg-primary/10 text-primary font-bold border border-primary/20 shadow-2xs'
-                          : isHighlighted
-                          ? 'bg-surface-2 text-text border border-transparent'
-                          : opt.disabled
-                          ? 'opacity-40 cursor-not-allowed text-text-muted'
-                          : 'text-text hover:bg-surface-2 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2 truncate">
-                        {opt.icon && (
-                          <span className="shrink-0 flex items-center">{opt.icon}</span>
-                        )}
-                        <div className="flex flex-col truncate">
-                          <span className="truncate">{opt.label}</span>
-                          {opt.description && (
-                            <span className="text-[10px] text-text-muted truncate mt-0.5">
-                              {opt.description}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {isSelected && (
-                        <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-2 stroke-[2.5]" />
-                      )}
-                    </button>
-                  )
-                })}
+            {/* 可选搜索输入框（吸顶，不随选项列表滚动） */}
+            {searchable && (
+              <div className="shrink-0 mb-1">
+                <div className="relative flex items-center">
+                  <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none shrink-0" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={searchPlaceholder}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full bg-surface-2 border border-border focus:border-primary/80 focus:ring-2 focus:ring-primary/20 text-text placeholder:text-text-muted text-xs rounded-lg pl-8 pr-2.5 py-1.5 transition-colors duration-fast focus:outline-none"
+                  />
+                </div>
               </div>
             )}
+
+            {/* 选项滚动列表 */}
+            <div
+              ref={listRef}
+              id={listboxId}
+              role="listbox"
+              tabIndex={-1}
+              aria-activedescendant={
+                highlightIndex >= 0 && highlightIndex < visibleOptions.length
+                  ? optionId(highlightIndex)
+                  : undefined
+              }
+              className="flex-1 min-h-0 overflow-y-auto outline-none"
+            >
+              {options.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-text-muted text-center font-mono">
+                  无可选项目
+                </div>
+              ) : visibleOptions.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-text-muted text-center font-mono">
+                  无匹配项
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {visibleOptions.map((opt, idx) => {
+                    const isSelected = opt.value === value
+                    const isHighlighted = idx === highlightIndex && !opt.disabled
+                    return (
+                      <button
+                        key={`${String(opt.value)}_${idx}`}
+                        id={optionId(idx)}
+                        data-option-index={idx}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        tabIndex={-1}
+                        disabled={opt.disabled}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          selectOption(opt)
+                        }}
+                        onMouseEnter={() => {
+                          if (!opt.disabled) setHighlightIndex(idx)
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary/10 text-primary font-bold border border-primary/20 shadow-2xs'
+                            : isHighlighted
+                            ? 'bg-surface-2 text-text border border-transparent'
+                            : opt.disabled
+                            ? 'opacity-40 cursor-not-allowed text-text-muted'
+                            : 'text-text hover:bg-surface-2 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 truncate">
+                          {opt.icon && (
+                            <span className="shrink-0 flex items-center">{opt.icon}</span>
+                          )}
+                          <div className="flex flex-col truncate">
+                            <span className="truncate">{opt.label}</span>
+                            {opt.description && (
+                              <span className="text-[10px] text-text-muted truncate mt-0.5">
+                                {opt.description}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {isSelected && (
+                          <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-2 stroke-[2.5]" />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>,
           document.body
         )}

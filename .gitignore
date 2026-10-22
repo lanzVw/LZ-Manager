@@ -8,3 +8,7 @@ release/
 Thumbs.db
 .codebase-memory/
 /cache/
+
+# scripts/ 下的 Python 同步脚本运行时产生的编译缓存
+__pycache__/
+*.pyc

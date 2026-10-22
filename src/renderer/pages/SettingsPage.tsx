@@ -39,7 +39,6 @@ import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
 import { SegmentedControl, SegmentedControlItem } from '../components/ui/SegmentedControl'
-import { Logo } from '../components/Logo'
 
 import zzzLogo from '../assets/games/zzz_logo.png'
 import endfieldLogo from '../assets/games/endfield_logo.png'
@@ -1347,30 +1346,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
     )}
 
-        {/* 底部品牌与关于 (全 Tab 共享) */}
-        <div className="flex items-center justify-between p-4 rounded-xl bg-surface border border-border/80 shadow-2xs">
-          <div className="flex items-center space-x-3.5">
-            <div className="rounded-[10px] shadow-2xs overflow-hidden">
-              <Logo size={38} />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-title font-extrabold text-sm tracking-wide text-text uppercase">
-                LZ MANAGER PRO
-              </span>
-              <span className="text-[11px] text-text-muted">
-                现代化 3DMigoto / XXMI 游戏模组管理器 · 绝区零专属
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3">
-            <span className="text-[11px] font-mono text-text-muted hidden sm:inline">
-              双向兼容 QAQManager
-            </span>
-            <Badge variant="default" className="font-mono text-[11px] px-2 py-0.5">
-              v1.0.0
-            </Badge>
-          </div>
-        </div>
       </div>
 
       <Modal

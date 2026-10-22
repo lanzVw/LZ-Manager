@@ -111,6 +111,8 @@ export interface PresetModRef {
   enabled: boolean
 }
 
+export type PresetApplyMode = 'replace' | 'merge'
+
 export interface Preset {
   id: string
   name: string
@@ -118,6 +120,8 @@ export interface Preset {
   mods: PresetModRef[]
   createdAt: string
   updatedAt: string
+  /** 最近一次完整应用成功的时间；部分失败不写入，避免界面误报"已生效" */
+  lastAppliedAt?: string
 }
 
 export interface GamePresets {
@@ -128,6 +132,42 @@ export interface GamePresets {
 export interface PresetsData {
   presetsByGame: Record<string, GamePresets>
 }
+
+export interface PresetMutationResult {
+  success: boolean
+  preset?: Preset
+  error?: string
+}
+
+export interface PresetPruneResult extends PresetMutationResult {
+  removed: number
+}
+
+export interface PresetApplyFailure {
+  characterName: string
+  modName: string
+  error?: string
+}
+
+export interface PresetApplyResult {
+  success: boolean
+  applied: number
+  enabled: number
+  disabled: number
+  failed: PresetApplyFailure[]
+  missing: PresetModRef[]
+  mode: PresetApplyMode
+  message?: string
+}
+
+export type PresetChangeReason =
+  | 'created'
+  | 'updated'
+  | 'duplicated'
+  | 'overwritten'
+  | 'pruned'
+  | 'deleted'
+  | 'applied'
 
 export interface GBFilterOption {
   id: number
@@ -197,6 +237,45 @@ export interface ModPersistInfo {
   namespace: string
   stateFileName: string
   variables: ModPersistVariable[]
+}
+
+/**
+ * 市场安装时命中的本地已有 Mod
+ * 为什么：GameBanana 的文件夹名取自 Mod 标题，作者改标题就会变成"新 Mod"，
+ * 只有 modId 是稳定身份，命中后必须走覆盖安装而不是再建一份
+ */
+export interface ModInstallTarget {
+  fullPath: string
+  folderName: string
+  enabled: boolean
+  modId: number
+  version?: string
+}
+
+export interface GameBananaInstallResult {
+  success: boolean
+  cancelled?: boolean
+  error?: string
+  modName?: string
+  installedPath?: string
+  previewSaved?: boolean
+  format?: string
+  /** update 覆盖了已有 Mod，install 是全新安装，unknown 表示未命中本地记录 */
+  action?: 'install' | 'update' | 'unknown'
+  /** 被覆盖的旧 Mod 目录（已删除） */
+  replacedPath?: string
+  /** 覆盖安装时旧目录里的启用状态被继承下来 */
+  preservedEnabled?: boolean
+  /**
+   * 其余同 modId 的历史副本（历史 bug 产物，多份同源）
+   * 为什么只回报不删除：里面可能有用户自己改过的 ini，误删代价太大
+   */
+  duplicates?: ModInstallTarget[]
+  /**
+   * 更新失败且旧版本未能自动恢复时，旧版本的备份目录路径
+   * 为什么必须回传：这份备份是用户旧版本的唯一副本，只写日志用户看不到
+   */
+  backupPath?: string
 }
 
 

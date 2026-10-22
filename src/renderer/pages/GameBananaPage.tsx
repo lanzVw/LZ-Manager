@@ -28,6 +28,13 @@ import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
 import { useEscapeToClose } from '../hooks/useEscape'
 import { GameBananaCard } from '../components/gamebanana/GameBananaCard'
+import {
+  GameBananaOverwriteConfirm,
+  inspectOverwriteTarget,
+  reportInstallFailure,
+  reportInstallResult
+} from '../components/GameBananaOverwriteConfirm'
+import type { PendingOverwriteInstall } from '../components/GameBananaOverwriteConfirm'
 
 interface GameBananaPageProps {
   activeGame: any
@@ -93,6 +100,11 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   const [progressPercent, setProgressPercent] = useState<number>(0)
   const [pendingInstallTarget, setPendingInstallTarget] = useState<{ modInfo: any; targetFile: any } | null>(null)
   const [charPickerSearch, setCharPickerSearch] = useState<string>('')
+
+  // 安装前预检命中本地同源 Mod 时的覆盖确认状态
+  const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwriteInstall | null>(null)
+  // 预检是异步的，用 ref 挡住连点造成的并发预检（此时进度条还没起，没有其它互斥）
+  const precheckingRef = useRef<boolean>(false)
 
   // 模组详情抽屉状态
   const [detailMod, setDetailMod] = useState<any | null>(null)
@@ -333,9 +345,11 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   }, [])
 
   // Esc 关闭注册：详情抽屉 / 角色指认弹窗（仅各自打开时注册监听）
-  useEscapeToClose(!!detailMod, closeDetailDrawer)
+  // 覆盖确认弹窗由 Modal 自己处理 Esc，这里不注册，避免一次 Esc 连详情抽屉一起关掉
+  useEscapeToClose(!!detailMod && !pendingOverwrite, closeDetailDrawer)
   const closeCharPicker = useCallback(() => setPendingInstallTarget(null), [])
   useEscapeToClose(!!pendingInstallTarget, closeCharPicker)
+  const cancelOverwrite = useCallback(() => setPendingOverwrite(null), [])
 
   // 联动跳转：若从模组详情页携带 modId 或搜索词跳转过来，自动联动
   useEffect(() => {
@@ -365,7 +379,12 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
 
   // 实际执行安装流水线
   const doInstall = useCallback(
-    async (modInfo: any, targetFile: any, targetCharacter: string) => {
+    async (
+      modInfo: any,
+      targetFile: any,
+      targetCharacter: string,
+      forceNewInstall = false
+    ) => {
       if (installingId !== null) return
       setInstallingId(modInfo.id)
       setProgressMsg(`准备下载: ${targetFile.fileName || 'Mod 文件'}...`)
@@ -390,12 +409,14 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           sourceUrl: finalSourceUrl,
           profileUrl: finalSourceUrl,
           version: targetFile.fileName || 'Version 1.0',
-          description: modInfo.description || ''
+          description: modInfo.description || '',
+          forceNewInstall
         })
 
         if (res && res.success) {
-          setProgressMsg('安装成功！')
+          setProgressMsg(res.action === 'update' ? '更新成功！' : '安装成功！')
           setProgressPercent(100)
+          reportInstallResult(toast, res, targetCharacter)
           setTimeout(() => {
             setInstallingId(null)
             setProgressMsg('')
@@ -408,7 +429,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           setProgressMsg('')
           setCancelling(false)
         } else {
-          toast.error('安装模组失败', res?.error || '未知错误')
+          reportInstallFailure(toast, res)
           setInstallingId(null)
           setCancelling(false)
         }
@@ -437,6 +458,40 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     }
   }, [cancelling, toast])
 
+  // 安装前预检：命中本地同源 Mod 时先让用户确认「覆盖更新」还是「仍然新建一份」
+  // 预检本身失败/旧版 preload 时 inspectOverwriteTarget 返回 null，直接走原来的安装流程
+  const startInstall = useCallback(
+    async (modInfo: any, targetFile: any, targetCharacter: string) => {
+      if (precheckingRef.current) return
+      precheckingRef.current = true
+      try {
+        const hit = await inspectOverwriteTarget(modInfo?.id)
+        if (hit) {
+          setPendingOverwrite({ modInfo, targetFile, targetCharacter, ...hit })
+          return
+        }
+      } finally {
+        precheckingRef.current = false
+      }
+      await doInstall(modInfo, targetFile, targetCharacter, false)
+    },
+    [doInstall]
+  )
+
+  const handleConfirmOverwriteUpdate = useCallback(async () => {
+    const pending = pendingOverwrite
+    if (!pending) return
+    setPendingOverwrite(null)
+    await doInstall(pending.modInfo, pending.targetFile, pending.targetCharacter, false)
+  }, [pendingOverwrite, doInstall])
+
+  const handleConfirmNewInstall = useCallback(async () => {
+    const pending = pendingOverwrite
+    if (!pending) return
+    setPendingOverwrite(null)
+    await doInstall(pending.modInfo, pending.targetFile, pending.targetCharacter, true)
+  }, [pendingOverwrite, doInstall])
+
   // 触发安装单个指定文件 (智能自动识别目标角色，若无法识别则弹窗供用户指认)
   const executeInstallFile = useCallback(
     async (modInfo: any, targetFile: any) => {
@@ -463,10 +518,10 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
         return
       }
 
-      // 4. 已精准识别到角色，直接开始流式下载并安装到对应角色目录
-      await doInstall(modInfo, targetFile, targetChar)
+      // 4. 已精准识别到角色，先预检覆盖再开始流式下载并安装到对应角色目录
+      await startInstall(modInfo, targetFile, targetChar)
     },
-    [installingId, activeGame, selectedCharId, characters, doInstall]
+    [installingId, activeGame, selectedCharId, characters, startInstall]
   )
 
   // 用户在弹窗中选择确认角色
@@ -474,49 +529,8 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     if (!pendingInstallTarget) return
     const { modInfo, targetFile } = pendingInstallTarget
     setPendingInstallTarget(null)
-    await doInstall(modInfo, targetFile, chosenChar)
+    await startInstall(modInfo, targetFile, chosenChar)
   }
-
-  // 卡片“一键装载”智能触发
-  const handleCardInstallClick = useCallback(
-    async (mod: any, e: React.MouseEvent) => {
-      e.stopPropagation()
-      if (installingId !== null) return
-
-      setInstallingId(mod.id)
-      setProgressMsg('正在连接并检索下载清单...')
-      setProgressPercent(5)
-
-      try {
-        const details = await window.flairx.getGameBananaDetails({
-          itemType: mod.itemType || 'Mod',
-          itemId: mod.id,
-          modId: mod.id,
-          gameId: activeGame.id
-        })
-
-        if (!details || !details.files || details.files.length === 0) {
-          toast.warning('暂无可下载文件', '该模组暂无可直接下载的有效文件压缩包')
-          setInstallingId(null)
-          return
-        }
-
-        // 若只有一个文件，直接安装
-        if (details.files.length === 1) {
-          setInstallingId(null)
-          await executeInstallFile(details, details.files[0])
-        } else {
-          // 若包含多个版本/变体，展开详情抽屉让用户精准选择
-          setInstallingId(null)
-          openDetailDrawer(details)
-        }
-      } catch (err: any) {
-        toast.error('获取下载信息失败', err.message)
-        setInstallingId(null)
-      }
-    },
-    [installingId, activeGame, executeInstallFile, openDetailDrawer]
-  )
 
   const totalPages = Math.ceil(totalRecords / perPage) || 1
 
@@ -530,14 +544,17 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
             value={selectedCharId}
             onChange={(val) => setSelectedCharId(val)}
             options={[
-              { value: 'all', label: '全部角色 (All Characters)' },
+              { value: 'all', label: '全部角色 (All Characters)', searchText: '全部角色 all characters qbjs' },
               ...characters
                 .filter((c) => c.id !== 'all')
                 .map((c) => ({
                   value: c.id,
-                  label: `${c.name} ${c.enName ? `(${c.enName})` : ''}`
+                  label: `${c.name} ${c.enName ? `(${c.enName})` : ''}`,
+                  searchText: [c.name, c.enName, c.pinyin].filter(Boolean).join(' ')
                 }))
             ]}
+            searchable
+            searchPlaceholder="搜索角色 / 英文 / 拼音..."
             prefixIcon={<Filter className="w-3.5 h-3.5 text-primary shrink-0" />}
             size="sm"
             className="w-56 font-semibold"
@@ -632,16 +649,12 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {mods.map((mod) => {
-              const isInstalling = installingId === mod.id
-
               return (
                 <GameBananaCard
                   key={mod.id}
                   mod={mod}
                   previewUrl={pickPreviewUrl(mod, 'thumb')}
-                  isInstalling={isInstalling}
                   onOpenDetail={openDetailDrawer}
-                  onCardInstallClick={handleCardInstallClick}
                   onSearchByAuthor={handleSearchByAuthor}
                 />
               )
@@ -1093,6 +1106,17 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* 安装前覆盖确认弹窗（与详情抽屉共用同一组件，文案不会分叉） */}
+      <GameBananaOverwriteConfirm
+        isOpen={!!pendingOverwrite}
+        modName={pendingOverwrite?.modInfo?.name}
+        fileName={pendingOverwrite?.targetFile?.fileName}
+        target={pendingOverwrite}
+        onConfirmUpdate={handleConfirmOverwriteUpdate}
+        onConfirmNewInstall={handleConfirmNewInstall}
+        onCancel={cancelOverwrite}
+      />
     </div>
   )
 }

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Header } from './components/Header'
-import { ModsPage } from './pages/ModsPage'
+import { ModsPage, DEFAULT_MODS_VIEW } from './pages/ModsPage'
+import type { ModsViewState } from './pages/ModsPage'
 import { ModDetailPage } from './pages/ModDetailPage'
 import { GameBananaPage } from './pages/GameBananaPage'
 import { PresetsPage } from './pages/PresetsPage'
@@ -21,6 +22,12 @@ export default function App() {
   const [importTarget, setImportTarget] = useState<{ archivePath: string; inspection: any } | null>(null)
   const [marketInitialModId, setMarketInitialModId] = useState<number | null>(null)
   const [marketInitialSearch, setMarketInitialSearch] = useState<string>('')
+
+  // 为什么提升到 App：进入 Mod 详情页时 ModsPage 会被卸载，局部 state 随之丢失，
+  // 从「蕾米埃尔」分类点进详情再返回就会掉回「全部角色」。这里托管整份视图快照。
+  const [modsView, setModsView] = useState<ModsViewState>(DEFAULT_MODS_VIEW)
+  // 记录进入详情前的视图快照：详情页内部可能触发扫描/切换，返回时必须回到进入时那一刻的状态
+  const modsViewBeforeDetailRef = useRef<ModsViewState | null>(null)
 
   // 1. 初始化读取配置
   const loadConfig = useCallback(async () => {
@@ -180,9 +187,36 @@ export default function App() {
   // 切换游戏
   const handleSelectGame = async (gameId: string) => {
     setSelectedModPath(null)
+    // 换游戏后角色分类完全不同，沿用旧筛选会落到空列表
+    setModsView(DEFAULT_MODS_VIEW)
     await window.flairx.setActiveGame(gameId)
     await loadConfig()
   }
+
+  // 列表页筛选变更：逐次合并，保证连续操作（如先选角色再切分区）不互相覆盖
+  const handleModsViewChange = useCallback((patch: Partial<ModsViewState>) => {
+    setModsView((prev) => ({ ...prev, ...patch }))
+  }, [])
+
+  // 进详情前存一份视图快照：详情页里的扫描/启停不能污染返回后的筛选状态
+  const handleOpenModDetail = useCallback(
+    (modFullPath: string) => {
+      modsViewBeforeDetailRef.current = modsView
+      setSelectedModPath(modFullPath)
+    },
+    [modsView]
+  )
+
+  // 返回列表：还原进入详情前那一刻的筛选，用户从哪个分类点进去就回到哪个分类
+  const handleBackToMods = useCallback(() => {
+    const snapshot = modsViewBeforeDetailRef.current
+    if (snapshot) {
+      setModsView(snapshot)
+      modsViewBeforeDetailRef.current = null
+    }
+    setSelectedModPath(null)
+    scanMods()
+  }, [scanMods])
 
   // 切换单个 Mod
   const handleToggleMod = async (charName: string, modName: string, enabled: boolean) => {
@@ -252,7 +286,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-bg text-text bg-cloud-pattern font-sans antialiased overflow-hidden select-none">
+    <div className="h-screen w-screen flex flex-col bg-bg text-text bg-vine-pattern font-sans antialiased overflow-hidden select-none">
       <Header
         activeTab={activeTab}
         setActiveTab={(tab) => {
@@ -276,14 +310,8 @@ export default function App() {
             <ModDetailPage
               modFullPath={selectedModPath}
               activeGame={activeGame}
-              onBack={() => {
-                setSelectedModPath(null)
-                scanMods()
-              }}
-              onDeleteSuccess={() => {
-                setSelectedModPath(null)
-                scanMods()
-              }}
+              onBack={handleBackToMods}
+              onDeleteSuccess={handleBackToMods}
               onInstallSuccess={() => scanMods()}
               onToggleActive={async (char, mod, state) => {
                 await handleToggleMod(char, mod, state)
@@ -301,9 +329,11 @@ export default function App() {
               loading={loadingMods}
               onRefresh={scanMods}
               onToggleMod={handleToggleMod}
-              onSelectMod={(path) => setSelectedModPath(path)}
+              onSelectMod={handleOpenModDetail}
               onNavigateTab={(tab) => setActiveTab(tab)}
               activeGame={activeGame}
+              viewState={modsView}
+              onViewStateChange={handleModsViewChange}
             />
           ))}
 
@@ -323,7 +353,9 @@ export default function App() {
         {activeTab === 'presets' && (
           <PresetsPage
             activeGame={activeGame}
-            onPresetApplied={scanMods}
+            modsData={modsData}
+            modsLoading={loadingMods}
+            onRefreshMods={scanMods}
           />
         )}
 

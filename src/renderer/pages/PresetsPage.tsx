@@ -1,107 +1,270 @@
-import React, { useState, useEffect } from 'react'
-import {
-  Sliders,
-  Plus,
-  CheckCircle2,
-  Trash2,
-  Calendar,
-  Layers,
-  BookmarkCheck,
-  ShieldCheck,
-  Zap
-} from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Layers, Plus, Sliders } from 'lucide-react'
+import type { ModItem, Preset, PresetApplyMode } from '../../core/types'
+import { planPresetApply, type PresetPlan } from '../../core/preset-plan'
 import { Button } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
-import { Input } from '../components/ui/Input'
-import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
+import { PresetCard } from '../components/presets/PresetCard'
+import { PresetDetailModal } from '../components/presets/PresetDetailModal'
+import { PresetEditorModal } from '../components/presets/PresetEditorModal'
 
 interface PresetsPageProps {
   activeGame: any
-  onPresetApplied?: () => void
+  modsData: Record<string, ModItem[]>
+  modsLoading: boolean
+  onRefreshMods: () => void
 }
 
 export const PresetsPage: React.FC<PresetsPageProps> = ({
   activeGame,
-  onPresetApplied
+  modsData,
+  modsLoading,
+  onRefreshMods
 }) => {
   const toast = useToast()
-  const [presets, setPresets] = useState<any[]>([])
+  const [presets, setPresets] = useState<Preset[]>([])
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
-  const [deletePresetId, setDeletePresetId] = useState<string | null>(null)
-  const [isCreating, setIsCreating] = useState<boolean>(false)
-  const [newPresetName, setNewPresetName] = useState<string>('')
-  const [newPresetDesc, setNewPresetDesc] = useState<string>('')
-  const [loading, setLoading] = useState<boolean>(false)
+  const [editorTarget, setEditorTarget] = useState<'create' | Preset | null>(null)
+  const [editorSubmitting, setEditorSubmitting] = useState(false)
+  const [editorError, setEditorError] = useState<string | null>(null)
+  const [detailPresetId, setDetailPresetId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Preset | null>(null)
+  const [overwriteTarget, setOverwriteTarget] = useState<Preset | null>(null)
+  const [applyingId, setApplyingId] = useState<string | null>(null)
+  const [mutatingId, setMutatingId] = useState<string | null>(null)
+  const loadSeqRef = useRef(0)
 
-  const loadPresets = async () => {
+  const gameId = activeGame?.id || ''
+
+  const loadPresets = useCallback(async () => {
+    // 游戏切换与 presets:changed 广播可能并发触发加载，只允许最后一次请求落地
+    const seq = loadSeqRef.current + 1
+    loadSeqRef.current = seq
     try {
       const res = await window.flairx.getPresets()
-      setPresets(res.presets || [])
+      if (seq !== loadSeqRef.current) return
+      setPresets(Array.isArray(res.presets) ? res.presets : [])
       setActivePresetId(res.activePresetId || null)
     } catch (err) {
       console.error('Failed to load presets:', err)
     }
-  }
+  }, [])
 
   useEffect(() => {
+    setPresets([])
+    setActivePresetId(null)
+    setEditorTarget(null)
+    setDetailPresetId(null)
+    setDeleteTarget(null)
+    setOverwriteTarget(null)
+    if (!gameId) return
     loadPresets()
-  }, [activeGame])
+  }, [gameId, loadPresets])
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newPresetName.trim()) return
-    setLoading(true)
+  useEffect(() => {
+    const unsubscribe = window.flairx.onPresetsChanged?.(() => {
+      loadPresets()
+      onRefreshMods()
+    })
+    return () => {
+      unsubscribe?.()
+    }
+  }, [loadPresets, onRefreshMods])
+
+  const plans = useMemo(() => {
+    const map: Record<string, PresetPlan> = {}
+    for (const preset of presets) {
+      map[preset.id] = planPresetApply(preset, modsData, 'replace')
+    }
+    return map
+  }, [presets, modsData])
+
+  const enabledModCount = useMemo(() => {
+    let count = 0
+    for (const mods of Object.values(modsData || {})) {
+      for (const mod of mods || []) {
+        if (mod?.enabled) count += 1
+      }
+    }
+    return count
+  }, [modsData])
+
+  const editorPreset = editorTarget && editorTarget !== 'create' ? editorTarget : null
+  const detailPreset = useMemo(
+    () => presets.find((preset) => preset.id === detailPresetId) || null,
+    [presets, detailPresetId]
+  )
+  const busy = applyingId !== null || mutatingId !== null
+
+  const openCreateEditor = () => {
+    setEditorError(null)
+    setEditorTarget('create')
+  }
+
+  const openEditEditor = (preset: Preset) => {
+    setEditorError(null)
+    setEditorTarget(preset)
+  }
+
+  const closeEditor = () => {
+    if (editorSubmitting) return
+    setEditorTarget(null)
+    setEditorError(null)
+  }
+
+  const handleEditorSubmit = async (name: string, description: string) => {
+    if (!editorTarget) return
+    setEditorSubmitting(true)
+    setEditorError(null)
     try {
-      await window.flairx.createPreset(newPresetName.trim(), newPresetDesc.trim())
-      setNewPresetName('')
-      setNewPresetDesc('')
-      setIsCreating(false)
+      if (editorTarget === 'create') {
+        const res = await window.flairx.createPreset(name, description)
+        if (!res.success) {
+          setEditorError(res.error || '创建方案失败')
+          return
+        }
+        toast.success('方案已创建', `「${res.preset?.name || name}」已保存当前装配快照`)
+        setEditorTarget(null)
+      } else {
+        const res = await window.flairx.updatePreset(editorTarget.id, { name, description })
+        if (!res.success) {
+          setEditorError(res.error || '保存方案失败')
+          return
+        }
+        toast.success('方案信息已更新')
+        setEditorTarget(null)
+      }
       await loadPresets()
-      toast.success('预设方案创建成功')
     } catch (err: any) {
-      toast.error('创建预设失败', err.message)
+      setEditorError(err?.message || '保存方案失败')
     } finally {
-      setLoading(false)
+      setEditorSubmitting(false)
     }
   }
 
-  const handleApply = async (presetId: string) => {
-    setLoading(true)
+  const runApply = async (presetId: string, mode: PresetApplyMode, presetName: string) => {
+    setApplyingId(presetId)
     try {
-      const res = await window.flairx.applyPreset(presetId)
+      const res = await window.flairx.applyPreset(presetId, { mode })
       if (res.success) {
-        await loadPresets()
-        if (onPresetApplied) onPresetApplied()
-        toast.success('预设方案已成功应用')
+        const summary = `启用 ${res.enabled} 项 · 停用 ${res.disabled} 项`
+        if (res.missing.length > 0) {
+          toast.warning(
+            `方案「${presetName}」已应用`,
+            `${summary} · ${res.missing.length} 个引用不存在，已跳过`
+          )
+        } else {
+          toast.success(`方案「${presetName}」已应用`, summary)
+        }
+        setDetailPresetId(null)
       } else {
-        toast.error('应用预设方案失败', res.error)
+        toast.error('应用方案失败', res.message || '请稍后重试')
       }
+      await loadPresets()
+      onRefreshMods()
     } catch (err: any) {
-      toast.error('应用预设方案异常', err.message)
+      toast.error('应用方案异常', err?.message || '请稍后重试')
     } finally {
-      setLoading(false)
+      setApplyingId(null)
+    }
+  }
+
+  const handleCardApply = (preset: Preset) => {
+    if (modsLoading) return
+    const plan = plans[preset.id]
+    if (!plan || plan.match) return
+    const refCount = plan.items.filter((item) => item.action !== 'disable').length
+    // 失效引用会被跳过、空方案会停用全部 Mod，这两种情况必须先让用户在详情里确认
+    if (plan.missing.length > 0 || refCount === 0) {
+      setDetailPresetId(preset.id)
+      return
+    }
+    void runApply(preset.id, 'replace', preset.name)
+  }
+
+  const handleDetailApply = (mode: PresetApplyMode) => {
+    if (!detailPreset) return
+    void runApply(detailPreset.id, mode, detailPreset.name)
+  }
+
+  const handleDuplicate = async (preset: Preset) => {
+    setMutatingId(preset.id)
+    try {
+      const res = await window.flairx.duplicatePreset(preset.id)
+      if (res.success) toast.success('方案已复制', `「${res.preset?.name || ''}」`)
+      else toast.error('复制方案失败', res.error || '请稍后重试')
+      await loadPresets()
+    } catch (err: any) {
+      toast.error('复制方案异常', err?.message || '请稍后重试')
+    } finally {
+      setMutatingId(null)
+    }
+  }
+
+  const handleConfirmOverwrite = async () => {
+    if (!overwriteTarget) return
+    const target = overwriteTarget
+    setMutatingId(target.id)
+    try {
+      const res = await window.flairx.overwritePresetFromCurrent(target.id)
+      if (res.success) {
+        toast.success('方案已覆盖为当前装配', `「${res.preset?.name || target.name}」`)
+        setOverwriteTarget(null)
+      } else {
+        toast.error('覆盖方案失败', res.error || '请稍后重试')
+      }
+      await loadPresets()
+      onRefreshMods()
+    } catch (err: any) {
+      toast.error('覆盖方案异常', err?.message || '请稍后重试')
+    } finally {
+      setMutatingId(null)
+    }
+  }
+
+  const handlePrune = async (preset: Preset) => {
+    setMutatingId(preset.id)
+    try {
+      const res = await window.flairx.prunePresetMissing(preset.id)
+      if (!res.success) {
+        toast.error('清理失效引用失败', res.error || '请稍后重试')
+      } else if (res.removed > 0) {
+        toast.success('已清理失效引用', `共移除 ${res.removed} 个引用`)
+      } else {
+        toast.info('没有需要清理的失效引用')
+      }
+      await loadPresets()
+    } catch (err: any) {
+      toast.error('清理失效引用异常', err?.message || '请稍后重试')
+    } finally {
+      setMutatingId(null)
     }
   }
 
   const handleConfirmDelete = async () => {
-    if (!deletePresetId) return
+    if (!deleteTarget) return
+    const target = deleteTarget
+    setMutatingId(target.id)
     try {
-      await window.flairx.deletePreset(deletePresetId)
+      const deleted = await window.flairx.deletePreset(target.id)
+      if (deleted) {
+        toast.success('方案已删除', `「${target.name}」已移除，磁盘上的 Mod 未受影响`)
+        setDeleteTarget(null)
+      } else {
+        toast.error('删除方案失败', '方案可能已不存在，请刷新后重试')
+      }
       await loadPresets()
-      toast.success('预设方案已成功删除')
     } catch (err: any) {
-      toast.error('删除预设失败', err.message)
+      toast.error('删除方案异常', err?.message || '请稍后重试')
     } finally {
-      setDeletePresetId(null)
+      setMutatingId(null)
     }
   }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-6 select-none bg-surface/30">
-      {/* Header */}
       <div className="flex items-center justify-between pb-5 border-b border-border shrink-0">
         <div>
           <h2 className="text-lg font-bold text-text flex items-center space-x-2.5 tracking-wide">
@@ -109,80 +272,21 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
             <span>MOD 阵容预设与一键切换</span>
           </h2>
           <p className="text-xs text-text-muted mt-1">
-            将当前全角色的 Mod 装配方案一键保存快照，支持秒切并自动同步 Persist Bridge 状态
+            将当前全角色的 Mod 装配保存为方案快照，应用前可实时预检差异并选择还原方式
           </p>
         </div>
 
         <Button
           variant="secondary"
           size="md"
-          onClick={() => setIsCreating(true)}
+          onClick={openCreateEditor}
+          disabled={busy}
           icon={<Plus className="w-4 h-4 text-primary" />}
         >
           保存当前装配为新方案
         </Button>
       </div>
 
-      {/* Create Dialog Modal */}
-      {isCreating && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4">
-          <form
-            onSubmit={handleCreate}
-            className="w-full max-w-md bg-surface border border-border rounded-card p-6 space-y-4 shadow-xl"
-          >
-            <div>
-              <h3 className="text-base font-bold text-text">新建预设方案</h3>
-              <p className="text-xs text-text-muted mt-0.5">为当前的 Mod 装配创建快照副本</p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text mb-1">
-                方案名称
-              </label>
-              <Input
-                required
-                placeholder="例如：主战常态套装 / 盛装泳装派对"
-                value={newPresetName}
-                onChange={(e) => setNewPresetName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text mb-1">
-                方案描述 (可选)
-              </label>
-              <textarea
-                rows={2}
-                placeholder="简述该方案的 Mod 搭配特色..."
-                value={newPresetDesc}
-                onChange={(e) => setNewPresetDesc(e.target.value)}
-                className="w-full bg-surface-2 border border-border focus:border-primary rounded-control px-3.5 py-2 text-xs text-text placeholder:text-text-muted focus:outline-none font-sans resize-none"
-              />
-            </div>
-
-            <div className="flex items-center justify-end space-x-2 pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsCreating(false)}
-              >
-                取消
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                loading={loading}
-              >
-                保存方案
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Presets Grid */}
       <ScrollContainer className="flex-1 pt-6">
         {presets.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-text-muted space-y-3">
@@ -201,93 +305,86 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {presets.map((preset) => {
-              const isActive = activePresetId === preset.id
-              const enabledCount = preset.mods ? preset.mods.filter((m: any) => m.enabled).length : 0
-
+              const plan = plans[preset.id]
+              if (!plan) return null
               return (
-                <Card
+                <PresetCard
                   key={preset.id}
-                  selected={isActive}
-                  className="p-5 flex flex-col justify-between space-y-4"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <h3 className="text-sm font-bold text-text tracking-wide">
-                          {preset.name}
-                        </h3>
-                        {isActive && (
-                          <Badge variant="primary" size="sm">
-                            <CheckCircle2 className="w-3 h-3 text-primary" />
-                            <span>当前已生效</span>
-                          </Badge>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setDeletePresetId(preset.id)}
-                        className="p-1.5 rounded-lg hover:bg-danger/10 text-text-muted hover:text-danger transition-colors cursor-pointer"
-                        title="删除预设"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {preset.description && (
-                      <p className="text-xs text-text-muted mt-1.5 line-clamp-2 leading-relaxed">
-                        {preset.description}
-                      </p>
-                    )}
-
-                    <div className="flex items-center space-x-4 text-[11px] font-mono text-text-muted mt-4 pt-3 border-t border-border">
-                      <div className="flex items-center space-x-1.5 text-primary">
-                        <BookmarkCheck className="w-3.5 h-3.5 text-primary" />
-                        <span>已包含 {enabledCount} 个角色 MOD</span>
-                      </div>
-                      {preset.createdAt && (
-                        <div className="flex items-center space-x-1 text-text-muted">
-                          <Calendar className="w-3 h-3" />
-                          <span>{new Date(preset.createdAt).toLocaleDateString()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <Button
-                    variant={isActive ? 'ghost' : 'secondary'}
-                    size="sm"
-                    onClick={() => handleApply(preset.id)}
-                    disabled={isActive || loading}
-                    className="w-full"
-                    icon={
-                      isActive ? (
-                        <ShieldCheck className="w-4 h-4 text-primary" />
-                      ) : (
-                        <Zap className="w-4 h-4 text-primary" />
-                      )
-                    }
-                  >
-                    {isActive ? '当前方案已部署生效' : '一键应用此方案'}
-                  </Button>
-                </Card>
+                  preset={preset}
+                  plan={plan}
+                  active={activePresetId === preset.id}
+                  modsLoading={modsLoading}
+                  applying={applyingId === preset.id}
+                  busy={busy}
+                  onViewDetails={() => setDetailPresetId(preset.id)}
+                  onApply={() => handleCardApply(preset)}
+                  onEdit={() => openEditEditor(preset)}
+                  onDuplicate={() => handleDuplicate(preset)}
+                  onOverwrite={() => setOverwriteTarget(preset)}
+                  onPrune={() => handlePrune(preset)}
+                  onDelete={() => setDeleteTarget(preset)}
+                />
               )
             })}
           </div>
         )}
       </ScrollContainer>
 
+      <PresetEditorModal
+        isOpen={editorTarget !== null}
+        preset={editorPreset}
+        enabledModCount={enabledModCount}
+        modsLoading={modsLoading}
+        submitting={editorSubmitting}
+        error={editorError}
+        onSubmit={handleEditorSubmit}
+        onClose={closeEditor}
+      />
+
+      <PresetDetailModal
+        isOpen={detailPreset !== null}
+        preset={detailPreset}
+        modsData={modsData}
+        modsLoading={modsLoading}
+        applying={applyingId !== null && applyingId === detailPreset?.id}
+        onClose={() => setDetailPresetId(null)}
+        onRefreshMods={onRefreshMods}
+        onApply={handleDetailApply}
+      />
+
       <Modal
-        isOpen={!!deletePresetId}
-        onClose={() => setDeletePresetId(null)}
+        isOpen={overwriteTarget !== null}
+        onClose={() => {
+          if (mutatingId) return
+          setOverwriteTarget(null)
+        }}
+        onConfirm={handleConfirmOverwrite}
+        title="用当前装配覆盖方案"
+        variant="warning"
+        confirmText="覆盖方案"
+        cancelText="取消"
+        loading={mutatingId !== null}
+      >
+        <p className="text-xs text-text-muted leading-relaxed">
+          将用当前所有已启用的 Mod 重新生成「{overwriteTarget?.name}」的内容，原有快照会被替换且无法恢复。
+        </p>
+      </Modal>
+
+      <Modal
+        isOpen={deleteTarget !== null}
+        onClose={() => {
+          if (mutatingId) return
+          setDeleteTarget(null)
+        }}
         onConfirm={handleConfirmDelete}
         title="删除预设方案"
         variant="danger"
         confirmText="确认删除"
         cancelText="取消"
+        loading={mutatingId !== null}
       >
-        <p className="text-sm text-slate-300">
-          确定要删除这个预设方案吗？删除后将无法恢复已保存的 MOD 装配快照。
+        <p className="text-xs text-text-muted leading-relaxed">
+          将删除方案「{deleteTarget?.name}」。只删除方案快照，不会改动磁盘上的任何 Mod 文件，删除后无法恢复。
         </p>
       </Modal>
     </div>

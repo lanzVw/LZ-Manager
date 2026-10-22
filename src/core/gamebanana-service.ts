@@ -12,6 +12,7 @@ const { pipeline } = require("stream/promises");
 const execFileAsync = promisify(execFile);
 import { getCharactersForGame, normalizeCharacterName } from "./characters-data";
 import { autoTranslateModConfig } from "./mod-translator";
+import type { GameBananaInstallResult, ModInstallTarget } from "./types";
 
 /**
  * P0 Verified Exact GameBanana Game ID Mappings
@@ -160,6 +161,7 @@ async function sweepStaleDownloadDirs(preferredRoot?: string) {
       if (!fs.existsSync(targetDir)) return;
       const entries = fs.readdirSync(targetDir);
       for (const entry of entries) {
+        // backup_ 不参与清扫：它只在「回滚失败」时残留，而那时它是用户旧版本的唯一副本
         if (!entry.startsWith("dl_") && !entry.startsWith("staging_")) continue;
         const full = path.join(targetDir, entry);
         try {
@@ -1361,6 +1363,277 @@ function sanitizeFileName(name) {
     .trim() || "unnamed";
 }
 
+const DISABLED_FOLDER_PREFIX = "DISABLED_";
+const COVER_BACKUP_SUFFIX = ".lz_bak";
+// 封面判定只看「封面命名 + 图片后缀」，纹理贴图（normalmap / cover_map.dds 之类）不在此列
+const COVER_FILE_PATTERN = /^(preview|_cover|cover|thumb)[^\\/]*\.(png|jpe?g|webp|gif|bmp)(\.lz_bak)?$/i;
+// mod.json 里属于「用户手工设置」的键：更新时必须原样搬回来
+const MOD_META_USER_KEYS = [
+  "variableAliases",
+  "hotkeyTranslations",
+  "valueLabels",
+  "appearanceSectionId",
+  "modBroken",
+  "brokenReason"
+];
+
+/**
+ * 容错读取 JSON
+ * 为什么：用户手改或历史半失败会留下坏 JSON，解析失败不能连累整个扫描/安装流程
+ */
+function readJsonFileSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function stripDisabledPrefix(folderName) {
+  let name = String(folderName || "");
+  while (name.startsWith(DISABLED_FOLDER_PREFIX)) {
+    name = name.substring(DISABLED_FOLDER_PREFIX.length);
+  }
+  return name || String(folderName || "");
+}
+
+/**
+ * 收集本地所有能证明属于该 GameBanana modId 的 Mod 目录
+ * 为什么：作者改标题后文件夹名会跟着变，而历史 bug 又会留下同 modId 的多份副本，
+ * 只有把「modId 字段 / 来源链接 / 文件夹名」三条线索都扫出来，更新才不会又装成第二份
+ */
+function collectInstalledModsByGameBananaId(modsRoot, modId) {
+  const numericId = Number(modId);
+  if (!Number.isInteger(numericId) || numericId <= 0) return [];
+
+  const root = typeof modsRoot === "string" ? modsRoot.trim() : "";
+  if (!root || !fs.existsSync(root)) return [];
+
+  const sourcePattern = new RegExp(`gamebanana\\.com/mods/${numericId}(?:\\b|[/?#])`, "i");
+  const folderPattern = new RegExp(`gamebanana[_-]${numericId}`, "i");
+
+  let charEntries;
+  try {
+    charEntries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (_) {
+    return [];
+  }
+
+  const hits = [];
+  for (const charDirent of charEntries) {
+    if (!charDirent.isDirectory()) continue;
+    if (charDirent.name.startsWith(".") || charDirent.name === "System Volume Information") continue;
+
+    const charDir = path.join(root, charDirent.name);
+    let modEntries;
+    try {
+      modEntries = fs.readdirSync(charDir, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+
+    for (const modDirent of modEntries) {
+      if (!modDirent.isDirectory() || modDirent.name.startsWith(".")) continue;
+
+      const fullPath = path.join(charDir, modDirent.name);
+      const metaPath = path.join(fullPath, "mod.json");
+      // 只认带 mod.json 的目录：市场安装必然写过它，没有就不是我们装的，不能误覆盖
+      if (!fs.existsSync(metaPath)) continue;
+
+      const meta = readJsonFileSafe(metaPath) || {};
+      const metaId = meta.modId;
+      const matchedById =
+        metaId !== undefined && metaId !== null && metaId !== "" && Number(metaId) === numericId;
+      const matchedByUrl = [meta.sourceUrl, meta.url, meta.gamebananaUrl].some(
+        (value) => typeof value === "string" && sourcePattern.test(value)
+      );
+      const matchedByFolder = folderPattern.test(stripDisabledPrefix(modDirent.name));
+      if (!matchedById && !matchedByUrl && !matchedByFolder) continue;
+
+      let mtimeMs = 0;
+      try { mtimeMs = fs.statSync(fullPath).mtimeMs; } catch (_) {}
+
+      hits.push({
+        fullPath,
+        folderName: modDirent.name,
+        enabled: !modDirent.name.startsWith(DISABLED_FOLDER_PREFIX),
+        modId: numericId,
+        version: typeof meta.version === "string" ? meta.version : undefined,
+        mtimeMs
+      });
+    }
+  }
+
+  // 启用优先（用户正在用的那份就是他要更新的），其次最近改动过的
+  hits.sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    return b.mtimeMs - a.mtimeMs;
+  });
+
+  return hits.map(({ mtimeMs, ...rest }) => rest);
+}
+
+/**
+ * 按 GameBanana modId 找回本地已安装的 Mod（启用优先、其次最近改动）
+ */
+function findInstalledModByGameBananaId(modsRoot, modId) {
+  const hits = collectInstalledModsByGameBananaId(modsRoot, modId);
+  return hits.length > 0 ? hits[0] : null;
+}
+
+/**
+ * 供主进程做安装前预检：命中项用于确认弹窗，其余同源副本用于提示手动清理
+ * 为什么：同 modId 多份是历史 bug 产物，但里面可能有用户改过的 ini，只能提示不能自动删
+ */
+function inspectInstalledMod(modsRoot, modId) {
+  const hits = collectInstalledModsByGameBananaId(modsRoot, modId);
+  return { existing: hits.length > 0 ? hits[0] : null, duplicates: hits.slice(1) };
+}
+
+/**
+ * 决定这次安装的落点：命中同 modId 就地覆盖，否则新建 DISABLED_<名字>
+ * 为什么：文件夹名取自 Mod 标题，靠名字判断重名必然装成第二份；modId 才是稳定身份
+ * 为什么保留原文件夹名与 DISABLED_ 前缀：启用状态、外观分区、预设方案引用全都按目录名记录
+ */
+function resolveInstallPlan(params: {
+  modsRoot?: string;
+  targetParentDir: string;
+  modId?: number;
+  modName?: string;
+  forceNewInstall?: boolean;
+}) {
+  const targetParentDir = String(params?.targetParentDir || "");
+  if (!targetParentDir) throw new Error("目标安装目录不能为空");
+
+  const modsRoot = typeof params.modsRoot === "string" && params.modsRoot.trim()
+    ? params.modsRoot.trim()
+    : path.dirname(targetParentDir);
+
+  const numericId = Number(params.modId);
+  const hasModId = Number.isInteger(numericId) && numericId > 0;
+  const hits = hasModId ? collectInstalledModsByGameBananaId(modsRoot, numericId) : [];
+
+  // 用户明确要求保留多份（例如同一 Mod 的不同 ini 变体放进不同外观分区），不能替他覆盖
+  if (hits.length > 0 && params.forceNewInstall !== true) {
+    const existing = hits[0];
+    return {
+      mode: "update",
+      targetDir: existing.fullPath,
+      existing,
+      duplicates: hits.slice(1)
+    };
+  }
+
+  const safeModName = sanitizeFileName(params.modName || "Mod");
+  const baseFolderName = `${DISABLED_FOLDER_PREFIX}${safeModName}`;
+  let targetDir = path.join(targetParentDir, baseFolderName);
+  let counter = 1;
+  while (fs.existsSync(targetDir)) {
+    targetDir = path.join(targetParentDir, `${baseFolderName} (${counter})`);
+    counter++;
+  }
+
+  // forceNewInstall 时命中的旧副本同样要回报，界面才能提示「另有 N 份可手动清理」
+  return { mode: "install", targetDir, duplicates: hits };
+}
+
+/**
+ * 选备份目录：优先与被覆盖目录同盘，避免跨卷 rename 抛 EXDEV 退化成全量复制
+ * 为什么：大 Mod 动辄几百 MB，跨卷复制会多花十几秒；同盘 rename 是常数时间
+ */
+function resolveBackupBase(targetDir, fallbackBase) {
+  try {
+    // 同盘时把备份放在角色目录的上一级（Mods 根下），不污染角色目录
+    const modsRoot = path.dirname(path.dirname(targetDir));
+    if (modsRoot && fs.existsSync(modsRoot)) {
+      return path.join(modsRoot, ".lz_update_backup");
+    }
+  } catch (_) {}
+  return fallbackBase;
+}
+
+/**
+ * 整体搬移目录
+ * 为什么：备份目录在系统盘、Mods 常在其它盘，跨卷 rename 必抛 EXDEV，
+ * 只能退化成复制后删除，否则「先备份再覆盖」的第一步就失败
+ */
+function moveDirWithFallback(srcDir, destDir) {
+  try {
+    fs.renameSync(srcDir, destDir);
+    return "rename";
+  } catch (renameErr) {
+    try {
+      fs.cpSync(srcDir, destDir, { recursive: true });
+    } catch (copyErr) {
+      // 半截的备份目录必须清掉，否则它会一直占盘且让下次安装误以为备份已存在
+      try { fs.rmSync(destDir, { recursive: true, force: true }); } catch (_) {}
+      throw new Error(`备份旧 Mod 目录失败: ${copyErr?.message || copyErr}`, { cause: copyErr });
+    }
+    try {
+      fs.rmSync(srcDir, { recursive: true, force: true });
+    } catch (_) {
+      // 复制已经完成，源目录删不干净只会多一份副本，绝不能因此把备份也丢掉
+      console.warn("[GameBananaService] 备份后清理旧目录残留失败:", srcDir);
+    }
+    return "copy";
+  }
+}
+
+/**
+ * 把备份搬回原路径；失败返回 false，调用方必须保留备份（那是用户旧版本的唯一副本）
+ */
+function restoreDirFromBackup(backupDir, targetDir) {
+  if (!backupDir || !targetDir) return false;
+  try {
+    if (fs.existsSync(targetDir)) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+    moveDirWithFallback(backupDir, targetDir);
+    return true;
+  } catch (err: any) {
+    console.error("[GameBananaService] 恢复旧版本目录失败:", err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * 把旧版本里的用户数据搬回覆盖后的目录（tags.json 与封面）
+ * 为什么：外观分区写在 tags.json 的 qaqm 段，封面则可能是用户自己裁的，二者都不能被新版覆盖掉
+ */
+function mergePreservedUserFiles(backupDir, targetDir) {
+  const oldTags = readJsonFileSafe(path.join(backupDir, "tags.json"));
+  const preservedQaqm = oldTags && oldTags.qaqm && typeof oldTags.qaqm === "object" ? oldTags.qaqm : null;
+  if (preservedQaqm) {
+    const tagsPath = path.join(targetDir, "tags.json");
+    const newTags = readJsonFileSafe(tagsPath) || {};
+    try {
+      fs.writeFileSync(tagsPath, JSON.stringify({ ...newTags, qaqm: preservedQaqm }, null, 2), "utf8");
+    } catch (err: any) {
+      console.warn("[GameBananaService] 合并 tags.json 失败:", err?.message || err);
+    }
+  }
+
+  try {
+    const oldCovers = fs.readdirSync(backupDir).filter((name) => COVER_FILE_PATTERN.test(name));
+    if (oldCovers.length === 0) return;
+    const newEntries = fs.readdirSync(targetDir);
+    const newCovers = newEntries.filter((name) => COVER_FILE_PATTERN.test(name));
+    const newCoverImages = newCovers.filter((name) => !name.toLowerCase().endsWith(COVER_BACKUP_SUFFIX));
+
+    for (const name of oldCovers) {
+      if (newEntries.includes(name)) continue;
+      const isBackupFile = name.toLowerCase().endsWith(COVER_BACKUP_SUFFIX);
+      // 新版本自带封面就以新的为准；lz_bak 是回滚封面功能的依赖，永远保留
+      if (!isBackupFile && newCoverImages.length > 0) continue;
+      try {
+        fs.copyFileSync(path.join(backupDir, name), path.join(targetDir, name));
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
 /**
  * 7. Full Download & Safe Install Pipeline
  *
@@ -1370,24 +1643,28 @@ function sanitizeFileName(name) {
  * 3. Run `7za.exe l -slt` security pre-inspection (reject any traversal, absolute path, ADS, symlink, hardlink).
  * 4. Extract into an isolated staging folder.
  * 5. Identify mod root directory.
- * 6. Move/install to target folder with zero overwrite: `DISABLED_<SafeName>` (or increment if exists).
+ * 6. Install to target folder: 同 modId 命中本地已有 Mod 时原地覆盖，否则新建 `DISABLED_<SafeName>`（重名加序号）。
  * 7. Fetch first high-res preview image and save as `preview.png`.
  * 8. Cleanup temporary files and staging directory.
  *
  * @param {object} params
  * @param {string} params.downloadUrl
  * @param {string} params.targetParentDir - Target parent directory (e.g. game Mods/Character folder)
+ * @param {string} [params.modsRoot] - Mods 根目录，缺省时取 targetParentDir 的上级目录
  * @param {string} [params.modName] - Display name of the Mod
+ * @param {number} [params.modId] - GameBanana Mod ID，用于命中本地同源 Mod 走覆盖安装
+ * @param {boolean} [params.forceNewInstall] - 用户明确要求保留多份时强制新建，跳过覆盖判定
  * @param {string} [params.expectedMd5]
  * @param {string} [params.previewImageUrl] - High-res preview image URL
  * @param {string} [params.sevenZipPath]
  * @param {function} [params.onProgress] - Download/install progress callback
- * @returns {Promise<object>}
+ * @returns {Promise<GameBananaInstallResult>}
  */
-async function installMod(rawParams: any = {}) {
+async function installMod(rawParams: any = {}): Promise<GameBananaInstallResult> {
   const {
     downloadUrl,
     targetParentDir,
+    modsRoot,
     modName = "Mod",
     fileName = "",
     expectedMd5,
@@ -1399,6 +1676,7 @@ async function installMod(rawParams: any = {}) {
     sourceUrl,
     profileUrl,
     modId,
+    forceNewInstall = false,
     author,
     version,
     description
@@ -1427,6 +1705,9 @@ async function installMod(rawParams: any = {}) {
 
   let downloadedArchivePath = null;
   let installedTargetDir = "";
+  // 覆盖安装时的旧版本备份：只有整套流程成功后才会删除，异常/取消都要搬回去
+  let backupDir = "";
+  let plan;
   // 为什么：取消是用户主动行为，阶段边界必须再查一次，否则会白干一整个阶段
   const cancelledError = () => Object.assign(new Error("安装已取消"), { code: "INSTALL_CANCELLED" });
   const throwIfAborted = () => { if (signal?.aborted) throw cancelledError(); };
@@ -1490,22 +1771,39 @@ async function installMod(rawParams: any = {}) {
     // 文件系统级链接兜底检查（RAR 预检覆盖不到的 symlink/junction 在此拦截）
     assertNoLinksInDir(stagingDir);
 
-    // 5. Zero-overwrite installation named `DISABLED_<SafeName>`
-    const safeModName = sanitizeFileName(modName);
-    const baseFolderName = `DISABLED_${safeModName}`;
-    let targetModDir = path.join(safeTargetParentDir, baseFolderName);
-    let counter = 1;
-
-    while (fs.existsSync(targetModDir)) {
-      targetModDir = path.join(safeTargetParentDir, `${baseFolderName} (${counter})`);
-      counter++;
-    }
+    // 5. 决定落点：命中同 modId 的本地 Mod 就地覆盖，否则新建 DISABLED_<名字>
+    plan = resolveInstallPlan({
+      modsRoot,
+      targetParentDir: safeTargetParentDir,
+      modId,
+      modName,
+      forceNewInstall
+    });
+    const targetModDir = plan.targetDir;
+    const isUpdate = plan.mode === "update";
 
     throwIfAborted();
+
+    if (isUpdate) {
+      // 为什么：先把旧版本整体搬走再重建，任何一步失败都能原样搬回来；
+      // 直接往旧目录里覆盖会留下新旧混杂的半成品，用户既没新版本也没旧版本
+      // 备份目录优先与被覆盖目录同盘，同盘 rename 是常数时间，跨卷才退化成全量复制
+      const backupBase = resolveBackupBase(targetModDir, tempBase);
+      const candidateBackupDir = path.join(backupBase, `backup_${runId}`);
+      try { fs.mkdirSync(backupBase, { recursive: true }); } catch (_) {}
+      moveDirWithFallback(targetModDir, candidateBackupDir);
+      // 只有整体搬移成功才登记备份：搬移中途失败时旧目录仍在原位，不能再走「恢复」把它覆盖掉
+      backupDir = candidateBackupDir;
+    }
+
+    // 先记下目标路径：此后任何异常都会走「搬回备份」，绝不能再当成新建目录直接删掉
     installedTargetDir = targetModDir;
     // Move or copy mod root to target
     fs.mkdirSync(targetModDir, { recursive: true });
     fs.cpSync(modRoot, targetModDir, { recursive: true });
+    if (isUpdate && backupDir) {
+      mergePreservedUserFiles(backupDir, targetModDir);
+    }
 
     // 6. Fetch first high-res preview image and save as preview.png
     let previewSaved = false;
@@ -1531,31 +1829,60 @@ async function installMod(rawParams: any = {}) {
     // 7. Write/merge mod metadata (mod.json) including sourceUrl and market information
     try {
       const metaPath = path.join(targetModDir, "mod.json");
-      let existingMeta: any = {};
-      if (fs.existsSync(metaPath)) {
-        try {
-          existingMeta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-        } catch (_) {}
-      }
+      const extractedMeta = readJsonFileSafe(metaPath) || {};
+      // 覆盖安装时用户自定义键只能从备份取：新解压出来的 mod.json 是作者发布的原始文件
+      const previousMeta = isUpdate && backupDir ? (readJsonFileSafe(path.join(backupDir, "mod.json")) || {}) : {};
       const finalSourceUrl = sourceUrl || profileUrl || (modId ? `https://gamebanana.com/mods/${modId}` : "");
       const nowStr = new Date().toLocaleDateString();
-      const updatedMeta = {
-        name: modName || existingMeta.name || path.basename(targetModDir),
-        author: author || existingMeta.author || "GameBanana",
-        version: version || existingMeta.version || "Version 1.0",
-        description: description || existingMeta.description || "",
-        ...existingMeta,
-        sourceUrl: finalSourceUrl || existingMeta.sourceUrl || existingMeta.url || "",
-        url: finalSourceUrl || existingMeta.url || existingMeta.sourceUrl || "",
-        gamebananaUrl: finalSourceUrl || existingMeta.gamebananaUrl || "",
-        source: "GameBanana",
-        modId: modId ? parseInt(modId, 10) : (existingMeta.modId || null),
-        dateChecked: existingMeta.dateChecked || nowStr,
-        dateUpdated: existingMeta.dateUpdated || nowStr,
-        checkTime: existingMeta.checkTime || nowStr,
-        lastUpdated: existingMeta.lastUpdated || nowStr,
-        updatedAt: new Date().toISOString()
-      };
+      let updatedMeta;
+
+      if (isUpdate) {
+        // 为什么：旧代码是 { ...新值, ...existingMeta }，旧值反而盖住新值，
+        // 结果 version 永远停在上一个版本，「检查更新」于是永远报有新版本。
+        // 这里改为显式分层：旧文件打底（保留与本次更新无关的历史键）→ 新文件覆盖 → 远端键强制取新值 → 用户键再取旧值。
+        updatedMeta = { ...previousMeta, ...extractedMeta };
+        Object.assign(updatedMeta, {
+          name: modName || extractedMeta.name || previousMeta.name || path.basename(targetModDir),
+          author: author || extractedMeta.author || previousMeta.author || "GameBanana",
+          version: version || extractedMeta.version || previousMeta.version || "Version 1.0",
+          description: description || extractedMeta.description || previousMeta.description || "",
+          sourceUrl: finalSourceUrl || extractedMeta.sourceUrl || previousMeta.sourceUrl || previousMeta.url || "",
+          url: finalSourceUrl || extractedMeta.url || previousMeta.url || previousMeta.sourceUrl || "",
+          gamebananaUrl: finalSourceUrl || extractedMeta.gamebananaUrl || previousMeta.gamebananaUrl || "",
+          source: "GameBanana",
+          modId: modId ? parseInt(modId, 10) : (extractedMeta.modId || previousMeta.modId || null),
+          dateChecked: nowStr,
+          dateUpdated: nowStr,
+          checkTime: nowStr,
+          lastUpdated: nowStr,
+          updatedAt: new Date().toISOString()
+        });
+        // 用户键最后覆盖回去（含 modBroken 这类「被用户标记失效」的状态），作者的键让位
+        for (const key of MOD_META_USER_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(previousMeta, key)) {
+            updatedMeta[key] = previousMeta[key];
+          }
+        }
+      } else {
+        updatedMeta = {
+          name: modName || extractedMeta.name || path.basename(targetModDir),
+          author: author || extractedMeta.author || "GameBanana",
+          version: version || extractedMeta.version || "Version 1.0",
+          description: description || extractedMeta.description || "",
+          ...extractedMeta,
+          sourceUrl: finalSourceUrl || extractedMeta.sourceUrl || extractedMeta.url || "",
+          url: finalSourceUrl || extractedMeta.url || extractedMeta.sourceUrl || "",
+          gamebananaUrl: finalSourceUrl || extractedMeta.gamebananaUrl || "",
+          source: "GameBanana",
+          modId: modId ? parseInt(modId, 10) : (extractedMeta.modId || null),
+          dateChecked: extractedMeta.dateChecked || nowStr,
+          dateUpdated: extractedMeta.dateUpdated || nowStr,
+          checkTime: extractedMeta.checkTime || nowStr,
+          lastUpdated: extractedMeta.lastUpdated || nowStr,
+          updatedAt: new Date().toISOString()
+        };
+      }
+
       if (author) updatedMeta.author = author;
       if (finalSourceUrl) {
         updatedMeta.sourceUrl = finalSourceUrl;
@@ -1568,7 +1895,7 @@ async function installMod(rawParams: any = {}) {
     }
 
     if (typeof onProgress === "function") {
-      onProgress({ stage: "completed", message: "安装完成！", percent: 100 });
+      onProgress({ stage: "completed", message: isUpdate ? "更新完成！" : "安装完成！", percent: 100 });
     }
 
     // 自动分析并翻译配置说明与按键，写入 mod.json
@@ -1576,17 +1903,52 @@ async function installMod(rawParams: any = {}) {
       console.warn("[GameBananaService] 自动翻译 Mod 配置说明失败:", e?.message);
     });
 
-    return {
+    // 为什么：备份只在确认新版本完整落盘之后才删，删早了任何后续异常都会让用户新旧两失
+    if (backupDir) {
+      try {
+        fs.rmSync(backupDir, { recursive: true, force: true });
+      } catch (cleanupErr: any) {
+        console.warn("[GameBananaService] 清理旧版本备份失败:", cleanupErr?.message || cleanupErr);
+      }
+    }
+
+    const result: GameBananaInstallResult = {
       success: true,
       modName: path.basename(targetModDir),
       installedPath: targetModDir,
       previewSaved,
-      format: dlResult.format
+      format: dlResult.format,
+      action: isUpdate ? "update" : "install"
     };
+    if (isUpdate && plan?.existing) {
+      result.replacedPath = plan.existing.fullPath;
+      result.preservedEnabled = plan.existing.enabled;
+    }
+    // 历史 bug 留下的同源副本：只回报不删除，里面可能有用户自己改过的 ini
+    if (plan && Array.isArray(plan.duplicates) && plan.duplicates.length > 0) {
+      result.duplicates = plan.duplicates;
+    }
+    return result;
   } catch (err: any) {
+    // 为什么：更新是「搬走旧目录 → 重建 → 搬回用户数据」，中间任何一步抛错都必须把旧版本搬回原位，
+    // 否则用户点一次更新失败就永久丢掉了旧版本
+    if (backupDir) {
+      const restored = restoreDirFromBackup(backupDir, installedTargetDir);
+      if (!restored) {
+        console.error("[GameBananaService] 旧版本未能自动恢复，备份保留在:", backupDir);
+        // 为什么要把路径带回渲染层：自动恢复失败时备份是用户旧版本的唯一副本，
+        // 只写 console 用户永远看不到，只能提示他手动搬回
+        return {
+          success: false,
+          error: `更新失败且旧版本未能自动恢复，旧版本已备份至：${backupDir}`,
+          backupPath: backupDir
+        };
+      }
+    } else if (installedTargetDir) {
+      // 没有备份说明是全新安装：只清理本次自己建出来的目录
+      try { fs.rmSync(installedTargetDir, { recursive: true, force: true }); } catch {}
+    }
     if (signal?.aborted) {
-      // 为什么：取消时目录可能只拷了一半，必须回滚，否则留下半成品 Mod 被扫描到
-      if (installedTargetDir) { try { fs.rmSync(installedTargetDir, { recursive: true, force: true }); } catch {} }
       console.warn('[GameBananaService] 安装已取消:', err?.message);
       return { success: false, cancelled: true, error: '已取消安装' };
     }
@@ -1601,6 +1963,7 @@ async function installMod(rawParams: any = {}) {
       if (fs.existsSync(stagingDir)) {
         fs.rmSync(stagingDir, { recursive: true, force: true });
       }
+      // 走到这里 backupDir 还非空，说明旧版本没能搬回原位：这份备份是用户旧版本唯一副本，必须留着
     } catch {}
   }
 }
@@ -1786,6 +2149,14 @@ class GameBananaService {
     });
   }
 
+  findInstalledModByGameBananaId(modsRoot, modId) {
+    return findInstalledModByGameBananaId(modsRoot, modId);
+  }
+
+  inspectInstalledMod(modsRoot, modId) {
+    return inspectInstalledMod(modsRoot, modId);
+  }
+
   async checkModUpdate(params) {
     return checkModUpdate(params);
   }
@@ -1815,6 +2186,9 @@ export {
   inspectArchiveSecurity,
   downloadFile,
   identifyModRoot,
+  findInstalledModByGameBananaId,
+  inspectInstalledMod,
+  resolveInstallPlan,
   installMod,
   checkModUpdate,
   checkAllModsUpdates,

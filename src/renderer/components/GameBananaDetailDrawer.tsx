@@ -18,6 +18,13 @@ import { Button } from './ui/Button'
 import { Input } from './ui/Input'
 import { useToast } from './ui/Toast'
 import { useEscapeToClose } from '../hooks/useEscape'
+import {
+  GameBananaOverwriteConfirm,
+  inspectOverwriteTarget,
+  reportInstallFailure,
+  reportInstallResult
+} from './GameBananaOverwriteConfirm'
+import type { PendingOverwriteInstall } from './GameBananaOverwriteConfirm'
 
 export interface GameBananaDetailDrawerProps {
   isOpen: boolean
@@ -129,6 +136,11 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
   const [characters, setCharacters] = useState<any[]>([])
   const [charPickerSearch, setCharPickerSearch] = useState<string>('')
 
+  // 安装前预检命中本地同源 Mod 时的覆盖确认状态
+  const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwriteInstall | null>(null)
+  // 预检是异步的，用 ref 挡住连点造成的并发预检（此时进度条还没起，没有其它互斥）
+  const precheckingRef = useRef<boolean>(false)
+
   // 序号守卫：网络响应延迟时丢弃已作废请求的返回结果
   const detailSeqRef = useRef<number>(0)
 
@@ -153,10 +165,12 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
     }
   }, [isOpen])
 
-  // Esc 快捷键关闭注册：角色指认弹窗优先响应，若无则关闭详情抽屉
+  // Esc 快捷键关闭注册：覆盖确认/角色指认弹窗优先响应，其余情况关闭详情抽屉
   const closeCharPicker = useCallback(() => setPendingInstallTarget(null), [])
-  useEscapeToClose(isOpen && !pendingInstallTarget, onClose)
+  const cancelOverwrite = useCallback(() => setPendingOverwrite(null), [])
+  useEscapeToClose(isOpen && !pendingInstallTarget && !pendingOverwrite, onClose)
   useEscapeToClose(!!pendingInstallTarget, closeCharPicker)
+  // Modal 自己会响应 Esc，这里不再重复注册，否则一次 Esc 会连抽屉一起关掉
 
   // 触发翻译
   const triggerTranslate = useCallback(
@@ -214,6 +228,8 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
       setProgressMsg('')
       setProgressPercent(0)
       setPendingInstallTarget(null)
+      setPendingOverwrite(null)
+      precheckingRef.current = false
       return
     }
 
@@ -306,7 +322,12 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
 
   // 执行具体安装逻辑
   const doInstall = useCallback(
-    async (modInfo: any, targetFile: any, targetCharacter: string) => {
+    async (
+      modInfo: any,
+      targetFile: any,
+      targetCharacter: string,
+      forceNewInstall = false
+    ) => {
       setInstallingFileId(targetFile.id)
       setProgressMsg(`准备下载: ${targetFile.fileName || 'Mod 文件'}...`)
       setProgressPercent(5)
@@ -329,13 +350,14 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
           sourceUrl: finalSourceUrl,
           profileUrl: finalSourceUrl,
           version: targetFile.fileName || 'Version 1.0',
-          description: modInfo.description || ''
+          description: modInfo.description || '',
+          forceNewInstall
         })
 
         if (res && res.success) {
-          setProgressMsg('安装成功！')
+          setProgressMsg(res.action === 'update' ? '更新成功！' : '安装成功！')
           setProgressPercent(100)
-          toast.success('安装成功', `模组已安装至 ${targetCharacter} 目录`)
+          reportInstallResult(toast, res, targetCharacter)
           setTimeout(() => {
             setInstallingFileId(null)
             setProgressMsg('')
@@ -348,7 +370,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
           setProgressMsg('')
           setCancelling(false)
         } else {
-          toast.error('安装模组失败', res?.error || '未知错误')
+          reportInstallFailure(toast, res)
           setInstallingFileId(null)
           setCancelling(false)
         }
@@ -360,6 +382,40 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
     },
     [activeGame?.id, onInstallSuccess, toast]
   )
+
+  // 安装前预检：命中本地同源 Mod 时先让用户确认「覆盖更新」还是「仍然新建一份」
+  // 预检本身失败/旧版 preload 时 inspectOverwriteTarget 返回 null，直接走原来的安装流程
+  const startInstall = useCallback(
+    async (modInfo: any, targetFile: any, targetCharacter: string) => {
+      if (precheckingRef.current) return
+      precheckingRef.current = true
+      try {
+        const hit = await inspectOverwriteTarget(modInfo?.id)
+        if (hit) {
+          setPendingOverwrite({ modInfo, targetFile, targetCharacter, ...hit })
+          return
+        }
+      } finally {
+        precheckingRef.current = false
+      }
+      await doInstall(modInfo, targetFile, targetCharacter, false)
+    },
+    [doInstall]
+  )
+
+  const handleConfirmOverwriteUpdate = useCallback(async () => {
+    const pending = pendingOverwrite
+    if (!pending) return
+    setPendingOverwrite(null)
+    await doInstall(pending.modInfo, pending.targetFile, pending.targetCharacter, false)
+  }, [pendingOverwrite, doInstall])
+
+  const handleConfirmNewInstall = useCallback(async () => {
+    const pending = pendingOverwrite
+    if (!pending) return
+    setPendingOverwrite(null)
+    await doInstall(pending.modInfo, pending.targetFile, pending.targetCharacter, true)
+  }, [pendingOverwrite, doInstall])
 
   // 触发安装文件：优先 defaultCharacterName，其次 detect，再其次弹窗指认
   const executeInstallFile = useCallback(
@@ -388,16 +444,16 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
         return
       }
 
-      await doInstall(modInfo, targetFile, targetChar)
+      await startInstall(modInfo, targetFile, targetChar)
     },
-    [installingFileId, defaultCharacterName, activeGame?.id, characters.length, doInstall]
+    [installingFileId, defaultCharacterName, activeGame?.id, characters.length, startInstall]
   )
 
   const handleConfirmInstallWithCharacter = async (chosenChar: string) => {
     if (!pendingInstallTarget) return
     const { modInfo, targetFile } = pendingInstallTarget
     setPendingInstallTarget(null)
-    await doInstall(modInfo, targetFile, chosenChar)
+    await startInstall(modInfo, targetFile, chosenChar)
   }
 
   if (!isOpen) return null
@@ -881,6 +937,17 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
           </div>
         </div>
       )}
+
+      {/* 安装前覆盖确认弹窗（与市场列表页共用同一组件，文案不会分叉） */}
+      <GameBananaOverwriteConfirm
+        isOpen={!!pendingOverwrite}
+        modName={pendingOverwrite?.modInfo?.name}
+        fileName={pendingOverwrite?.targetFile?.fileName}
+        target={pendingOverwrite}
+        onConfirmUpdate={handleConfirmOverwriteUpdate}
+        onConfirmNewInstall={handleConfirmNewInstall}
+        onCancel={cancelOverwrite}
+      />
     </>
   )
 }

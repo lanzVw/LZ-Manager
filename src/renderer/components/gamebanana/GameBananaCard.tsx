@@ -1,27 +1,23 @@
 import React from 'react'
-import { ThumbsUp, User, Download, RefreshCw } from 'lucide-react'
+import { ThumbsUp, User } from 'lucide-react'
 
 interface GameBananaCardProps {
   mod: any
   previewUrl: string
-  isInstalling: boolean
   onOpenDetail: (mod: any) => void
-  onCardInstallClick: (mod: any, e: React.MouseEvent) => void
   onSearchByAuthor: (authorName: string, e?: React.MouseEvent) => void
 }
 
 /**
  * GameBanana 市场卡片
  * - 根元素由 div+onClick 改为 <button type="button">：Tab 可聚焦，Enter/Space 打开详情（键盘可达）
- * - 以 React.memo 包裹：兄弟卡片进入安装态导致进度浮条高频刷新时，避免整批卡片重渲染
- * - 卡片内“按作者筛选 / 一键装载”均 stopPropagation，避免冒泡误触详情打开
+ * - 以 React.memo 包裹：兄弟卡片重渲染时避免整批卡片跟着刷新
+ * - 安装入口只在详情抽屉里：卡片不再提供一键装载，避免误装到错误角色
  */
 const GameBananaCardBase: React.FC<GameBananaCardProps> = ({
   mod,
   previewUrl,
-  isInstalling,
   onOpenDetail,
-  onCardInstallClick,
   onSearchByAuthor
 }) => {
   const authorName = mod.submitter?.name || mod.author || '社区作者'
@@ -87,27 +83,6 @@ const GameBananaCardBase: React.FC<GameBananaCardProps> = ({
           >
             {mod.name}
           </h4>
-        </div>
-
-        {/* 底部一键装载操作（span[role=button]：根元素已是 button，内嵌原生 button 属非法嵌套；
-            键盘用户经根按钮进入详情页安装，此处次要动作以指针/触屏为主） */}
-        <div className="mt-3.5 pt-2.5 border-t border-border flex items-center justify-between">
-          <span
-            role="button"
-            aria-disabled={isInstalling}
-            onClick={(e) => {
-              if (isInstalling) return
-              onCardInstallClick(mod, e)
-            }}
-            className="inline-flex items-center justify-center font-medium rounded-control transition-all duration-fast select-none cursor-pointer active:scale-[0.98] text-xs px-2.5 py-1.5 gap-1.5 w-full font-semibold py-1.5 bg-surface hover:bg-surface-2 text-text border border-border hover:border-primary/40 shadow-xs"
-          >
-            {isInstalling ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
-            ) : (
-              <Download className="w-3.5 h-3.5 text-primary" />
-            )}
-            {isInstalling ? '正在安装...' : '一键装载'}
-          </span>
         </div>
       </div>
     </button>

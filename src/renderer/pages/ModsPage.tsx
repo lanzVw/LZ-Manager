@@ -34,6 +34,35 @@ import { useToast } from '../components/ui/Toast'
 import { MoveModModal } from '../components/MoveModModal'
 import { ModCard } from '../components/mods/ModCard'
 
+// 列表页的视图状态：进入 Mod 详情页时本组件会被卸载，只有提升到 App 才能在返回时原样还原
+export interface ModsViewState {
+  selectedChar: string
+  searchChar: string
+  searchMod: string
+  sidebarMode: 'list' | 'grid'
+  charFilter: 'all' | 'hasMods' | 'equipped'
+  charSort: 'default' | 'count' | 'name'
+  modSort: 'status' | 'character' | 'time' | 'name' | 'default'
+  selectedSectionId: string
+  conflictFilterOnly: boolean
+  brokenFilterOnly: boolean
+  updateFilterOnly: boolean
+}
+
+export const DEFAULT_MODS_VIEW: ModsViewState = {
+  selectedChar: 'all',
+  searchChar: '',
+  searchMod: '',
+  sidebarMode: 'list',
+  charFilter: 'all',
+  charSort: 'default',
+  modSort: 'status',
+  selectedSectionId: 'all',
+  conflictFilterOnly: false,
+  brokenFilterOnly: false,
+  updateFilterOnly: false
+}
+
 interface ModsPageProps {
   modsData: Record<string, any[]>
   loading: boolean
@@ -42,6 +71,8 @@ interface ModsPageProps {
   onSelectMod: (modFullPath: string) => void
   onNavigateTab?: (tab: string) => void
   activeGame?: any
+  viewState: ModsViewState
+  onViewStateChange: (patch: Partial<ModsViewState>) => void
 }
 
 // 侧边栏紧凑型角色缩略头像组件 (56px 针对性优化)
@@ -109,22 +140,73 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   onToggleMod,
   onSelectMod,
   onNavigateTab,
-  activeGame
+  activeGame,
+  viewState,
+  onViewStateChange
 }) => {
   const { theme } = useTheme()
-  const [selectedChar, setSelectedChar] = useState<string>('all')
-  const [searchChar, setSearchChar] = useState<string>('')
-  const [searchMod, setSearchMod] = useState<string>('')
-  const [sidebarMode, setSidebarMode] = useState<'list' | 'grid'>('list')
-  const [charFilter, setCharFilter] = useState<'all' | 'hasMods' | 'equipped'>('all')
-  const [charSort, setCharSort] = useState<'default' | 'count' | 'name'>('default')
-  const [modSort, setModSort] = useState<'status' | 'character' | 'time' | 'name' | 'default'>('status')
+  // 视图状态由 App 托管：进入详情页时本组件被卸载，只有外部保存才能在返回时还原
+  const {
+    selectedChar,
+    searchChar,
+    searchMod,
+    sidebarMode,
+    charFilter,
+    charSort,
+    modSort,
+    selectedSectionId,
+    conflictFilterOnly,
+    brokenFilterOnly,
+    updateFilterOnly
+  } = viewState
+  const setSelectedChar = useCallback(
+    (value: string) => onViewStateChange({ selectedChar: value }),
+    [onViewStateChange]
+  )
+  const setSearchChar = useCallback(
+    (value: string) => onViewStateChange({ searchChar: value }),
+    [onViewStateChange]
+  )
+  const setSearchMod = useCallback(
+    (value: string) => onViewStateChange({ searchMod: value }),
+    [onViewStateChange]
+  )
+  const setSidebarMode = useCallback(
+    (value: 'list' | 'grid') => onViewStateChange({ sidebarMode: value }),
+    [onViewStateChange]
+  )
+  const setCharFilter = useCallback(
+    (value: 'all' | 'hasMods' | 'equipped') => onViewStateChange({ charFilter: value }),
+    [onViewStateChange]
+  )
+  const setCharSort = useCallback(
+    (value: 'default' | 'count' | 'name') => onViewStateChange({ charSort: value }),
+    [onViewStateChange]
+  )
+  const setModSort = useCallback(
+    (value: 'status' | 'character' | 'time' | 'name' | 'default') =>
+      onViewStateChange({ modSort: value }),
+    [onViewStateChange]
+  )
+  const setSelectedSectionId = useCallback(
+    (value: string) => onViewStateChange({ selectedSectionId: value }),
+    [onViewStateChange]
+  )
+  const setConflictFilterOnly = useCallback(
+    (value: boolean) => onViewStateChange({ conflictFilterOnly: value }),
+    [onViewStateChange]
+  )
+  const setBrokenFilterOnly = useCallback(
+    (value: boolean) => onViewStateChange({ brokenFilterOnly: value }),
+    [onViewStateChange]
+  )
+  const setUpdateFilterOnly = useCallback(
+    (value: boolean) => onViewStateChange({ updateFilterOnly: value }),
+    [onViewStateChange]
+  )
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [conflictsMap, setConflictsMap] = useState<Record<string, CharacterConflictReport>>({})
-  const [conflictFilterOnly, setConflictFilterOnly] = useState<boolean>(false)
-  const [brokenFilterOnly, setBrokenFilterOnly] = useState<boolean>(false)
-  const [updateFilterOnly, setUpdateFilterOnly] = useState<boolean>(false)
   const [updatesMap, setUpdatesMap] = useState<Record<string, any>>({})
   const [checkingUpdates, setCheckingUpdates] = useState<boolean>(false)
   const toast = useToast()
@@ -134,7 +216,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
 
   // 外观分区状态 (仿 QAQ 体验)
   const [sections, setSections] = useState<AppearanceSection[]>([])
-  const [selectedSectionId, setSelectedSectionId] = useState<string>('all')
   const [isCreateSectionOpen, setIsCreateSectionOpen] = useState<boolean>(false)
   const [newSectionName, setNewSectionName] = useState<string>('')
   const [editingSection, setEditingSection] = useState<AppearanceSection | null>(null)
@@ -148,6 +229,8 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const conflictDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 供 [modsData] 依赖的 effect 读取最新 selectedChar，避免闭包旧值
   const selectedCharRef = useRef(selectedChar)
+  // 记录上一次的角色，用于区分「用户真的换了角色」与「组件重新挂载」
+  const prevCharForSectionRef = useRef(selectedChar)
 
   const loadSections = async (charName: string) => {
     const seq = ++sectionsSeqRef.current
@@ -167,14 +250,15 @@ export const ModsPage: React.FC<ModsPageProps> = ({
 
   useEffect(() => {
     selectedCharRef.current = selectedChar
-    if (selectedChar !== 'all') {
-      setSelectedSectionId('all')
-      loadSections(selectedChar)
-    } else {
-      loadSections('all')
+    // 为什么比较上一次的角色：本组件在从详情页返回时会重新挂载，此 effect 会跟着跑一次，
+    // 若无条件重置就会把刚恢复的外观分区冲掉，用户返回后又变成「全部分区」
+    const charChanged = prevCharForSectionRef.current !== selectedChar
+    prevCharForSectionRef.current = selectedChar
+    if (charChanged) {
       setSelectedSectionId('all')
     }
-  }, [selectedChar])
+    loadSections(selectedChar)
+  }, [selectedChar, setSelectedSectionId])
 
   // 扫描检测所有冲突 (400ms 防抖合并密集刷新 + 序号守卫丢弃过期响应)
   const loadConflicts = () => {
@@ -220,6 +304,15 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       }
     }
   }, [])
+
+  // 分区列表刷新后校验恢复的分区是否还存在：分区被删掉时不能让列表静默变空
+  useEffect(() => {
+    if (selectedSectionId === 'all' || selectedSectionId === 'base') return
+    if (sections.length === 0) return
+    if (!sections.some((s) => s.sectionId === selectedSectionId)) {
+      setSelectedSectionId('all')
+    }
+  }, [sections, selectedSectionId, setSelectedSectionId])
 
   const baseSection = useMemo(() => {
     return sections.find((s) => s.sectionId === 'base') || null

@@ -12,7 +12,7 @@ import { ModEngine } from '../core/mod-engine'
 import { PresetEngine } from '../core/preset-engine'
 import { GameLauncher } from '../core/game-launcher'
 import { getCharactersForGame, normalizeCharacterName, detectCharacterForMod } from '../core/characters-data'
-import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpdates, sweepStaleDownloadDirs } from '../core/gamebanana-service'
+import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpdates, sweepStaleDownloadDirs, inspectInstalledMod } from '../core/gamebanana-service'
 import { translateModDetails } from '../core/translate-service'
 import { PersistBridgeManager } from '../core/persist-bridge'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
@@ -20,6 +20,7 @@ import {
   evaluateKeyDispatch,
   sanitizeProcessName
 } from '../core/hotkey-dispatch'
+import type { PresetApplyMode, PresetChangeReason } from '../core/types'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -141,6 +142,8 @@ const modFixer = new ModFixer({
   resourcesPath: resourcesDir
 })
 let isFixRunning = false
+// 预设应用是串行改名，主窗与悬浮窗可能同时触发；主进程侧单飞防止两套切换互相踩踏
+let presetApplyInFlight = false
 let trayManager: TrayManager | null = null
 
 const preloadPath = path.join(__dirname, '../preload/index.cjs')
@@ -287,6 +290,23 @@ function broadcastGameChanged(origin: 'manual' | 'auto-focus' | 'fix' = 'manual'
 
   try {
     trayManager?.updateContextMenu()
+  } catch (_) {}
+}
+
+/** 预设变更后通知两个窗口刷新；主窗与悬浮窗各有一份 React 树，只能靠事件同步 */
+function broadcastPresetsChanged(reason: PresetChangeReason) {
+  const payload = { reason }
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('presets:changed', payload)
+    }
+  } catch (_) {}
+
+  try {
+    const overlayWin = overlayManager.getWindow()
+    if (overlayWin && !overlayWin.isDestroyed()) {
+      overlayWin.webContents.send('presets:changed', payload)
+    }
   } catch (_) {}
 }
 
@@ -1024,22 +1044,6 @@ function setupIpc() {
     return result
   })
 
-  ipcMain.handle('characters:setAvatar', async (_, charName: string, imagePath: string) => {
-    const g = configStore.getActiveGame()
-    if (g) {
-      modEngine.setModFolderPath(g.modFolderPath)
-    }
-    return modEngine.setCharacterAvatar(charName, imagePath)
-  })
-
-  ipcMain.handle('characters:saveAvatarFromData', async (_, charName: string, dataUrl: string) => {
-    const g = configStore.getActiveGame()
-    if (g) {
-      modEngine.setModFolderPath(g.modFolderPath)
-    }
-    return modEngine.saveCharacterAvatarFromData(charName, dataUrl)
-  })
-
   ipcMain.handle('mods:toggle', async (_, charName: string, modName: string, enabled: boolean) => {
     const res = await modEngine.toggleMod(charName, modName, enabled)
     // 切换成功后自动触发 F10 游戏内热刷新
@@ -1210,6 +1214,28 @@ function setupIpc() {
   })
 
   // Presets
+  const isNonEmptyId = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0
+
+  // 只放行名称/描述，避免渲染层把任意字段（尤其是 mods 快照）直接写进方案
+  const sanitizePresetPatch = (patch: any): { name?: string; description?: string } => {
+    const out: { name?: string; description?: string } = {}
+    if (!patch || typeof patch !== 'object') return out
+    if (typeof patch.name === 'string') out.name = patch.name
+    if (typeof patch.description === 'string') out.description = patch.description
+    return out
+  }
+
+  const presetApplyError = (mode: PresetApplyMode, message: string) => ({
+    success: false,
+    applied: 0,
+    enabled: 0,
+    disabled: 0,
+    failed: [] as Array<{ characterName: string; modName: string; error?: string }>,
+    missing: [] as Array<{ characterName: string; modName: string; enabled: boolean }>,
+    mode,
+    message
+  })
+
   ipcMain.handle('presets:get', () => {
     const g = configStore.getActiveGame()
     if (!g) return { presets: [], activePresetId: null }
@@ -1221,25 +1247,85 @@ function setupIpc() {
 
   ipcMain.handle('presets:create', async (_, name: string, description?: string) => {
     const g = configStore.getActiveGame()
-    if (!g) throw new Error('No active game')
-    const preset = await presetEngine.createPresetFromCurrent(g.id, name, description)
-    return preset
-  })
-
-  ipcMain.handle('presets:apply', async (_, presetId: string) => {
-    const g = configStore.getActiveGame()
-    if (!g) return { success: false, applied: 0 }
-    const res = await presetEngine.applyPreset(g.id, presetId)
-    if (res.success) {
-      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
-    }
+    if (!g) return { success: false, error: '未选择任何有效游戏' }
+    const res = await presetEngine.createPresetFromCurrent(
+      g.id,
+      name,
+      typeof description === 'string' ? description : undefined
+    )
+    if (res.success) broadcastPresetsChanged('created')
     return res
   })
 
+  ipcMain.handle('presets:update', (_, presetId: string, patch: any) => {
+    if (!isNonEmptyId(presetId)) return { success: false, error: '无效的方案 ID' }
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择任何有效游戏' }
+    const res = presetEngine.updatePreset(g.id, presetId, sanitizePresetPatch(patch))
+    if (res.success) broadcastPresetsChanged('updated')
+    return res
+  })
+
+  ipcMain.handle('presets:duplicate', (_, presetId: string) => {
+    if (!isNonEmptyId(presetId)) return { success: false, error: '无效的方案 ID' }
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择任何有效游戏' }
+    const res = presetEngine.duplicatePreset(g.id, presetId)
+    if (res.success) broadcastPresetsChanged('duplicated')
+    return res
+  })
+
+  ipcMain.handle('presets:overwriteFromCurrent', async (_, presetId: string) => {
+    if (!isNonEmptyId(presetId)) return { success: false, error: '无效的方案 ID' }
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择任何有效游戏' }
+    const res = await presetEngine.overwriteFromCurrent(g.id, presetId)
+    if (res.success) broadcastPresetsChanged('overwritten')
+    return res
+  })
+
+  ipcMain.handle('presets:pruneMissing', async (_, presetId: string) => {
+    if (!isNonEmptyId(presetId)) return { success: false, removed: 0, error: '无效的方案 ID' }
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, removed: 0, error: '未选择任何有效游戏' }
+    const res = await presetEngine.pruneMissingRefs(g.id, presetId)
+    if (res.success) broadcastPresetsChanged('pruned')
+    return res
+  })
+
+  ipcMain.handle('presets:apply', async (_, presetId: string, options?: { mode?: PresetApplyMode }) => {
+    const mode: PresetApplyMode = options?.mode === 'merge' ? 'merge' : 'replace'
+    if (presetApplyInFlight) return presetApplyError(mode, '正在应用其他方案，请稍候')
+    if (!isNonEmptyId(presetId)) return presetApplyError(mode, '无效的方案 ID')
+    const g = configStore.getActiveGame()
+    if (!g) return presetApplyError(mode, '未选择任何有效游戏')
+
+    presetApplyInFlight = true
+    try {
+      const res = await presetEngine.applyPreset(g.id, presetId, { mode })
+      if (res.success) {
+        dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
+      }
+      // 即使部分失败，磁盘状态可能已变化，两个窗口都需要刷新
+      broadcastPresetsChanged('applied')
+      return res
+    } catch (err: any) {
+      console.error('[LZ Main] presets:apply failed:', err)
+      // 异常可能发生在批量改名中途，磁盘状态未必保持原样，两个窗口仍需刷新
+      broadcastPresetsChanged('applied')
+      return presetApplyError(mode, err?.message || '应用方案失败')
+    } finally {
+      presetApplyInFlight = false
+    }
+  })
+
   ipcMain.handle('presets:delete', (_, presetId: string) => {
+    if (!isNonEmptyId(presetId)) return false
     const g = configStore.getActiveGame()
     if (!g) return false
-    return presetEngine.deletePreset(g.id, presetId)
+    const deleted = presetEngine.deletePreset(g.id, presetId)
+    if (deleted) broadcastPresetsChanged('deleted')
+    return deleted
   })
 
   // Launcher & F10
@@ -1366,7 +1452,7 @@ function setupIpc() {
     const controller = new AbortController()
     activeGameBananaInstallController = controller
     try {
-      return await installMod({
+      const result: any = await installMod({
         ...params,
         downloadRoot: gbDownloadCacheDir,
         characterName: resolvedChar || params.characterName,
@@ -1374,14 +1460,39 @@ function setupIpc() {
         profileUrl: finalSourceUrl,
         previewImageUrl: previewUrl,
         targetParentDir: targetParentDir || (g ? g.modFolderPath : ''),
+        // 为什么：覆盖安装要按 modId 在整个 Mods 树里找旧目录，只给角色目录会漏掉历史错位安装
+        modsRoot: g ? g.modFolderPath : '',
+        // 只放行真正的布尔 true，其余一律 false，避免渲染层传字符串绕过覆盖判定
+        forceNewInstall: params.forceNewInstall === true,
         signal: controller.signal,
         onProgress: (p: any) => {
           event.sender.send('gamebanana:installProgress', p)
         }
       })
+
+      // 为什么：覆盖的旧 Mod 若原本启用，游戏进程里跑的还是旧文件，必须重载才生效
+      if (result?.success && result.action === 'update' && result.preservedEnabled) {
+        dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
+      }
+      return result
     } finally {
       // 为什么：单飞引用不清掉的话，后续「取消」会打到已经结束的旧任务
       if (activeGameBananaInstallController === controller) activeGameBananaInstallController = null
+    }
+  })
+
+  // 安装前预检：渲染层据此决定弹「覆盖更新 / 仍然新建一份」，避免用户不知情被覆盖
+  ipcMain.handle('gamebanana:inspectInstalled', async (_, modId: number) => {
+    const empty = { existing: null, duplicates: [] }
+    const id = Number(modId)
+    if (!Number.isInteger(id) || id <= 0) return empty
+    const g = configStore.getActiveGame()
+    if (!g || !g.modFolderPath) return empty
+    try {
+      return inspectInstalledMod(g.modFolderPath, id)
+    } catch (err: any) {
+      console.warn('[LZ Main] 预检本地同源 Mod 失败:', err?.message)
+      return empty
     }
   })
 

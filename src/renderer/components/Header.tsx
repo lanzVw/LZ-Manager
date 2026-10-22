@@ -120,13 +120,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex flex-col">
-            <span className="font-title font-extrabold text-sm tracking-wider text-text uppercase leading-none">
-              LZ MANAGER
+            <span className="font-title font-extrabold text-sm tracking-wider text-text leading-none">
+              LZ Manager
             </span>
           </div>
         </div>
-
-        <div className="h-4 w-[1px] bg-border mx-1" />
 
         {/* Game Target Selector */}
         <div className="relative flex items-center">

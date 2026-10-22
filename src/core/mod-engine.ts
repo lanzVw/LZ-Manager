@@ -289,7 +289,10 @@ export class ModEngine {
       }
     }
 
-    // 2. 本地覆盖层：若本地存在角色文件夹，其中的自定义封面及 Mod 封面具有最高优先级
+    // 2. 本地角色头像层：仅用于「设为角色头像」的用户自定义覆盖，以及官方图缺失时兜底
+    // 为什么不再用 Mod 内封面抢占：角色分类头像代表的是「这个角色长什么样」，
+    // 官方图才是权威来源；用某个 Mod 的预览图当角色头像会让同一角色随 Mod 启停而变脸。
+    // 但用户在详情页点「设为角色头像」写入的 _cover.* 是显式指定，优先级仍高于官方图。
     if (this.modFolderPath && fs.existsSync(this.modFolderPath)) {
       try {
         const charDirs = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
@@ -302,7 +305,7 @@ export class ModEngine {
           const charPath = path.join(this.modFolderPath, charName)
           let avatarPath: string | null = null
 
-          // 2.1 优先从角色本目录下匹配缩略图文件
+          // 2.1 角色本目录下的缩略图即用户显式设置的角色头像，始终最高优先级
           for (const ext of exts) {
             const p = path.join(charPath, ext)
             if (fs.existsSync(p)) {
@@ -311,34 +314,41 @@ export class ModEngine {
             }
           }
 
-          // 2.2 若本地无图片文件，但存在子 Mod 且能提取到 Mod 封面
-          if (!avatarPath) {
-            try {
-              const modDirs = fs.readdirSync(charPath, { withFileTypes: true })
-              // 先尝试从启用的 mod 中获取
+          if (avatarPath) {
+            result[canonicalName] = avatarPath
+            result[charName] = avatarPath
+            continue
+          }
+
+          // 2.2 官方图已覆盖该角色时，不再退而使用某个 Mod 的封面
+          if (result[canonicalName] || result[charName]) continue
+
+          // 2.3 官方图缺失（如尚未收录的新角色）才用 Mod 封面兜底，避免头像空白
+          try {
+            const modDirs = fs.readdirSync(charPath, { withFileTypes: true })
+            // 先尝试从启用的 mod 中获取
+            for (const mDirent of modDirs) {
+              if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
+              if (!mDirent.name.startsWith('DISABLED_')) {
+                const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
+                if (coverPath) {
+                  avatarPath = coverPath
+                  break
+                }
+              }
+            }
+            // 若无已启用 mod 封面，尝试从任意 mod 获取
+            if (!avatarPath) {
               for (const mDirent of modDirs) {
                 if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
-                if (!mDirent.name.startsWith('DISABLED_')) {
-                  const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
-                  if (coverPath) {
-                    avatarPath = coverPath
-                    break
-                  }
+                const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
+                if (coverPath) {
+                  avatarPath = coverPath
+                  break
                 }
               }
-              // 若无已启用 mod 封面，尝试从任意 mod 获取
-              if (!avatarPath) {
-                for (const mDirent of modDirs) {
-                  if (!mDirent.isDirectory() || mDirent.name.startsWith('.')) continue
-                  const { coverPath } = this.inspectModFolder(path.join(charPath, mDirent.name))
-                  if (coverPath) {
-                    avatarPath = coverPath
-                    break
-                  }
-                }
-              }
-            } catch (_) {}
-          }
+            }
+          } catch (_) {}
 
           if (avatarPath) {
             result[canonicalName] = avatarPath
@@ -351,48 +361,6 @@ export class ModEngine {
     }
 
     return result
-  }
-
-  /**
-   * 将指定图片设为角色缩略图/封面
-   */
-  public async setCharacterAvatar(characterName: string, sourceImagePath: string): Promise<{ success: boolean; avatarPath?: string; error?: string }> {
-    const safeCharName = this.sanitizeSegment(characterName)
-    const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
-    const safeSource = this.resolveInsideModRoot(sourceImagePath)
-    if (!charPath || !fs.existsSync(charPath)) {
-      return { success: false, error: `角色目录不存在: ${charPath || characterName}` }
-    }
-    if (!safeSource) {
-      return { success: false, error: '非法图片路径：超出模组目录范围' }
-    }
-    const targetFile = path.join(charPath, '_cover.png')
-    try {
-      fs.copyFileSync(safeSource, targetFile)
-      return { success: true, avatarPath: targetFile }
-    } catch (err: any) {
-      return { success: false, error: err.message }
-    }
-  }
-
-  /**
-   * 从 Data URL 保存角色缩略图/封面
-   */
-  public async saveCharacterAvatarFromData(characterName: string, dataUrl: string): Promise<{ success: boolean; avatarPath?: string; error?: string }> {
-    const safeCharName = this.sanitizeSegment(characterName)
-    const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
-    if (!charPath || !fs.existsSync(charPath)) {
-      return { success: false, error: `角色目录不存在: ${charPath || characterName}` }
-    }
-    const targetFile = path.join(charPath, '_cover.png')
-    try {
-      const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '')
-      const buffer = Buffer.from(base64Data, 'base64')
-      fs.writeFileSync(targetFile, buffer)
-      return { success: true, avatarPath: targetFile }
-    } catch (err: any) {
-      return { success: false, error: err.message }
-    }
   }
 
   /**
@@ -498,19 +466,26 @@ export class ModEngine {
   /**
    * 批量应用预设 (批量启用/停用指定 Mod)
    */
-  public async applyPresetMods(targetMods: { characterName: string; modName: string; enabled: boolean }[]): Promise<{ success: boolean; applied: number; failed: Array<{ characterName: string; modName: string; error?: string }> }> {
+  public async applyPresetMods(targetMods: { characterName: string; modName: string; enabled: boolean }[]): Promise<{ success: boolean; applied: number; enabled: number; disabled: number; failed: Array<{ characterName: string; modName: string; error?: string }> }> {
     let count = 0
+    let enabledCount = 0
+    let disabledCount = 0
     const failed: Array<{ characterName: string; modName: string; error?: string }> = []
     for (const item of targetMods) {
       const res = await this.toggleMod(item.characterName, item.modName, item.enabled)
       if (res.success) {
         count++
+        if (item.enabled) {
+          enabledCount++
+        } else {
+          disabledCount++
+        }
       } else {
         failed.push({ characterName: item.characterName, modName: item.modName, error: res.error })
       }
     }
     // 部分失败必须如实上报，不能恒报 success（否则预设会被虚假地标记为已生效）
-    return { success: failed.length === 0, applied: count, failed }
+    return { success: failed.length === 0, applied: count, enabled: enabledCount, disabled: disabledCount, failed }
   }
 
   /**

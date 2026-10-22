@@ -101,11 +101,11 @@ export const Logo: React.FC<LogoProps> = ({
       {iconElement}
       <div className="flex flex-col">
         <span
-          className={`font-title font-extrabold tracking-wider uppercase text-sm leading-tight ${
+          className={`font-title font-extrabold tracking-wider text-sm leading-tight ${
             textColor || 'text-text'
           }`}
         >
-          LZ MANAGER
+          LZ Manager
         </span>
         {subtitle && (
           <span className="text-[10px] font-semibold text-text-muted leading-tight">
