@@ -1598,15 +1598,29 @@ const CHARACTERS_BY_GAME = {
       "id": "nangongyu",
       "name": "南宫羽",
       "enName": "Nangong Yu",
-      "gbCatId": 44810,
+      "gbCatId": 43311,
       "pinyin": "ngy"
     },
     {
       "id": "sigrid",
       "name": "希格丽德",
       "enName": "Sigrid de L'Azur",
-      "gbCatId": null,
+      "gbCatId": 47715,
       "pinyin": "xgld"
+    },
+    {
+      "id": "phoenie",
+      "name": "菲欧妮",
+      "enName": "Phoenix Reffaella",
+      "gbCatId": 50547,
+      "pinyin": "fon"
+    },
+    {
+      "id": "starlightbilly",
+      "name": "星徽·比利",
+      "enName": "Starlight Billy",
+      "gbCatId": 46113,
+      "pinyin": "xhb"
     }
   ],
   "20357": [
@@ -2014,9 +2028,16 @@ const CHARACTERS_BY_GAME = {
     {
       "id": "mifu",
       "name": "弭弗",
+      "enName": "Mi Fu",
+      "gbCatId": 46272,
+      "pinyin": "mf"
+    },
+    {
+      "id": "typhoeus",
+      "name": "提弗洛斯",
       "enName": "Typhoeus",
       "gbCatId": 48868,
-      "pinyin": "mf"
+      "pinyin": "tfls"
     },
     {
       "id": "ember",
@@ -2164,6 +2185,13 @@ const CHARACTERS_BY_GAME = {
       "enName": "Da Pan",
       "gbCatId": 42729,
       "pinyin": "dp"
+    },
+    {
+      "id": "si",
+      "name": "祀",
+      "enName": "Si",
+      "gbCatId": 50297,
+      "pinyin": "s"
     }
   ]
 };
@@ -2218,6 +2246,10 @@ const CN_NAME_ALIASES = {
   "男管理员": "男主",
   "庄芳仪": "庄方宜",
   "米芙": "弭弗",
+  "Mi Fu": "弭弗",
+  "Mifu": "弭弗",
+  "提弗洛斯": "提弗洛斯",
+  "Typhoeus": "提弗洛斯",
   "莉诺": "梨诺",
   "阿克库里": "秋栗",
   "阿尔黛莉亚": "艾尔黛拉",
@@ -2285,8 +2317,9 @@ const CN_NAME_ALIASES = {
   "仆人": "阿蕾奇诺",
   "奥秘": "诀",
   "李织烟": "诀",
-  "提丰": "弭弗",
-  "提弗洛斯": "弭弗",
+  // 提弗洛斯(Typhoeus) 与 弭弗(Mi Fu) 是终末地两个独立干员，不能互相归一
+  "提丰": "提弗洛斯",
+  "Typhon": "提弗洛斯",
   "阿莉亚": "爱芮",
   "艾莉亚": "爱芮",
   "Aria": "爱芮",
@@ -2307,7 +2340,24 @@ const CN_NAME_ALIASES = {
   "希格丽德": "希格丽德",
   "Sigrid": "希格丽德",
   "Sigrid de L'Azur": "希格丽德",
-  "希格丽德·德·拉苏尔": "希格丽德"
+  "希格丽德·德·拉苏尔": "希格丽德",
+  "希格莉德": "希格丽德",
+  "希格莉德·德拉叙尔": "希格丽德",
+  "菲欧妮": "菲欧妮",
+  "菲欧妮·蕾法爱菈": "菲欧妮",
+  "菲尼克斯": "菲欧妮",
+  "菲尼克斯·雷菲拉": "菲欧妮",
+  "雷菲拉": "菲欧妮",
+  "Phoenix": "菲欧妮",
+  "Phoenix Reffaella": "菲欧妮",
+  "星徽·比利": "星徽·比利",
+  "星徽比利": "星徽·比利",
+  "星光比利": "星徽·比利",
+  "星辉比利": "星徽·比利",
+  "Starlight Billy": "星徽·比利",
+  "Starlight": "星徽·比利",
+  "祀": "祀",
+  "Si": "祀"
 };
 
 function resolveGameId(val) {
@@ -2405,6 +2455,27 @@ function detectCharacterForMod(modInfo: any, gameId?: string | number): string |
       return normalizeCharacterName(c.name, gameId);
     }
     if (c.enName && c.enName.length >= 3 && modTitle.includes(c.enName.toLowerCase())) {
+      return normalizeCharacterName(c.name, gameId);
+    }
+  }
+
+  // 4. 单字中文名与短英文名（如「祀」「Si」）无法用子串安全匹配，改按词边界命中
+  // 为什么加词边界：不加会把 "Si" 匹配进 "Silicone"、"Design" 之类无关标题
+  for (const c of sortedChars) {
+    if (c.name && c.name.length === 1 && new RegExp(`(^|[^\\u4e00-\\u9fa5])${c.name}([^\\u4e00-\\u9fa5]|$)`).test(String(modInfo.name || ''))) {
+      return normalizeCharacterName(c.name, gameId);
+    }
+    if (c.enName && c.enName.length <= 3 && new RegExp(`(^|[^a-z])${c.enName.toLowerCase()}([^a-z]|$)`, 'i').test(modTitle)) {
+      return normalizeCharacterName(c.name, gameId);
+    }
+  }
+
+  // 5. 英文名首词匹配（如 "Phoenix Reffaella" 出现在标题里时只写了 "Phoenix"）
+  // 为什么放最后：首词太泛（Billy / Grace），只有前面都没命中才用它兜底
+  for (const c of sortedChars) {
+    const firstWord = String(c.enName || '').trim().split(/\s+/)[0].toLowerCase();
+    if (firstWord.length < 4) continue;
+    if (new RegExp(`(^|[^a-z])${firstWord}([^a-z]|$)`).test(modTitle)) {
       return normalizeCharacterName(c.name, gameId);
     }
   }

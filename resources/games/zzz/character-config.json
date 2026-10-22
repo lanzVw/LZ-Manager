@@ -59,6 +59,8 @@
     "莱特",
     "佩洛伊斯",
     "希格丽德",
+    "菲欧妮",
+    "星徽·比利",
     "NPC",
     "UI",
     "功能",
@@ -600,6 +602,16 @@
         "zh": "希格丽德",
         "en": "Sigrid de L'Azur",
         "jasmName": "Sigrid"
+      },
+      {
+        "zh": "菲欧妮",
+        "en": "Phoenix Reffaella",
+        "jasmName": "Phoenix Reffaella"
+      },
+      {
+        "zh": "星徽·比利",
+        "en": "Starlight Billy",
+        "jasmName": "Starlight Billy"
       }
     ]
   }

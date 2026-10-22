@@ -12,8 +12,8 @@
       "Category:Commission Reward Outfits"
     ]
   },
-  "outfitCount": 29,
-  "characterCount": 21,
+  "outfitCount": 31,
+  "characterCount": 22,
   "characters": [
     {
       "nameZh": "男主",
@@ -968,6 +968,73 @@
           "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/a/a3/Agent_Luciana_de_Montefio_Princess_on_Holiday_Portrait.png",
           "sourceImageWidth": 1428,
           "sourceImageHeight": 2216
+        }
+      ]
+    },
+    {
+      "nameZh": "菲欧妮",
+      "nameEn": "Phoenix Reffaella",
+      "aliases": [
+        "菲欧妮",
+        "Phoenix Reffaella",
+        "Phoenix",
+        "菲尼克斯",
+        "菲欧妮·蕾法爱菈"
+      ],
+      "skins": [
+        {
+          "id": "zzz-outfit-the-illness-called-life",
+          "sectionId": "skin:zzz-outfit-the-illness-called-life",
+          "characterNameZh": "菲欧妮",
+          "characterNameEn": "Phoenix Reffaella",
+          "wikiCharacterNameEn": "Phoenix Reffaella",
+          "nameZh": "病名为生",
+          "nameEn": "The Illness Called Life",
+          "aliases": [
+            "病名为生",
+            "The Illness Called Life"
+          ],
+          "type": [
+            "Paid"
+          ],
+          "releaseVersion": "3.3",
+          "image": "images/菲欧妮/zzz-outfit-the-illness-called-life.webp",
+          "imageWidth": 815,
+          "imageHeight": 1200,
+          "imageBytes": 153280,
+          "imageSha256": "80318a274843ea52f2860d022ff47101b7909823505a6c55c9f7205798720b57",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/The_Illness_Called_Life",
+          "sourceImageFile": "Agent Phoenix Reffaella The Illness Called Life Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/6/6e/Agent_Phoenix_Reffaella_The_Illness_Called_Life_Portrait.png",
+          "sourceImageWidth": 1424,
+          "sourceImageHeight": 2096
+        },
+        {
+          "id": "zzz-outfit-daydream-complex",
+          "sectionId": "skin:zzz-outfit-daydream-complex",
+          "characterNameZh": "菲欧妮",
+          "characterNameEn": "Phoenix Reffaella",
+          "wikiCharacterNameEn": "Phoenix Reffaella",
+          "nameZh": "空想症候",
+          "nameEn": "Daydream Complex",
+          "aliases": [
+            "空想症候",
+            "Daydream Complex"
+          ],
+          "type": [
+            "Paid"
+          ],
+          "releaseVersion": "3.3",
+          "image": "images/菲欧妮/zzz-outfit-daydream-complex.webp",
+          "imageWidth": 815,
+          "imageHeight": 1200,
+          "imageBytes": 155938,
+          "imageSha256": "6e70f8e23a99f7081b278b21d91ad4f2b552e0e055b82ad2d39e60aa00f1dcf8",
+          "sourcePageUrl": "https://zenless-zone-zero.fandom.com/wiki/Daydream_Complex",
+          "sourceImageFile": "Agent Phoenix Reffaella Daydream Complex Portrait.png",
+          "sourceImageUrl": "https://static.wikia.nocookie.net/zenless-zone-zero/images/d/de/Agent_Phoenix_Reffaella_Daydream_Complex_Portrait.png",
+          "sourceImageWidth": 1424,
+          "sourceImageHeight": 2096
         }
       ]
     }
