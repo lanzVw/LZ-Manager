@@ -1,8 +1,9 @@
 import React from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ArchiveRestore, CopyPlus, FolderArchive, ShieldCheck } from 'lucide-react'
 import type { GameBananaInstallResult, ModInstallTarget } from '../../core/types'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
+import { Badge } from './ui/Badge'
 
 // 市场安装前的本地同源 Mod 命中信息
 export interface GameBananaOverwriteTarget {
@@ -108,67 +109,78 @@ export const GameBananaOverwriteConfirm: React.FC<GameBananaOverwriteConfirmProp
       onClose={onCancel}
       title="该模组已在本地安装"
       variant="warning"
-      maxWidth="max-w-lg"
+      maxWidth="max-w-md"
       confirmText="覆盖更新"
       cancelText="取消"
       onConfirm={onConfirmUpdate}
+      footerStart={
+        // 次要动作降级到页脚左侧：它与「取消」是两回事，但不该和主操作抢视觉权重
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onConfirmNewInstall}
+          icon={<CopyPlus className="w-3 h-3" />}
+          className="-ml-3"
+        >
+          保留旧版，另建一份
+        </Button>
+      }
     >
-      <div className="space-y-3">
-        {/* 覆盖目标：把磁盘上真实文件夹名摆出来，用户才知道会动哪一份 */}
-        <div className="rounded-control border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-text">将覆盖本地已有的 Mod</span>
-            <code className="text-[11px] font-mono text-amber-600 dark:text-amber-400 break-all">
-              {existing.folderName}
-            </code>
-            <span
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
-                existing.enabled
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
-                  : 'bg-surface-2 text-text-muted border-border'
-              }`}
-            >
-              {existing.enabled ? '当前启用' : '当前停用'}
+      <div className="space-y-4">
+        {/* 覆盖目标：只用琥珀表面分层，不再套描边盒子；文件夹名是唯一需要用户确认的对象 */}
+        <div className="rounded-xl bg-amber-500/10 px-3.5 py-3 space-y-1.5 dark:bg-amber-400/10">
+          <div className="flex items-center gap-1.5">
+            <FolderArchive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 align-neg-125" />
+            <span className="text-[10px] font-semibold tracking-wide text-amber-700 dark:text-amber-300">
+              本地版本
             </span>
+            <Badge variant={existing.enabled ? 'success' : 'default'} className="ml-auto">
+              {existing.enabled ? '当前启用' : '当前停用'}
+            </Badge>
           </div>
+          <code className="block text-xs font-mono font-semibold text-text break-all leading-relaxed">
+            {existing.folderName}
+          </code>
           {modName && (
-            <p className="text-[11px] text-text-muted break-words">
-              {`市场版本：${modName}${fileName ? ` · ${fileName}` : ''}`}
+            <p className="text-[11px] text-text-muted leading-relaxed break-words">
+              <span className="opacity-70">市场版本</span> {modName}
+              {fileName ? ` · ${fileName}` : ''}
             </p>
           )}
         </div>
 
-        {/* 保留项：用户最担心的是"更新后我的设置没了" */}
-        <div className="rounded-control border border-border bg-surface-2/60 px-3 py-2.5 space-y-1">
-          <p className="text-[11px] font-semibold text-text">以下设置会被保留</p>
-          <ul className="text-[11px] text-text-muted leading-relaxed list-disc pl-4 space-y-0.5">
-            <li>启用 / 停用状态与原有文件夹名</li>
-            <li>外观分区归属</li>
-            <li>预设方案里的引用</li>
-            <li>变量别名、按键翻译等自定义设置</li>
-          </ul>
+        {/* 两栏承诺：左边是用户最在意的设置保留，右边是失败兜底，直接落在 Modal 表面上 */}
+        <div className="grid grid-cols-2 gap-4 px-0.5">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 align-neg-125" />
+              更新后保留
+            </div>
+            <p className="text-[11px] text-text-muted leading-relaxed text-pretty-native">
+              启用状态、外观分区、预设引用与自定义设置
+            </p>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text">
+              <ArchiveRestore className="w-3.5 h-3.5 text-primary align-neg-125" />
+              安全覆盖
+            </div>
+            <p className="text-[11px] text-text-muted leading-relaxed text-pretty-native">
+              覆盖前自动备份，失败自动回滚
+            </p>
+          </div>
         </div>
-
-        <p className="text-[11px] text-text-muted leading-relaxed">
-          覆盖前会先备份旧目录，任何一步失败都会自动恢复旧版本，不会留下半成品。
-        </p>
 
         {duplicates.length > 0 && (
-          <div className="flex items-start gap-2 rounded-control border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
-            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>{`本地另有 ${duplicates.length} 份同源旧副本（如 ${duplicates[0]?.folderName}），不会被自动删除，建议安装后手动清理。`}</span>
+          <div className="flex items-start gap-2 rounded-lg bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 align-neg-125" />
+            <span className="overflow-wrap-safe">
+              另有{' '}
+              <span className="tabular-nums-strict font-semibold">{duplicates.length}</span> 份同源副本
+              （如 {duplicates[0]?.folderName}），不会自动删除，安装后可手动清理
+            </span>
           </div>
         )}
-
-        {/* 次要动作放在正文里：它和"取消"是两回事，不能混进 footer 的取消按钮 */}
-        <div className="pt-2 border-t border-border/70 space-y-1.5">
-          <Button variant="secondary" size="sm" className="w-full" onClick={onConfirmNewInstall}>
-            仍然新建一份
-          </Button>
-          <p className="text-[10px] text-text-muted text-center">
-            会保留旧版本，安装后本地将同时存在两份副本
-          </p>
-        </div>
       </div>
     </Modal>
   )

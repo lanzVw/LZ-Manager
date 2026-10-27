@@ -19,6 +19,8 @@ export interface ModalProps {
   loading?: boolean
   maxWidth?: string
   className?: string
+  /* 页脚左侧的次要动作插槽；不传时页脚布局与原先完全一致 */
+  footerStart?: React.ReactNode
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -33,7 +35,8 @@ export const Modal: React.FC<ModalProps> = ({
   onConfirm,
   loading = false,
   maxWidth = 'max-w-md',
-  className
+  className,
+  footerStart
 }) => {
   const contentRef = useRef<HTMLDivElement>(null)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
@@ -155,23 +158,26 @@ export const Modal: React.FC<ModalProps> = ({
         {children}
 
         {/* Footer */}
-        {(onConfirm || cancelText) && (
-          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-border/80">
-            {cancelText && (
-              <Button variant="secondary" size="sm" onClick={handleCloseRequest} disabled={loading}>
-                {cancelText}
-              </Button>
-            )}
-            {onConfirm && (
-              <Button
-                variant={variant === 'danger' ? 'danger' : 'primary'}
-                size="sm"
-                onClick={onConfirm}
-                loading={loading}
-              >
-                {confirmText || '确定'}
-              </Button>
-            )}
+        {(onConfirm || cancelText || footerStart) && (
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/80">
+            <div className="min-w-0">{footerStart}</div>
+            <div className="flex items-center space-x-2 shrink-0">
+              {cancelText && (
+                <Button variant="secondary" size="sm" onClick={handleCloseRequest} disabled={loading}>
+                  {cancelText}
+                </Button>
+              )}
+              {onConfirm && (
+                <Button
+                  variant={variant === 'danger' ? 'danger' : 'primary'}
+                  size="sm"
+                  onClick={onConfirm}
+                  loading={loading}
+                >
+                  {confirmText || '确定'}
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>
