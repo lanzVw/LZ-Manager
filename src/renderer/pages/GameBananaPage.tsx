@@ -8,7 +8,6 @@ import {
   ShoppingBag,
   ExternalLink,
   X,
-  Eye,
   Calendar,
   Layers,
   Sparkles,
@@ -24,6 +23,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
+import { ImageLightbox } from '../components/ui/ImageLightbox'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
 import { useEscapeToClose } from '../hooks/useEscape'
@@ -111,6 +111,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false)
   const [activePreviewImg, setActivePreviewImg] = useState<string>('')
   const [activeFullImg, setActiveFullImg] = useState<string>('')
+  const [lightboxOpen, setLightboxOpen] = useState<boolean>(false)
 
   // 简介中文翻译状态与单次运行内存缓存
   const [autoTranslate, setAutoTranslate] = useState<boolean>(() => {
@@ -293,6 +294,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
       setLoadingDetail(true)
       setIsTranslating(false)
       setIsTranslated(false)
+      setLightboxOpen(false)
 
       // 记忆模式：若开启自动翻译偏好且已在当前内存中，秒出中文
       const modKey = String(mod.id)
@@ -342,11 +344,12 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   const closeDetailDrawer = useCallback(() => {
     setDetailMod(null)
     setLoadingDetail(false)
+    setLightboxOpen(false)
   }, [])
 
   // Esc 关闭注册：详情抽屉 / 角色指认弹窗（仅各自打开时注册监听）
   // 覆盖确认弹窗由 Modal 自己处理 Esc，这里不注册，避免一次 Esc 连详情抽屉一起关掉
-  useEscapeToClose(!!detailMod && !pendingOverwrite, closeDetailDrawer)
+  useEscapeToClose(!!detailMod && !pendingOverwrite && !lightboxOpen, closeDetailDrawer)
   const closeCharPicker = useCallback(() => setPendingInstallTarget(null), [])
   useEscapeToClose(!!pendingInstallTarget, closeCharPicker)
   const cancelOverwrite = useCallback(() => setPendingOverwrite(null), [])
@@ -793,21 +796,19 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
               {activePreviewImg && (
                 <div className="space-y-2">
                   <div className="relative aspect-video rounded-control overflow-hidden border border-border bg-black/5 flex items-center justify-center">
-                    <img
-                      src={activePreviewImg}
-                      alt="Preview"
-                      className="w-full h-full object-contain"
-                    />
-                    {activeFullImg && (
-                      <a
-                        href={activeFullImg}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="absolute bottom-2 right-2 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 text-white text-[10px] font-semibold flex items-center gap-1 backdrop-blur-xs transition-colors"
-                      >
-                        <Eye className="w-3 h-3" /> 查看原图
-                      </a>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setLightboxOpen(true)}
+                      title="查看原图"
+                      aria-label="查看原图"
+                      className="w-full h-full p-0 bg-transparent cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      <img
+                        src={activePreviewImg}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                      />
+                    </button>
                   </div>
 
                   {/* 缩略图轮播行 */}
@@ -1000,6 +1001,14 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* 原图灯箱：必须放在抽屉遮罩之外，portal 的事件仍按 React 树冒泡 */}
+      <ImageLightbox
+        isOpen={lightboxOpen}
+        src={activeFullImg || activePreviewImg}
+        alt={detailMod?.name || '原图预览'}
+        onClose={() => setLightboxOpen(false)}
+      />
 
       {/* 智能选择/确认归属角色弹窗 */}
       {pendingInstallTarget && (

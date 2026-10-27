@@ -4,7 +4,6 @@ import {
   User,
   Layers,
   ExternalLink,
-  Eye,
   PackageCheck,
   Download,
   RefreshCw,
@@ -16,6 +15,7 @@ import {
 import DOMPurify from 'dompurify'
 import { Button } from './ui/Button'
 import { Input } from './ui/Input'
+import { ImageLightbox } from './ui/ImageLightbox'
 import { useToast } from './ui/Toast'
 import { useEscapeToClose } from '../hooks/useEscape'
 import {
@@ -99,6 +99,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [activePreviewImg, setActivePreviewImg] = useState<string>('')
   const [activeFullImg, setActiveFullImg] = useState<string>('')
+  const [lightboxOpen, setLightboxOpen] = useState<boolean>(false)
 
   // 翻译状态与单次会话缓存
   const [autoTranslate] = useState<boolean>(() => {
@@ -168,7 +169,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
   // Esc 快捷键关闭注册：覆盖确认/角色指认弹窗优先响应，其余情况关闭详情抽屉
   const closeCharPicker = useCallback(() => setPendingInstallTarget(null), [])
   const cancelOverwrite = useCallback(() => setPendingOverwrite(null), [])
-  useEscapeToClose(isOpen && !pendingInstallTarget && !pendingOverwrite, onClose)
+  useEscapeToClose(isOpen && !pendingInstallTarget && !pendingOverwrite && !lightboxOpen, onClose)
   useEscapeToClose(!!pendingInstallTarget, closeCharPicker)
   // Modal 自己会响应 Esc，这里不再重复注册，否则一次 Esc 会连抽屉一起关掉
 
@@ -229,6 +230,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
       setProgressPercent(0)
       setPendingInstallTarget(null)
       setPendingOverwrite(null)
+      setLightboxOpen(false)
       precheckingRef.current = false
       return
     }
@@ -590,21 +592,19 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
               {activePreviewImg && (
                 <div className="space-y-2">
                   <div className="relative aspect-video rounded-control overflow-hidden border border-border bg-black/5 flex items-center justify-center">
-                    <img
-                      src={activePreviewImg}
-                      alt="Preview"
-                      className="w-full h-full object-contain"
-                    />
-                    {activeFullImg && (
-                      <a
-                        href={activeFullImg}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="absolute bottom-2 right-2 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 text-white text-[10px] font-semibold flex items-center gap-1 backdrop-blur-xs transition-colors"
-                      >
-                        <Eye className="w-3 h-3" /> 查看原图
-                      </a>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setLightboxOpen(true)}
+                      title="查看原图"
+                      aria-label="查看原图"
+                      className="w-full h-full p-0 bg-transparent cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      <img
+                        src={activePreviewImg}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                      />
+                    </button>
                   </div>
 
                   {/* 缩略图轮播行 */}
@@ -826,6 +826,14 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
           )}
         </div>
       </div>
+
+      {/* 原图灯箱：必须放在抽屉遮罩之外，portal 的事件仍按 React 树冒泡 */}
+      <ImageLightbox
+        isOpen={lightboxOpen}
+        src={activeFullImg || activePreviewImg}
+        alt={detailMod?.name || '原图预览'}
+        onClose={() => setLightboxOpen(false)}
+      />
 
       {/* 智能选择/确认归属角色弹窗 */}
       {pendingInstallTarget && (
