@@ -1903,9 +1903,11 @@ async function installMod(rawParams: any = {}): Promise<GameBananaInstallResult>
         updatedMeta = {
           name: modName || extractedMeta.name || path.basename(targetModDir),
           author: author || extractedMeta.author || "GameBanana",
-          version: version || extractedMeta.version || "Version 1.0",
           description: description || extractedMeta.description || "",
           ...extractedMeta,
+          // 为什么放在 spread 之后：市场安装的 version 是 GameBanana 文件名，
+          // 是「检查更新」和「已安装版本」的文件身份，不能被压缩包自带 mod.json 覆盖
+          version: version || extractedMeta.version || "Version 1.0",
           sourceUrl: finalSourceUrl || extractedMeta.sourceUrl || extractedMeta.url || "",
           url: finalSourceUrl || extractedMeta.url || extractedMeta.sourceUrl || "",
           gamebananaUrl: finalSourceUrl || extractedMeta.gamebananaUrl || "",

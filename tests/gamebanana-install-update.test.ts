@@ -373,6 +373,35 @@ describe('installMod 覆盖安装（真实 zip 集成）', () => {
     expect(fs.readFileSync(path.join(oldDir, 'keep.ini'), 'utf8')).toContain('旧版')
   })
 
+  it('新建安装时市场文件名 version 不被压缩包自带 mod.json 覆盖', async () => {
+    const modId = 730307
+    // 作者在压缩包里带了语义化版本；市场文件名才是「检查更新 / 已安装版本」的文件身份
+    stubFetchWithZip(
+      makeZip('goth_leotard_phoenix_eb28e.zip', {
+        'mod.json': JSON.stringify({ name: 'Bundled Name', version: '9.9.9' }),
+        'mod.ini': '[TextureOverride]\n'
+      })
+    )
+
+    const res: any = await installMod({
+      downloadUrl: 'https://gamebanana.com/dl/1',
+      targetParentDir: CHAR_DIR(),
+      downloadRoot: path.join(tmpRoot, 'cache'),
+      modId,
+      modName: 'Goth Leotard Phoenix',
+      fileName: 'goth_leotard_phoenix_eb28e.zip',
+      version: 'goth_leotard_phoenix_eb28e.zip'
+    })
+
+    expect(res.success).toBe(true)
+    expect(res.action).toBe('install')
+    await settle()
+
+    const meta = JSON.parse(fs.readFileSync(path.join(res.installedPath, 'mod.json'), 'utf8'))
+    expect(meta.version).toBe('goth_leotard_phoenix_eb28e.zip')
+    expect(meta.modId).toBe(modId)
+  })
+
   it('更新时新压缩包不带封面则沿用旧封面，lz_bak 一并保留', async () => {
     const modId = 730306
     const oldDir = writeMod({

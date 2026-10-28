@@ -4,8 +4,6 @@ import {
   User,
   Layers,
   ExternalLink,
-  PackageCheck,
-  Download,
   RefreshCw,
   Languages,
   RotateCcw,
@@ -17,14 +15,21 @@ import { Button } from './ui/Button'
 import { Input } from './ui/Input'
 import { ImageLightbox } from './ui/ImageLightbox'
 import { useToast } from './ui/Toast'
+import { GameBananaFileList } from './gamebanana/GameBananaFileList'
 import { useEscapeToClose } from '../hooks/useEscape'
+import { useInstalledGameBananaVersions } from '../hooks/useInstalledGameBananaVersions'
 import {
   GameBananaOverwriteConfirm,
-  inspectOverwriteTarget,
   reportInstallFailure,
   reportInstallResult
 } from './GameBananaOverwriteConfirm'
 import type { PendingOverwriteInstall } from './GameBananaOverwriteConfirm'
+import {
+  characterNameFromInstallTarget,
+  inspectInstalledTarget,
+  isGameBananaFileInstalled
+} from '../utils/gamebanana-install'
+import { formatDate } from '../utils/gamebanana-format'
 
 export interface GameBananaDetailDrawerProps {
   isOpen: boolean
@@ -65,23 +70,6 @@ const pickPreviewUrl = (mod: any, size: 'full' | 'thumb' = 'full'): string => {
   return mod.previewImage || firstImg?.medUrl || firstImg?.url || previewHead || ''
 }
 
-const formatFileSize = (bytes?: number) => {
-  if (!bytes || bytes <= 0) return '未知大小'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-const formatDate = (timestamp?: number) => {
-  if (!timestamp) return '未知日期'
-  const date = new Date(timestamp * 1000)
-  return date.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  })
-}
-
 export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
   isOpen,
   onClose,
@@ -100,6 +88,13 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
   const [activePreviewImg, setActivePreviewImg] = useState<string>('')
   const [activeFullImg, setActiveFullImg] = useState<string>('')
   const [lightboxOpen, setLightboxOpen] = useState<boolean>(false)
+
+  // 抽屉打开时查一次本地同源副本，安装成功后刷新「已安装」标记
+  const {
+    target: installedTarget,
+    versions: installedVersions,
+    refresh: refreshInstalledVersions
+  } = useInstalledGameBananaVersions(isOpen ? modId ?? detailMod?.id ?? null : null)
 
   // 翻译状态与单次会话缓存
   const [autoTranslate] = useState<boolean>(() => {
@@ -330,6 +325,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
       targetCharacter: string,
       forceNewInstall = false
     ) => {
+      if (installingFileId !== null) return
       setInstallingFileId(targetFile.id)
       setProgressMsg(`准备下载: ${targetFile.fileName || 'Mod 文件'}...`)
       setProgressPercent(5)
@@ -360,6 +356,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
           setProgressMsg(res.action === 'update' ? '更新成功！' : '安装成功！')
           setProgressPercent(100)
           reportInstallResult(toast, res, targetCharacter)
+          refreshInstalledVersions()
           setTimeout(() => {
             setInstallingFileId(null)
             setProgressMsg('')
@@ -382,17 +379,17 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
         setCancelling(false)
       }
     },
-    [activeGame?.id, onInstallSuccess, toast]
+    [installingFileId, activeGame?.id, onInstallSuccess, refreshInstalledVersions, toast]
   )
 
   // 安装前预检：命中本地同源 Mod 时先让用户确认「覆盖更新」还是「仍然新建一份」
-  // 预检本身失败/旧版 preload 时 inspectOverwriteTarget 返回 null，直接走原来的安装流程
+  // 预检本身失败/旧版 preload 时 inspectInstalledTarget 返回 null，直接走原来的安装流程
   const startInstall = useCallback(
     async (modInfo: any, targetFile: any, targetCharacter: string) => {
       if (precheckingRef.current) return
       precheckingRef.current = true
       try {
-        const hit = await inspectOverwriteTarget(modInfo?.id)
+        const hit = await inspectInstalledTarget(modInfo?.id)
         if (hit) {
           setPendingOverwrite({ modInfo, targetFile, targetCharacter, ...hit })
           return
@@ -449,6 +446,33 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
       await startInstall(modInfo, targetFile, targetChar)
     },
     [installingFileId, defaultCharacterName, activeGame?.id, characters.length, startInstall]
+  )
+
+  // 文件行点击：已安装的版本跳过角色识别，直接交给 startInstall 弹重装确认；
+  // 未安装或本地缓存缺失时保持原来的角色识别链路
+  const handleFileInstall = useCallback(
+    async (modInfo: any, targetFile: any) => {
+      if (installingFileId !== null) return
+
+      if (isGameBananaFileInstalled(targetFile?.fileName, installedVersions) && installedTarget?.existing) {
+        const fallbackChar =
+          characterNameFromInstallTarget(installedTarget.existing) ||
+          defaultCharacterName?.trim() ||
+          '通用'
+        await startInstall(modInfo, targetFile, fallbackChar)
+        return
+      }
+
+      await executeInstallFile(modInfo, targetFile)
+    },
+    [
+      installingFileId,
+      installedVersions,
+      installedTarget,
+      defaultCharacterName,
+      startInstall,
+      executeInstallFile
+    ]
   )
 
   const handleConfirmInstallWithCharacter = async (chosenChar: string) => {
@@ -638,87 +662,15 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
               )}
 
               {/* 可安装文件清单 */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-title font-extrabold text-text uppercase tracking-wider flex items-center gap-1.5">
-                    <PackageCheck className="w-4 h-4 text-primary" />
-                    可安装文件清单 ({detailMod.files?.length || 0})
-                  </h3>
-                  <span className="text-[10px] text-text-muted">选择对应版本进行解压装载</span>
-                </div>
-
-                <div className="space-y-2">
-                  {!detailMod.files || detailMod.files.length === 0 ? (
-                    <div className="p-4 rounded-control bg-surface-2 text-center text-xs text-text-muted">
-                      暂无可安装的压缩文件
-                    </div>
-                  ) : (
-                    [...(detailMod.files || [])]
-                      .sort((a: any, b: any) => (b.dateAdded || 0) - (a.dateAdded || 0))
-                      .map((file: any, index: number, arr: any[]) => {
-                        const isDownloadingThis = installingFileId === file.id
-                        const isLatest = index === 0 && arr.length > 1 && Boolean(file.dateAdded)
-
-                        return (
-                          <div
-                            key={file.id}
-                            className="p-3 rounded-control bg-surface-2/60 border border-border flex items-center justify-between gap-3 hover:border-primary/40 transition-colors"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs font-bold text-text truncate" title={file.fileName}>
-                                  📦 {file.fileName}
-                                </span>
-                                {isLatest && (
-                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 shrink-0">
-                                    最新发布
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center space-x-2 text-[10px] text-text-muted font-mono mt-0.5 flex-wrap gap-y-0.5">
-                                {file.dateAdded > 0 && (
-                                  <>
-                                    <span className="text-primary font-medium">
-                                      发布: {formatDate(file.dateAdded)}
-                                    </span>
-                                    <span>·</span>
-                                  </>
-                                )}
-                                <span>大小: {formatFileSize(file.fileSize)}</span>
-                                <span>·</span>
-                                <span>下载: {file.downloadCount || 0} 次</span>
-                              </div>
-                              {file.description && (
-                                <div className="text-[11px] text-text-muted/90 mt-1 line-clamp-1 italic">
-                                  {file.description}
-                                </div>
-                              )}
-                            </div>
-
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              disabled={installingFileId !== null}
-                              onClick={() => executeInstallFile(detailMod, file)}
-                              className="text-xs font-semibold py-1.5 shrink-0"
-                              icon={
-                                isDownloadingThis ? (
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Download className="w-3.5 h-3.5" />
-                                )
-                              }
-                            >
-                              {isDownloadingThis
-                                ? `安装中 ${Math.min(100, Math.max(0, Math.round(progressPercent)))}%`
-                                : '安全安装'}
-                            </Button>
-                          </div>
-                        )
-                      })
-                  )}
-                </div>
-              </div>
+              <GameBananaFileList
+                files={detailMod.files}
+                loading={loadingDetail}
+                installingFileId={installingFileId}
+                progressPercent={progressPercent}
+                installedVersions={installedVersions}
+                busy={installingFileId !== null}
+                onInstall={(file) => void handleFileInstall(detailMod, file)}
+              />
 
               {/* 详细说明描述 */}
               <div className="space-y-2">
