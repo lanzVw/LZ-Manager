@@ -24,6 +24,14 @@ function formatSectionName(sec: string): string {
   return sec.replace(/^Key[_\s-]*/i, '') || sec
 }
 
+// 3DMigoto 的否定修饰词只表达「要求不按该键」，不是可触发的按键；
+// 白名单而非 /^no_/，避免吞掉未来可能合法的自定义 token
+const NEGATED_MODIFIER_TOKEN = /^(?:no_(?:ctrl|alt|shift|modifiers))$/i
+
+export function isNegatedModifierToken(token: string): boolean {
+  return NEGATED_MODIFIER_TOKEN.test(token.trim().replace(/^[~!@#]+/, ''))
+}
+
 function formatKey(rawKey: string): string {
   const clean = rawKey.replace(/^[~!@#]/, '').trim()
   const upper = clean.toUpperCase()
@@ -217,14 +225,16 @@ export function parseIniHotkeys(iniContent: string): ParsedHotkey[] {
         rawKeyVal = rawKeyVal.slice(0, commentIdx).trim()
       }
 
-      // 清洗按键名称：替换 + 和 , 并去除 no_modifiers
+      // 清洗按键名称：先按 + , 与空白分词，再逐 token 过滤否定修饰词，最后格式化。
+      // 顺序不能反：formatKey 会改大小写/显示名，先过滤更精确。
       const parts = rawKeyVal
-        .replace(/no_modifiers/gi, '')
         .replace(/[+,]/g, ' ')
         .split(/\s+/)
         .map((k) => k.trim())
         .filter(Boolean)
+        .filter((k) => !isNegatedModifierToken(k))
 
+      // 仅含否定词的 key 行不构成可触发快捷键：不覆盖已有真实按键，也不产出空条目
       if (parts.length > 0) {
         currentKeys = parts.map(formatKey)
       }

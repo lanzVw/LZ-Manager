@@ -40,6 +40,7 @@ import { Logo } from '../components/Logo'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
+import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from './hotkeyPresentation'
 import { ModDetailedInfo, ModPersistVariable } from '../../core/types'
 import { planPresetApply } from '../../core/preset-plan'
 import { MoveModModal } from '../components/MoveModModal'
@@ -740,7 +741,7 @@ export const OverlayApp: React.FC = () => {
     )
 
     // 1. 如果匹配到可调度的快捷键组合，优先通过模拟按键步进将 3DMigoto 内存变量拨至目标值
-    const canUseKeys = h.keys && h.keys.length > 0 && !h.keys.some((k) => k.includes('🎮') || k.includes('鼠标') || k.includes('Button'))
+    const canUseKeys = h.keys && h.keys.length > 0 && !isNonKeyboardHotkey(h.keys)
     if (canUseKeys && h.allowedValues && h.allowedValues.length > 1) {
       const currVal = h.currentValue || pv?.currentValue || h.allowedValues[0]
       const currIdx = h.allowedValues.indexOf(currVal)
@@ -1692,9 +1693,11 @@ export const OverlayApp: React.FC = () => {
                     {parsedHotkeys.map((h, idx) => {
                       const isGamepad = h.keys.some((k) => k.includes('🎮'))
                       const isMouse = h.keys.some((k) => k.includes('鼠标') || k.includes('键'))
+                      const desc = getHotkeyDescription(h)
+                      const typeLabel = getHotkeyTypeLabel(h.type)
                       return (
                         <div
-                          key={idx}
+                          key={`${h.name}-${h.keys.join('+')}-${idx}`}
                           onClick={() => handleTriggerHotkey(h)}
                           className="p-2.5 rounded-xl bg-surface-2/50 hover:bg-surface hover:border-primary/40 border border-border/70 text-xs transition-all cursor-pointer active:scale-[0.99] select-none group shadow-2xs"
                           title={
@@ -1716,19 +1719,35 @@ export const OverlayApp: React.FC = () => {
                                     {h.name}
                                   </span>
                                 )}
+                                {typeLabel && (
+                                  <span className="text-[9px] font-semibold text-text-muted bg-surface/80 px-1 py-0.2 rounded-full border border-border/40 shrink-0">
+                                    {typeLabel}
+                                  </span>
+                                )}
                               </div>
-                              {(h.chineseDescription || (h.description && h.description !== h.name)) && (
-                                <span className="text-[10px] text-text-muted truncate max-w-[200px] mt-0.5">
-                                  {h.chineseDescription || h.description}
+                              {desc && (
+                                <span className="text-[10px] text-text-muted truncate max-w-[200px] mt-0.5" title={desc}>
+                                  {desc}
                                 </span>
                               )}
                             </div>
 
-                            <div className="flex items-center space-x-1 shrink-0">
+                            <div className="flex items-center gap-1 shrink-0">
                               {h.keys.map((k, kIdx) => (
-                                <kbd key={kIdx} className="detail-kbd group-hover:border-primary/40 transition-colors">
-                                  {k}
-                                </kbd>
+                                <React.Fragment key={`${k}-${kIdx}`}>
+                                  {kIdx > 0 && (
+                                    <span aria-hidden="true" className="text-[9px] text-text-muted/60 select-none">
+                                      +
+                                    </span>
+                                  )}
+                                  <kbd
+                                    className={`detail-kbd group-hover:border-primary/40 transition-colors ${
+                                      isModifierKey(k) ? 'opacity-60' : ''
+                                    }`}
+                                  >
+                                    {k}
+                                  </kbd>
+                                </React.Fragment>
                               ))}
                             </div>
                           </div>

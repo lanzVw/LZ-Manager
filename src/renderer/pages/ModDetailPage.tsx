@@ -44,6 +44,7 @@ import {
   Pencil
 } from 'lucide-react'
 import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
+import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from '../overlay/hotkeyPresentation'
 import { toFileUrl } from '../utils/fileUrl'
 import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
@@ -642,7 +643,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     )
 
     // 1. 如果匹配到可调度的快捷键组合，优先通过模拟按键步进将 3DMigoto 内存变量拨至目标值
-    const canUseKeys = h.keys && h.keys.length > 0 && !h.keys.some((k) => k.includes('🎮') || k.includes('鼠标') || k.includes('Button'))
+    const canUseKeys = h.keys && h.keys.length > 0 && !isNonKeyboardHotkey(h.keys)
     const vals = h.allowedValues || []
     if (canUseKeys && vals.length > 1) {
       const currIdx = vals.indexOf(h.currentValue ?? pv?.currentValue ?? vals[0])
@@ -2042,54 +2043,109 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 <Keyboard className="w-3 h-3 text-primary" />
                 <span>模组快捷键与档位切换 (KEYBINDS & TOGGLES)</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 auto-rows-fr gap-3.5">
                 {parsedHotkeys.map((h, idx) => {
                   const isTriggering = triggeringHotkey === h.name
+                  const desc = getHotkeyDescription(h)
+                  const typeLabel = getHotkeyTypeLabel(h.type)
+                  const nonKeyboard = isNonKeyboardHotkey(h.keys)
+                  const canSimulate = h.keys.length > 0 && !nonKeyboard
+                  const showInternalName =
+                    Boolean(h.chineseName) &&
+                    (h.chineseName || '').trim().toLowerCase() !== h.name.trim().toLowerCase()
 
                   return (
                     <div
-                      key={idx}
-                      className="p-3.5 rounded-control bg-surface-2 border border-border hover:border-primary/40 transition-colors flex flex-col justify-between space-y-3"
+                      key={`${h.name}-${h.keys.join('+')}-${idx}`}
+                      className="group h-full min-w-0 p-3.5 rounded-control bg-surface-2 border border-border hover:border-primary/40 transition-colors flex flex-col gap-3"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center space-x-2 truncate">
-                            <span className="text-xs font-bold text-text truncate">
-                              {h.chineseName || h.name}
+                      {/* 名称 / 内部名 / 类型 */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-bold text-text truncate" title={h.chineseName || h.name}>
+                            {h.chineseName || h.name}
+                          </span>
+                          {showInternalName && (
+                            <span
+                              className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border shrink-0 max-w-[45%] truncate"
+                              title={h.name}
+                            >
+                              {h.name}
                             </span>
-                            {h.chineseName && h.chineseName !== h.name && (
-                              <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border shrink-0">
-                                {h.name}
-                              </span>
-                            )}
-                          </div>
-                          {(h.chineseDescription || (h.description && h.description !== h.name)) && (
-                            <div className="text-[11px] text-text-muted truncate mt-0.5">
-                              {h.chineseDescription || h.description}
-                            </div>
+                          )}
+                          {typeLabel && (
+                            <span className="text-[9px] font-semibold text-text-muted bg-surface px-1.5 py-0.5 rounded-full border border-border shrink-0">
+                              {typeLabel}
+                            </span>
                           )}
                         </div>
-
-                        {/* Keys Badge */}
-                        <div className="flex items-center space-x-1 shrink-0">
-                          {h.keys.map((k, kIdx) => (
-                            <kbd
-                              key={kIdx}
-                              className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-surface text-primary border border-border shadow-xs"
-                            >
-                              {k}
-                            </kbd>
-                          ))}
+                        {/* 固定高度描述槽：无描述也占位，保证同排卡片按键行对齐 */}
+                        <div
+                          className="mt-1 h-4 text-[11px] leading-4 text-text-muted truncate"
+                          title={desc ?? undefined}
+                        >
+                          {desc}
                         </div>
                       </div>
 
-                      {/* Direct Value Selection Pills & Trigger Button */}
-                      <div className="flex items-center justify-between pt-2 border-t border-border gap-2">
+                      {/* 按键行 + 模拟触发 */}
+                      <div className="flex items-center justify-between gap-2 rounded-md bg-surface/70 border border-border/70 px-2.5 py-1.5 min-h-[34px]">
+                        <div
+                          className="flex flex-wrap items-center gap-1 min-w-0"
+                          aria-label={`快捷键 ${h.keys.join(' + ')}`}
+                        >
+                          {h.keys.length === 0 ? (
+                            <span className="text-[10px] text-text-muted">无按键</span>
+                          ) : (
+                            h.keys.map((k, kIdx) => (
+                              <React.Fragment key={`${k}-${kIdx}`}>
+                                {kIdx > 0 && (
+                                  <span aria-hidden="true" className="text-[10px] text-text-muted/60 select-none">
+                                    +
+                                  </span>
+                                )}
+                                <kbd
+                                  className={
+                                    isModifierKey(k)
+                                      ? 'px-1.5 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-surface text-text-muted border border-border shadow-2xs'
+                                      : 'px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-primary/10 text-primary border border-primary/25 shadow-2xs'
+                                  }
+                                >
+                                  {k}
+                                </kbd>
+                              </React.Fragment>
+                            ))
+                          )}
+                        </div>
+
+                        <span
+                          className="shrink-0 inline-flex"
+                          title={
+                            nonKeyboard
+                              ? h.keys.some((k) => k.includes('🎮'))
+                                ? '手柄按键请在游戏中使用手柄触发'
+                                : '鼠标按键请在游戏中使用鼠标操作'
+                              : '在游戏中模拟触发此按键'
+                          }
+                        >
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleTriggerHotkey(h)}
+                            disabled={isTriggering || !canSimulate}
+                            className="text-[10px] text-primary hover:bg-primary/10 cursor-pointer"
+                            icon={<Play className={`w-3 h-3 fill-current ${isTriggering ? 'animate-spin' : ''}`} />}
+                          >
+                            模拟按键
+                          </Button>
+                        </span>
+                      </div>
+
+                      {/* 档位 / 单次触发 */}
+                      <div className="mt-auto pt-2.5 border-t border-border">
                         {h.allowedValues && h.allowedValues.length > 0 ? (
-                          <div className="flex items-center space-x-1 flex-wrap gap-1">
-                            <span className="text-[10.5px] text-text-muted font-medium mr-1">
-                              选定值:
-                            </span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-[10px] font-semibold text-text-muted mr-1">档位</span>
                             {h.allowedValues.map((val) => {
                               const isSelected = (h.currentValue ?? h.allowedValues?.[0]) === val
                               const label =
@@ -2104,10 +2160,10 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                                   key={val}
                                   type="button"
                                   onClick={() => handleSelectHotkeyVal(h, val)}
-                                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer border ${
+                                  className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold transition-colors cursor-pointer border ${
                                     isSelected
-                                      ? 'bg-primary text-primary-fg border-primary shadow-xs font-extrabold'
-                                      : 'bg-surface text-text hover:text-primary border-border hover:border-primary/40'
+                                      ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-bold'
+                                      : 'bg-surface text-text-muted hover:text-primary border-border hover:border-primary/40'
                                   }`}
                                   title={`直接切换设定值为: ${val}`}
                                 >
@@ -2117,20 +2173,11 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                             })}
                           </div>
                         ) : (
-                          <span className="text-[11px] text-text-muted">单次触发按键</span>
+                          <span className="text-[10.5px] text-text-muted inline-flex items-center gap-1">
+                            <Zap className="w-3 h-3 text-primary/60" />
+                            单次触发
+                          </span>
                         )}
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleTriggerHotkey(h)}
-                          disabled={isTriggering}
-                          className="text-xs text-primary hover:bg-primary/10 shrink-0 h-7 px-2.5 cursor-pointer"
-                          icon={<Play className={`w-3 h-3 fill-current ${isTriggering ? 'animate-spin' : ''}`} />}
-                          title="在游戏中模拟触发此按键"
-                        >
-                          模拟按键
-                        </Button>
                       </div>
                     </div>
                   )
