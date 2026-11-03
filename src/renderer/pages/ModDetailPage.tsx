@@ -46,7 +46,6 @@ import {
 import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
 import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from '../overlay/hotkeyPresentation'
 import { toFileUrl } from '../utils/fileUrl'
-import { buildAuthorSearchQuery } from '../utils/gamebanana-search'
 import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
 import { MoveModModal } from '../components/MoveModModal'
@@ -67,7 +66,7 @@ interface ModDetailPageProps {
   activeGame?: any
   onBack: () => void
   onToggleActive: (charName: string, modName: string, enabled: boolean) => Promise<void>
-  onNavigateToMarket?: (modId?: number, searchKeyword?: string) => void
+  onNavigateToMarket?: (modId?: number, searchKeyword?: string, searchScope?: 'all' | 'author') => void
   onDeleteSuccess?: () => void
   onInstallSuccess?: () => void
   /** 重命名成功后目录路径已变，交给上层更新导航目标 */
@@ -2514,7 +2513,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         onNavigateToMarketAuthor={(authorName) => {
           setIsMarketDrawerOpen(false)
           if (onNavigateToMarket) {
-            onNavigateToMarket(undefined, buildAuthorSearchQuery(authorName))
+            onNavigateToMarket(undefined, authorName, 'author')
           }
         }}
       />

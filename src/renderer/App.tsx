@@ -22,6 +22,7 @@ export default function App() {
   const [importTarget, setImportTarget] = useState<{ archivePath: string; inspection: any } | null>(null)
   const [marketInitialModId, setMarketInitialModId] = useState<number | null>(null)
   const [marketInitialSearch, setMarketInitialSearch] = useState<string>('')
+  const [marketInitialScope, setMarketInitialScope] = useState<'all' | 'author'>('all')
 
   // 为什么提升到 App：进入 Mod 详情页时 ModsPage 会被卸载，局部 state 随之丢失，
   // 从「蕾米埃尔」分类点进详情再返回就会掉回「全部角色」。这里托管整份视图快照。
@@ -322,10 +323,11 @@ export default function App() {
               onToggleActive={async (char, mod, state) => {
                 await handleToggleMod(char, mod, state)
               }}
-              onNavigateToMarket={(modId, searchKeyword) => {
+              onNavigateToMarket={(modId, searchKeyword, searchScope) => {
                 setSelectedModPath(null)
                 setMarketInitialModId(modId || null)
                 setMarketInitialSearch(searchKeyword || '')
+                setMarketInitialScope(searchKeyword ? searchScope ?? 'all' : 'all')
                 setActiveTab('gamebanana')
               }}
             />
@@ -349,9 +351,11 @@ export default function App() {
             onInstallSuccess={scanMods}
             initialModId={marketInitialModId}
             initialSearchTerm={marketInitialSearch}
+            initialSearchScope={marketInitialScope}
             onClearInitialNav={() => {
               setMarketInitialModId(null)
               setMarketInitialSearch('')
+              setMarketInitialScope('all')
             }}
           />
         )}

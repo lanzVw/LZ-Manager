@@ -27,6 +27,8 @@ export interface SelectProps<T = string | number> {
   /** 展开后在面板顶部显示搜索框，按 searchText 做大小写不敏感的子串过滤 */
   searchable?: boolean
   searchPlaceholder?: string
+  /** ghost：无边框透明底，用于搜索 composer 内部或安静的筛选入口 */
+  variant?: 'default' | 'ghost'
 }
 
 export function Select<T = string | number>({
@@ -42,7 +44,8 @@ export function Select<T = string | number>({
   align = 'left',
   title,
   searchable = false,
-  searchPlaceholder = '搜索...'
+  searchPlaceholder = '搜索...',
+  variant = 'default'
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -352,6 +355,15 @@ export function Select<T = string | number>({
       ? 'py-1 px-2.5 text-xs rounded-control min-h-[28px]'
       : 'py-1.5 px-3 text-xs rounded-control min-h-[34px]'
 
+  const triggerStateClasses =
+    variant === 'ghost'
+      ? isOpen
+        ? 'border-transparent bg-surface shadow-xs'
+        : 'border-transparent bg-transparent hover:bg-surface'
+      : isOpen
+        ? 'border-primary bg-surface ring-2 ring-primary/20 shadow-xs'
+        : 'border-border bg-surface-2 hover:bg-surface hover:border-primary/40'
+
   // 过滤 w-full / min-w-full，防止 Portal 挂载到 body 上时被拉伸至全视口宽度
   const popupClasses = popupClassName
     .split(' ')
@@ -376,11 +388,9 @@ export function Select<T = string | number>({
         onClick={toggleDropdown}
         onKeyDown={handleTriggerKeyDown}
         disabled={disabled}
-        className={`w-full flex items-center justify-between space-x-2 bg-surface-2 hover:bg-surface border transition-all duration-fast cursor-pointer ${
-          isOpen
-            ? 'border-primary ring-2 ring-primary/20 bg-surface shadow-xs'
-            : 'border-border hover:border-primary/40'
-        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${sizeClasses}`}
+        className={`w-full flex items-center justify-between space-x-2 border transition-all duration-fast cursor-pointer ${triggerStateClasses} ${
+          disabled ? 'opacity-50 cursor-not-allowed' : ''
+        } ${sizeClasses}`}
       >
         <div className="flex items-center space-x-2 truncate">
           {prefixIcon && <span className="shrink-0 flex items-center">{prefixIcon}</span>}

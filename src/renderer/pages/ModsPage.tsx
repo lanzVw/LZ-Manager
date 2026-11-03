@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
-  Search,
   XCircle,
   FolderOpen,
   Folder,
@@ -27,6 +26,7 @@ import { toFileUrl } from '../utils/fileUrl'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Input } from '../components/ui/Input'
+import { SearchField } from '../components/ui/SearchField'
 import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
@@ -822,11 +822,13 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           </div>
 
           {/* 角色检索输入框 */}
-          <Input
-            placeholder="快速检索角色..."
+          <SearchField
+            appearance="subtle"
             value={searchChar}
-            onChange={(e) => setSearchChar(e.target.value)}
-            prefixIcon={<Search className="w-3.5 h-3.5" />}
+            onChange={setSearchChar}
+            placeholder="快速检索角色..."
+            aria-label="快速检索角色"
+            className="w-full"
           />
 
           {/* 筛选与排序条：中性灰底色，选中激活主色 */}
@@ -1146,11 +1148,13 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           {/* 搜索、模组排序、批量检查更新与目录刷新按钮 */}
           <div className="flex items-center space-x-2.5">
             <div className="w-48">
-              <Input
-                placeholder="搜索模组名称..."
+              <SearchField
+                appearance="composer"
                 value={searchMod}
-                onChange={(e) => setSearchMod(e.target.value)}
-                prefixIcon={<Search className="w-3.5 h-3.5" />}
+                onChange={setSearchMod}
+                placeholder="搜索模组名称..."
+                aria-label="搜索模组名称"
+                className="w-full"
               />
             </div>
 

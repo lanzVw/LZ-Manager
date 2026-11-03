@@ -19,6 +19,7 @@ import {
 import DOMPurify from 'dompurify'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
+import { SearchField } from '../components/ui/SearchField'
 import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
 import { ImageLightbox } from '../components/ui/ImageLightbox'
@@ -40,13 +41,15 @@ import {
   isGameBananaFileInstalled
 } from '../utils/gamebanana-install'
 import { formatDate } from '../utils/gamebanana-format'
-import { buildAuthorSearchQuery } from '../utils/gamebanana-search'
+import { parseAuthorQuery, resolveSearchQuery, stripAuthorPrefix } from '../utils/gamebanana-search'
+import type { SearchScope } from '../utils/gamebanana-search'
 
 interface GameBananaPageProps {
   activeGame: any
   onInstallSuccess?: () => void
   initialModId?: number | null
   initialSearchTerm?: string
+  initialSearchScope?: SearchScope
   onClearInitialNav?: () => void
 }
 
@@ -87,12 +90,22 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   onInstallSuccess,
   initialModId,
   initialSearchTerm,
+  initialSearchScope,
   onClearInitialNav
 }) => {
   const toast = useToast()
   const [characters, setCharacters] = useState<any[]>([])
   const [selectedCharId, setSelectedCharId] = useState<string>('all')
-  const [searchTerm, setSearchTerm] = useState<string>('')
+
+  // 首次挂载就带上跳转参数，避免先请求一次全部列表再被筛选结果覆盖
+  const initialScope: SearchScope = initialSearchScope === 'author' ? 'author' : 'all'
+  const initialSearch = initialSearchTerm
+    ? initialScope === 'author'
+      ? stripAuthorPrefix(initialSearchTerm)
+      : initialSearchTerm
+    : ''
+  const [searchTerm, setSearchTerm] = useState<string>(initialSearch)
+  const [searchScope, setSearchScope] = useState<SearchScope>(initialScope)
   const [sortOption, setSortOption] = useState<string>('Generic_Newest')
   const [mods, setMods] = useState<any[]>([])
   const [totalRecords, setTotalRecords] = useState<number>(0)
@@ -181,13 +194,19 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   }, [activeGame])
 
   // 搜索防抖：关键字停稳 400ms 后才写入 debouncedQuery，避免每次按键都重建请求
-  const [debouncedQuery, setDebouncedQuery] = useState<string>('')
+  const [debouncedQuery, setDebouncedQuery] = useState<string>(initialSearch)
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchTerm), 400)
     return () => clearTimeout(timer)
   }, [searchTerm])
   const searchSeqRef = useRef<number>(0)
   const detailSeqRef = useRef<number>(0)
+
+  // 输入框始终展示原文；作用域（全部/作者）在请求前才解析成 user: 前缀
+  const effectiveQuery = useMemo(
+    () => resolveSearchQuery(searchScope, debouncedQuery),
+    [searchScope, debouncedQuery]
+  )
 
   // 执行搜索/列表刷新（请求序号守卫：快速翻页/切换过滤时丢弃过期响应）
   const fetchMods = useCallback(
@@ -200,7 +219,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
         const res = await window.flairx.searchGameBanana({
           gameId: activeGame.id,
           characterGbCatId: activeChar?.gbCatId || null,
-          searchQuery: debouncedQuery.trim() || undefined,
+          searchQuery: effectiveQuery || undefined,
           sort: sortOption,
           page: pageToLoad,
           perPage
@@ -220,7 +239,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
         }
       }
     },
-    [activeGame, characters, selectedCharId, debouncedQuery, sortOption]
+    [activeGame, characters, selectedCharId, effectiveQuery, sortOption]
   )
 
   useEffect(() => {
@@ -353,30 +372,78 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     if (initialModId) {
       openDetailDrawer({ id: initialModId })
       onClearInitialNav?.()
-    } else if (initialSearchTerm) {
-      setSearchTerm(initialSearchTerm)
-      // 直接冲刷防抖值，让列表用该关键字立即查询
-      setDebouncedQuery(initialSearchTerm)
-      onClearInitialNav?.()
+      return
     }
-  }, [initialModId, initialSearchTerm])
+    if (!initialSearchTerm) return
 
-  // 按作者快捷搜索
+    const scope: SearchScope = initialSearchScope === 'author' ? 'author' : 'all'
+    const raw = scope === 'author' ? stripAuthorPrefix(initialSearchTerm) : initialSearchTerm
+    setSearchScope(scope)
+    setSearchTerm(raw)
+    // 直接冲刷防抖值，让列表用该关键字立即查询
+    setDebouncedQuery(raw)
+    if (scope === 'author') setSelectedCharId('all')
+    onClearInitialNav?.()
+  }, [initialModId, initialSearchTerm, initialSearchScope])
+
+  // 按作者快捷搜索：输入框只显示作者名，user: 前缀在请求前由作用域解析
   const handleSearchByAuthor = useCallback(
     (authorName: string, e?: React.MouseEvent) => {
       if (e) e.stopPropagation()
       if (!authorName || authorName === '未知作者') return
-      const query = buildAuthorSearchQuery(authorName)
-      if (!query) return
+      const name = stripAuthorPrefix(authorName)
+      if (!name) return
       closeDetailDrawer()
       // 「所有模组」不应被当前角色分类收窄，重置到全部角色
       setSelectedCharId('all')
-      setSearchTerm(query)
+      setSearchScope('author')
+      setSearchTerm(name)
       // 立即冲刷防抖值，查询改由 debouncedQuery 驱动的 effect 执行（绕开 400ms 等待）
-      setDebouncedQuery(query)
+      setDebouncedQuery(name)
     },
     [closeDetailDrawer]
   )
+
+  const activeCharName = useMemo(
+    () => characters.find((c) => c.id === selectedCharId)?.name || selectedCharId,
+    [characters, selectedCharId]
+  )
+  const activeAuthorName = useMemo(() => parseAuthorQuery(effectiveQuery), [effectiveQuery])
+  const hasActiveFilters =
+    selectedCharId !== 'all' || Boolean(activeAuthorName) || Boolean(effectiveQuery.trim())
+
+  // Enter：解析结果未变时直接刷新，变了则冲刷防抖交给 effect 发一次请求
+  const handleSearchSubmit = useCallback(() => {
+    const next = resolveSearchQuery(searchScope, searchTerm)
+    if (next !== effectiveQuery) {
+      setDebouncedQuery(searchTerm)
+      return
+    }
+    fetchMods(1)
+  }, [searchScope, searchTerm, effectiveQuery, fetchMods])
+
+  const handleScopeChange = useCallback(
+    (next: SearchScope) => {
+      if (next === searchScope) return
+      setSearchScope(next)
+      // 防抖窗口内切换作用域：把当前原文一并冲刷，立即按新作用域请求一次
+      if (searchTerm !== debouncedQuery) setDebouncedQuery(searchTerm)
+    },
+    [searchScope, searchTerm, debouncedQuery]
+  )
+
+  const clearAuthorFilter = useCallback(() => {
+    setSearchScope('all')
+    setSearchTerm('')
+    setDebouncedQuery('')
+  }, [])
+
+  const handleResetFilters = useCallback(() => {
+    setSearchScope('all')
+    setSearchTerm('')
+    setDebouncedQuery('')
+    setSelectedCharId('all')
+  }, [])
 
   // 实际执行安装流水线
   const doInstall = useCallback(
@@ -568,75 +635,143 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden select-none bg-surface/30 relative">
-      {/* 顶部过滤工具栏 */}
-      <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-3 bg-surface/80 backdrop-blur-md shrink-0 relative z-20">
-        <div className="flex items-center space-x-3 flex-wrap gap-y-2">
-          {/* 角色类别选择器 */}
-          <Select
-            value={selectedCharId}
-            onChange={(val) => setSelectedCharId(val)}
-            options={[
-              { value: 'all', label: '全部角色 (All Characters)', searchText: '全部角色 all characters qbjs' },
-              ...characters
-                .filter((c) => c.id !== 'all')
-                .map((c) => ({
-                  value: c.id,
-                  label: `${c.name} ${c.enName ? `(${c.enName})` : ''}`,
-                  searchText: [c.name, c.enName, c.pinyin].filter(Boolean).join(' ')
-                }))
-            ]}
-            searchable
-            searchPlaceholder="搜索角色 / 英文 / 拼音..."
-            prefixIcon={<Filter className="w-3.5 h-3.5 text-primary shrink-0" />}
-            size="sm"
-            className="w-56 font-semibold"
-            popupClassName="w-64"
+      {/* 顶部过滤工具栏：搜索 composer 为主，筛选与刷新为安静的 ghost 控件 */}
+      <div className="px-4 py-3 border-b border-border/60 bg-surface shrink-0 relative z-20 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchField
+            appearance="composer"
+            value={searchTerm}
+            onChange={setSearchTerm}
+            onSubmit={handleSearchSubmit}
+            onClear={() => setDebouncedQuery('')}
+            loading={loading}
+            className="flex-1 min-w-[260px] max-w-xl"
+            placeholder={searchScope === 'author' ? '输入作者名，无需 user: 前缀…' : '搜索 Mod 名称或关键词…'}
+            aria-label="搜索 Mod 市场"
+            scope={{
+              value: searchScope,
+              onChange: (value) => handleScopeChange(value as SearchScope),
+              title: '搜索范围',
+              className: 'w-24',
+              popupClassName: 'w-28',
+              options: [
+                { value: 'all', label: '全部' },
+                { value: 'author', label: '作者', icon: <User className="w-3 h-3" /> }
+              ]
+            }}
           />
 
-          {/* 排序方式选择器 */}
-          <Select
-            value={sortOption}
-            onChange={(val) => setSortOption(val)}
-            options={[
-              { value: 'Generic_Newest', label: '最新发布' },
-              { value: 'Generic_MostDownloaded', label: '最多下载' },
-              { value: 'Generic_MostLiked', label: '最多喜欢' },
-              { value: 'Generic_MostViewed', label: '最多浏览' }
-            ]}
-            size="sm"
-            className="w-32 font-semibold"
-            popupClassName="w-36"
-          />
-        </div>
+          <div className="flex items-center gap-1.5 ml-auto">
+            {/* 角色类别选择器 */}
+            <Select
+              value={selectedCharId}
+              onChange={(val) => setSelectedCharId(val)}
+              options={[
+                { value: 'all', label: '全部角色 (All Characters)', searchText: '全部角色 all characters qbjs' },
+                ...characters
+                  .filter((c) => c.id !== 'all')
+                  .map((c) => ({
+                    value: c.id,
+                    label: `${c.name} ${c.enName ? `(${c.enName})` : ''}`,
+                    searchText: [c.name, c.enName, c.pinyin].filter(Boolean).join(' ')
+                  }))
+              ]}
+              searchable
+              searchPlaceholder="搜索角色 / 英文 / 拼音..."
+              prefixIcon={<Filter className="w-3.5 h-3.5 text-primary shrink-0" />}
+              size="md"
+              variant="ghost"
+              className="w-52 font-semibold"
+              popupClassName="w-64"
+            />
 
-        {/* 搜索框 & 刷新 */}
-        <div className="flex items-center space-x-2">
-          <div className="w-64">
-            <Input
-              placeholder="搜索 Mod 或输入 user:作者名..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return
-                if (searchTerm.trim() !== debouncedQuery.trim()) {
-                  // 输入尚未停稳：冲刷防抖值，查询由 debouncedQuery 驱动的 effect 执行
-                  setDebouncedQuery(searchTerm)
-                } else {
-                  fetchMods(1)
-                }
-              }}
-              prefixIcon={<Search className="w-3.5 h-3.5" />}
+            {/* 排序方式选择器 */}
+            <Select
+              value={sortOption}
+              onChange={(val) => setSortOption(val)}
+              options={[
+                { value: 'Generic_Newest', label: '最新发布' },
+                { value: 'Generic_MostDownloaded', label: '最多下载' },
+                { value: 'Generic_MostLiked', label: '最多喜欢' },
+                { value: 'Generic_MostViewed', label: '最多浏览' }
+              ]}
+              size="md"
+              variant="ghost"
+              className="w-32 font-semibold"
+              popupClassName="w-36"
+            />
+
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={() => fetchMods(1)}
+              disabled={loading}
+              title="刷新列表"
+              aria-label="刷新列表"
+              className="w-8 px-0"
+              icon={<RefreshCw className={`w-3.5 h-3.5 text-primary ${loading ? 'animate-spin' : ''}`} />}
             />
           </div>
+        </div>
 
-          <Button
-            variant="secondary"
-            onClick={() => fetchMods(1)}
-            disabled={loading}
-            title="刷新列表"
-            className="p-2"
-            icon={<RefreshCw className={`w-3.5 h-3.5 text-primary ${loading ? 'animate-spin' : ''}`} />}
-          />
+        {/* 已选条件 + 结果计数：固定最小高度，避免筛选时工具栏跳动 */}
+        <div className="flex items-center gap-2 flex-wrap min-h-[22px]">
+          {activeAuthorName && (
+            <Badge variant="primary" className="h-6 pr-1 gap-1">
+              <User className="w-3 h-3" />
+              <span>作者：{activeAuthorName}</span>
+              <button
+                type="button"
+                onClick={clearAuthorFilter}
+                aria-label="移除作者筛选"
+                className="p-0.5 rounded-full hover:bg-primary/15 transition-colors duration-fast cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+
+          {selectedCharId !== 'all' && (
+            <Badge variant="default" className="h-6 pr-1 gap-1">
+              <Layers className="w-3 h-3" />
+              <span>角色：{activeCharName}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedCharId('all')}
+                aria-label="移除角色筛选"
+                className="p-0.5 rounded-full hover:bg-surface-2 transition-colors duration-fast cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={handleResetFilters}
+              icon={<RotateCcw className="w-3 h-3" />}
+            >
+              重置筛选
+            </Button>
+          )}
+
+          <span
+            className="ml-auto text-[11px] text-text-muted tabular-nums-strict flex items-center gap-1.5"
+            aria-live="polite"
+          >
+            {loading ? (
+              <>
+                <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                检索中…
+              </>
+            ) : (
+              <>
+                共 <span className="font-semibold text-text">{totalRecords}</span> 个结果
+              </>
+            )}
+          </span>
         </div>
       </div>
 
@@ -675,8 +810,22 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
               <div className="text-xs font-mono tracking-widest text-text-muted uppercase">
                 // 未找到匹配的模组资源 //
               </div>
-              <p className="text-xs text-text-muted mt-1">请尝试更换搜索关键字、角色分类或重置筛选</p>
+              <p className="text-xs text-text-muted mt-1">
+                {searchScope === 'author'
+                  ? '请检查作者名是否正确，或切换回「全部」搜索'
+                  : '请尝试更换搜索关键字、角色分类或重置筛选'}
+              </p>
             </div>
+            {hasActiveFilters && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleResetFilters}
+                icon={<RotateCcw className="w-3.5 h-3.5" />}
+              >
+                重置筛选
+              </Button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
