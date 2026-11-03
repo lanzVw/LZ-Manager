@@ -29,7 +29,6 @@
 
   /* 动效令牌 */
   --cds-dur-fast: 60ms;
-  --cds-dur-normal: 150ms;
   --cds-dur-slow: 450ms;
 
   /* 二阶贝塞尔曲线 */
