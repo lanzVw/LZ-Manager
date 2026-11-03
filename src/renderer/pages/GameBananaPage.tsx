@@ -40,6 +40,7 @@ import {
   isGameBananaFileInstalled
 } from '../utils/gamebanana-install'
 import { formatDate } from '../utils/gamebanana-format'
+import { buildAuthorSearchQuery } from '../utils/gamebanana-search'
 
 interface GameBananaPageProps {
   activeGame: any
@@ -365,10 +366,14 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     (authorName: string, e?: React.MouseEvent) => {
       if (e) e.stopPropagation()
       if (!authorName || authorName === '未知作者') return
+      const query = buildAuthorSearchQuery(authorName)
+      if (!query) return
       closeDetailDrawer()
-      setSearchTerm(`user:${authorName}`)
+      // 「所有模组」不应被当前角色分类收窄，重置到全部角色
+      setSelectedCharId('all')
+      setSearchTerm(query)
       // 立即冲刷防抖值，查询改由 debouncedQuery 驱动的 effect 执行（绕开 400ms 等待）
-      setDebouncedQuery(`user:${authorName}`)
+      setDebouncedQuery(query)
     },
     [closeDetailDrawer]
   )

@@ -46,6 +46,7 @@ import {
 import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
 import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from '../overlay/hotkeyPresentation'
 import { toFileUrl } from '../utils/fileUrl'
+import { buildAuthorSearchQuery } from '../utils/gamebanana-search'
 import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
 import { MoveModModal } from '../components/MoveModModal'
@@ -2513,7 +2514,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         onNavigateToMarketAuthor={(authorName) => {
           setIsMarketDrawerOpen(false)
           if (onNavigateToMarket) {
-            onNavigateToMarket(undefined, authorName)
+            onNavigateToMarket(undefined, buildAuthorSearchQuery(authorName))
           }
         }}
       />
