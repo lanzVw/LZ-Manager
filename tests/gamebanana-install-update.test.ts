@@ -311,6 +311,66 @@ describe('installMod 覆盖安装（真实 zip 集成）', () => {
     expect(cacheLeftovers).toEqual([])
   })
 
+  it('更新时保留用户开启的根目录 ShaderCacheSettings.ini 与 baseMod 标记', async () => {
+    const modId = 730311
+    const oldDir = writeMod({
+      folderName: 'RabbitFX',
+      meta: { modId, version: 'v10.zip', baseMod: true },
+      files: { 'ShaderCacheSettings.ini': '[Rendering]\ncache_shaders = 1\n' }
+    })
+
+    stubFetchWithZip(makeZip('rabbitfx_v11.zip', { 'RabbitFX.ini': 'namespace = RabbitFX\n' }))
+
+    const res: any = await installMod({
+      downloadUrl: 'https://gamebanana.com/dl/1',
+      targetParentDir: CHAR_DIR(),
+      downloadRoot: path.join(tmpRoot, 'cache'),
+      modId,
+      modName: 'RabbitFX',
+      fileName: 'rabbitfx_v11.zip',
+      version: 'rabbitfx_v11.zip'
+    })
+
+    expect(res.success).toBe(true)
+    expect(res.action).toBe('update')
+    await settle()
+
+    // 新包没有这个文件，用户开启的开关必须被搬回来
+    expect(fs.readFileSync(path.join(oldDir, 'ShaderCacheSettings.ini'), 'utf8')).toContain('cache_shaders = 1')
+    const meta = JSON.parse(fs.readFileSync(path.join(oldDir, 'mod.json'), 'utf8'))
+    expect(meta.baseMod).toBe(true)
+  })
+
+  it('新包自带 ShaderCacheSettings.ini 时以新包为准', async () => {
+    const modId = 730312
+    const oldDir = writeMod({
+      folderName: 'RabbitFX 2',
+      meta: { modId, version: 'v10.zip' },
+      files: { 'ShaderCacheSettings.ini': '[Rendering]\ncache_shaders = 1\n' }
+    })
+
+    stubFetchWithZip(
+      makeZip('rabbitfx_v11.zip', {
+        'RabbitFX.ini': 'namespace = RabbitFX\n',
+        'ShaderCacheSettings.ini': '[Rendering]\ncache_shaders = 0\n'
+      })
+    )
+
+    const res: any = await installMod({
+      downloadUrl: 'https://gamebanana.com/dl/1',
+      targetParentDir: CHAR_DIR(),
+      downloadRoot: path.join(tmpRoot, 'cache'),
+      modId,
+      modName: 'RabbitFX 2',
+      fileName: 'rabbitfx_v11.zip',
+      version: 'rabbitfx_v11.zip'
+    })
+
+    expect(res.success).toBe(true)
+    await settle()
+    expect(fs.readFileSync(path.join(oldDir, 'ShaderCacheSettings.ini'), 'utf8')).toContain('cache_shaders = 0')
+  })
+
   it('同 modId 存在两份历史副本时只覆盖启用的那份，duplicates 回报其余项且不删除', async () => {
     const modId = 730302
     const enabledDir = writeMod({

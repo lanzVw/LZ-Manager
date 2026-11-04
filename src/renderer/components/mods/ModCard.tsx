@@ -101,6 +101,15 @@ const ModCardBase: React.FC<ModCardProps> = ({
               <span>已失效</span>
             </div>
           )}
+          {mod.isBaseMod && (
+            <div
+              className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-primary text-primary-fg font-semibold text-[10px] shadow-xs"
+              title={`基底 Mod${mod.baseModNamespace ? ` · namespace ${mod.baseModNamespace}` : ''}`}
+            >
+              <Layers className="w-3 h-3" />
+              <span>基底 Mod</span>
+            </div>
+          )}
           {mod.enabled ? (
             <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-600 text-white font-semibold text-[10px] shadow-xs">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />

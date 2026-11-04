@@ -68,6 +68,9 @@ export interface ModItem {
   brokenReason?: string
   hasUpdate?: boolean
   updateInfo?: ModUpdateInfo
+  /** 是否为基底 Mod（提供 namespace 给其他 Mod 消费） */
+  isBaseMod?: boolean
+  baseModNamespace?: string
 }
 
 export interface ModDetailedInfo {
@@ -103,6 +106,8 @@ export interface ModDetailedInfo {
     [key: string]: any
   }
   persistInfo?: ModPersistInfo
+  /** 基底 Mod 识别结果（非基底 Mod 为 undefined） */
+  baseModInfo?: BaseModInfo
 }
 
 export interface PresetModRef {
@@ -237,6 +242,75 @@ export interface ModPersistInfo {
   namespace: string
   stateFileName: string
   variables: ModPersistVariable[]
+}
+
+/** 基底 Mod 的着色器缓存开关状态（文件位于 Mod 根目录 / DISABLED 子目录） */
+export interface ShaderCacheState {
+  /** 根目录存在 ShaderCacheSettings.ini */
+  installed: boolean
+  /** installed 且解析出的 cache_shaders === '1' */
+  active: boolean
+  /** [Rendering] cache_shaders 原值，未解析到为 null */
+  value: string | null
+  /** 根目录生效文件绝对路径 */
+  activePath: string | null
+  /** DISABLED/ShaderCacheSettings.ini 模板绝对路径 */
+  templatePath: string | null
+}
+
+export interface BaseModInfo {
+  isBaseMod: boolean
+  /** ini 中 namespace = ...；显式标记但无 namespace 时为空串 */
+  namespace: string
+  /** mod.json.baseMod === true */
+  explicit: boolean
+  shaderCache: ShaderCacheState
+}
+
+export interface ShaderCacheStats {
+  /** 缓存目录绝对路径；envRoot 缺失或路径不安全时为空串 */
+  path: string
+  exists: boolean
+  fileCount: number
+  totalBytes: number
+  lastModified: number
+  error?: string
+}
+
+export interface D3dxCacheRules {
+  d3dxIniPath: string
+  exists: boolean
+  includeRecursiveMods: boolean
+  excludesDisabled: boolean
+  /** 未配置时回退 'ShaderCache' */
+  cacheDirectory: string
+  cacheDirectoryConfigured: boolean
+  /** [Rendering] cache_shaders 的值；未配置为 null */
+  globalCacheShaders: string | null
+}
+
+export interface BaseModStatus {
+  modFullPath: string
+  namespace: string
+  explicit: boolean
+  enabled: boolean
+  shaderCache: ShaderCacheState
+  cacheStats: ShaderCacheStats
+  d3dx: D3dxCacheRules
+}
+
+export interface SetShaderCacheResult {
+  success: boolean
+  state?: ShaderCacheState
+  error?: string
+}
+
+export interface ClearShaderCacheResult {
+  success: boolean
+  deletedCount: number
+  failedCount: number
+  errors: string[]
+  error?: string
 }
 
 /**

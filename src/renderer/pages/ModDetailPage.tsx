@@ -50,6 +50,7 @@ import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable
 import { CropDialog } from '../components/CropDialog'
 import { MoveModModal } from '../components/MoveModModal'
 import { FixResultModal } from '../components/mods/FixResultModal'
+import { BaseModPanel } from '../components/mods/BaseModPanel'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -212,7 +213,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   const [translatingConfig, setTranslatingConfig] = useState<boolean>(false)
   const [parsedHotkeys, setParsedHotkeys] = useState<ParsedHotkey[]>([])
   const [triggeringHotkey, setTriggeringHotkey] = useState<string | null>(null)
-  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'config'>('overview')
+  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'config' | 'base'>('overview')
 
   // 外观分区列表状态
   const [sections, setSections] = useState<AppearanceSection[]>([])
@@ -748,6 +749,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     setMainImageError(false)
   }, [details, currentImageIndex])
 
+  // 从一个基底 Mod 切到普通 Mod 时，详情页组件可能不卸载，必须把 base tab 收回
+  useEffect(() => {
+    if (activeDetailTab === 'base' && !details?.baseModInfo?.isBaseMod) {
+      setActiveDetailTab('overview')
+    }
+  }, [activeDetailTab, details])
+
   // 切换装备状态
   const handleToggle = async () => {
     if (!details) return
@@ -1139,6 +1147,37 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  const detailTabs: Array<{
+    id: 'overview' | 'config' | 'base'
+    label: string
+    icon: React.ReactNode
+    badge?: React.ReactNode
+  }> = [
+    {
+      id: 'overview',
+      label: '模组规格与封面',
+      icon: <Layers className="w-4 h-4" />
+    },
+    {
+      id: 'config',
+      label: '模组配置与脚本',
+      icon: <Sliders className="w-4 h-4" />,
+      badge:
+        ((persistInfo?.variables?.length || 0) + parsedHotkeys.length > 0 || (details.iniFiles?.length || 0) > 0) ? (
+          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-primary/20 text-primary border border-primary/30">
+            {(persistInfo?.variables?.length || 0) + parsedHotkeys.length}
+          </span>
+        ) : undefined
+    }
+  ]
+  if (details.baseModInfo?.isBaseMod) {
+    detailTabs.push({
+      id: 'base',
+      label: '基底 Mod',
+      icon: <Cpu className="w-4 h-4" />
+    })
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto text-text select-none bg-surface/30">
       {/* 1. Sticky Header Bar with Dedicated Two-Row Layout */}
@@ -1235,26 +1274,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         <div className="px-6 py-2 bg-surface/50 backdrop-blur-md">
           <div className="max-w-5xl mx-auto flex items-center justify-between">
             <SegmentedControl
-              items={[
-                {
-                  id: 'overview',
-                  label: '模组规格与封面',
-                  icon: <Layers className="w-4 h-4" />
-                },
-                {
-                  id: 'config',
-                  label: '模组配置与脚本',
-                  icon: <Sliders className="w-4 h-4" />,
-                  badge:
-                    ((persistInfo?.variables?.length || 0) + parsedHotkeys.length > 0 || (details.iniFiles?.length || 0) > 0) ? (
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-primary/20 text-primary border border-primary/30">
-                        {(persistInfo?.variables?.length || 0) + parsedHotkeys.length}
-                      </span>
-                    ) : undefined
-                }
-              ]}
+              items={detailTabs}
               value={activeDetailTab}
-              onChange={(tab) => setActiveDetailTab(tab as 'overview' | 'config')}
+              onChange={(tab) => setActiveDetailTab(tab as 'overview' | 'config' | 'base')}
             />
           </div>
         </div>
@@ -1821,7 +1843,14 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       </div>
     )}
 
-    {/* Tab 2: 模组配置与脚本 */}
+    {/* Tab 2: 基底 Mod */}
+    {activeDetailTab === 'base' && details.baseModInfo?.isBaseMod && (
+      <div className="space-y-6 animate-in fade-in duration-fast">
+        <BaseModPanel modFullPath={details.fullPath} />
+      </div>
+    )}
+
+    {/* Tab 3: 模组配置与脚本 */}
     {activeDetailTab === 'config' && (
       <div className="space-y-6 animate-in fade-in duration-fast">
         {/* 3. 模组配置与按键调控 (MOD CONFIGURATION & KEYBINDS) */}

@@ -1057,6 +1057,56 @@ function setupIpc() {
     return modEngine.getModDetails(modFullPath)
   })
 
+  // 基底 Mod / 着色器缓存
+  ipcMain.handle('baseMod:getStatus', (_, modFullPath: string) => {
+    const g = configStore.getActiveGame()
+    if (!g) return null
+    modEngine.setModFolderPath(g.modFolderPath)
+    return modEngine.getBaseModStatus(modFullPath, getEnvRootForGame(g))
+  })
+
+  ipcMain.handle('baseMod:setShaderCache', (_, modFullPath: string, enabled: boolean) => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择游戏' }
+    modEngine.setModFolderPath(g.modFolderPath)
+    return modEngine.setShaderCacheEnabled(modFullPath, enabled === true)
+  })
+
+  ipcMain.handle('baseMod:clearShaderCache', async () => {
+    const g = configStore.getActiveGame()
+    if (!g) {
+      return { success: false, deletedCount: 0, failedCount: 0, errors: [], error: '未选择游戏' }
+    }
+    const candidates = gameFocusService.getCandidateProcessNames(g)
+    const procName = g.gamePath ? path.basename(g.gamePath) : ''
+    const running =
+      candidates.length > 0
+        ? await isGameRunningCached(candidates)
+        : procName
+          ? await isGameRunningCached(procName)
+          : false
+    if (running) {
+      return {
+        success: false,
+        deletedCount: 0,
+        failedCount: 0,
+        errors: [],
+        error: '游戏正在运行，请先退出游戏再清理着色器缓存'
+      }
+    }
+    return modEngine.clearShaderCache(getEnvRootForGame(g))
+  })
+
+  ipcMain.handle('baseMod:openShaderCache', async () => {
+    const g = configStore.getActiveGame()
+    if (!g) return { success: false, error: '未选择游戏' }
+    const info = modEngine.getShaderCacheInfo(getEnvRootForGame(g))
+    if (!info.path) return { success: false, error: info.error || '未找到着色器缓存目录' }
+    if (!info.exists) return { success: false, error: '缓存目录尚不存在，游戏首次启用缓存后会生成' }
+    const err = await shell.openPath(info.path)
+    return err ? { success: false, error: err } : { success: true, path: info.path }
+  })
+
   ipcMain.handle('mods:saveMetadata', (_, modFullPath: string, metadata: any) => {
     return modEngine.saveModMetadata(modFullPath, metadata)
   })

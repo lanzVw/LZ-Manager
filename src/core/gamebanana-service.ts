@@ -1383,7 +1383,8 @@ const MOD_META_USER_KEYS = [
   "valueLabels",
   "appearanceSectionId",
   "modBroken",
-  "brokenReason"
+  "brokenReason",
+  "baseMod"
 ];
 
 /**
@@ -1623,6 +1624,17 @@ function mergePreservedUserFiles(backupDir, targetDir) {
       console.warn("[GameBananaService] 合并 tags.json 失败:", err?.message || err);
     }
   }
+
+  // 用户通过「基底 Mod」面板开启的着色器缓存开关写在 Mod 根目录；
+  // 作者更新包里通常没有这个文件，必须原样搬回，否则开关会被静默重置。
+  // 新包自带同名文件时以新包为准（放在这里的 if 条件里判断）。
+  try {
+    const oldCacheSettings = path.join(backupDir, "ShaderCacheSettings.ini");
+    const newCacheSettings = path.join(targetDir, "ShaderCacheSettings.ini");
+    if (fs.existsSync(oldCacheSettings) && !fs.existsSync(newCacheSettings)) {
+      fs.copyFileSync(oldCacheSettings, newCacheSettings);
+    }
+  } catch (_) {}
 
   try {
     const oldCovers = fs.readdirSync(backupDir).filter((name) => COVER_FILE_PATTERN.test(name));

@@ -1,10 +1,11 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import { ModItem, ModDetailedInfo, AppearanceSection } from './types'
+import { ModItem, ModDetailedInfo, AppearanceSection, BaseModInfo, BaseModStatus, ShaderCacheState, ShaderCacheStats, D3dxCacheRules, SetShaderCacheResult, ClearShaderCacheResult } from './types'
 import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
+import { parseIniNamespace, parseShaderCacheValue, parseD3dxCacheRules } from './base-mod'
 
 /** 内容哈希，用于市场截图去重（同一张图可能既在根目录又出现在市场接口里） */
 function hashBuffer(buf: Buffer): string {
@@ -241,6 +242,7 @@ export class ModEngine {
             let appearanceSectionId = 'base'
             let modBroken = false
             let brokenReason: string | undefined = undefined
+            let explicitBaseMod = false
 
             try {
               const metaPath = path.join(fullModPath, 'mod.json')
@@ -252,6 +254,9 @@ export class ModEngine {
                 if (metaData?.modBroken) {
                   modBroken = true
                   brokenReason = metaData.brokenReason || ''
+                }
+                if (metaData?.baseMod === true) {
+                  explicitBaseMod = true
                 }
               }
             } catch (_) {}
@@ -266,6 +271,8 @@ export class ModEngine {
               }
             } catch (_) {}
 
+            const baseInfo = this.detectBaseMod(fullModPath, explicitBaseMod)
+
             modsList.push({
               id: `${charName}::${rawName}`,
               name: rawName,
@@ -279,7 +286,9 @@ export class ModEngine {
               mtime,
               appearanceSectionId,
               modBroken,
-              brokenReason
+              brokenReason,
+              isBaseMod: Boolean(baseInfo),
+              baseModNamespace: baseInfo?.namespace || undefined
             })
           }
         } catch (err) {
@@ -945,6 +954,9 @@ export class ModEngine {
       } catch (_) {}
     }
 
+    // 基底 Mod 识别：显式标记已在 metadata 里，传进去避免二次读 mod.json
+    const baseModInfo = this.detectBaseMod(modFullPath, metadata?.baseMod === true) || undefined
+
     // 1) 用户显式指定的封面优先（mod.json 的 coverImage 相对路径）
     if (typeof metadata.coverImage === 'string' && metadata.coverImage) {
       const wanted = path.join(modFullPath, metadata.coverImage.split('/').join(path.sep))
@@ -1061,7 +1073,8 @@ export class ModEngine {
         source: metadata.source || (sourceUrl?.includes('gamebanana.com') ? 'GameBanana' : ''),
         appearanceSectionId
       },
-      persistInfo
+      persistInfo,
+      baseModInfo
     }
   }
 
@@ -1903,6 +1916,362 @@ export class ModEngine {
       return names.map((n) => path.join(imgDir, n))
     } catch (_) {
       return []
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 基底 Mod / 着色器缓存
+  // ---------------------------------------------------------------------------
+
+  /** 与 resolveInsideModRoot 同级的通用目录守卫（缓存目录在 Mods 根之外） */
+  private resolveInsideDirectory(rootDir: string, targetPath: string): string | null {
+    try {
+      if (!rootDir) return null
+      const root = path.resolve(rootDir)
+      const resolved = path.resolve(String(targetPath || ''))
+      const rel = path.relative(root, resolved)
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+      return resolved
+    } catch (_) {
+      return null
+    }
+  }
+
+  /** 解析已存在路径的 realpath；路径不存在时解析父目录再拼回 basename */
+  private realpathOrParent(targetPath: string): string | null {
+    try {
+      if (fs.existsSync(targetPath)) return fs.realpathSync.native(targetPath)
+      const parent = path.dirname(targetPath)
+      if (!fs.existsSync(parent)) return null
+      return path.join(fs.realpathSync.native(parent), path.basename(targetPath))
+    } catch (_) {
+      return null
+    }
+  }
+
+  /**
+   * 解析 d3dx.ini 的 cache_directory 并做包含校验。
+   * 缓存目录在 envRoot 之外时拒绝；同时拒绝会误删用户数据的目录名
+   * （cache 是 Persist Bridge 的状态目录，Mods/ShaderFixes/Core/qaqm 同理）。
+   */
+  private resolveCacheDirectory(envRoot: string, cacheDirectory: string): string | null {
+    try {
+      if (!envRoot || !cacheDirectory) return null
+      const rootReal = fs.existsSync(envRoot) ? fs.realpathSync.native(envRoot) : path.resolve(envRoot)
+      const rawTarget = path.isAbsolute(cacheDirectory)
+        ? cacheDirectory
+        : path.resolve(rootReal, cacheDirectory)
+      const targetReal = this.realpathOrParent(rawTarget)
+      if (!targetReal) return null
+
+      const rel = path.relative(rootReal, targetReal)
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+
+      const base = path.basename(targetReal).toLowerCase()
+      if (['mods', 'shaderfixes', 'core', 'qaqm', 'cache', 'resources'].includes(base)) return null
+
+      // 目标不能是 Mod 根目录本身或它的祖先
+      if (this.modFolderPath) {
+        const modRoot = path.resolve(this.modFolderPath)
+        const relToTarget = path.relative(targetReal, modRoot)
+        if (!relToTarget || (!relToTarget.startsWith('..') && !path.isAbsolute(relToTarget))) return null
+      }
+
+      if (fs.existsSync(targetReal) && !fs.statSync(targetReal).isDirectory()) return null
+      return targetReal
+    } catch (_) {
+      return null
+    }
+  }
+
+  /** 读取 Mod 根目录下 ShaderCacheSettings.ini 的启用状态 */
+  public getShaderCacheState(modDir: string): ShaderCacheState {
+    const empty: ShaderCacheState = {
+      installed: false,
+      active: false,
+      value: null,
+      activePath: null,
+      templatePath: null
+    }
+    const safeDir = this.resolveInsideModRoot(modDir)
+    if (!safeDir) return empty
+
+    const activePath = path.join(safeDir, 'ShaderCacheSettings.ini')
+    const templatePath = path.join(safeDir, 'DISABLED', 'ShaderCacheSettings.ini')
+    const hasActive = fs.existsSync(activePath)
+    const hasTemplate = fs.existsSync(templatePath)
+
+    let value: string | null = null
+    if (hasActive) {
+      try {
+        value = parseShaderCacheValue(readTextAuto(activePath).content)
+      } catch (_) {}
+    }
+
+    return {
+      installed: hasActive,
+      active: hasActive && value === '1',
+      value,
+      activePath: hasActive ? activePath : null,
+      templatePath: hasTemplate ? templatePath : null
+    }
+  }
+
+  /**
+   * 从 Mod 根目录的 ini 中解析 namespace。
+   *
+   * 必须按文件大小从大到小读：RabbitFX 根目录同时有 RabbitFX.ini（60 KB，
+   * namespace = RabbitFX）和 deltaTime.ini（485 B，namespace = time），
+   * 按文件名排序会错误地选中 time，导致依赖扫描完全失效。
+   */
+  private readModNamespace(modDir: string): string {
+    try {
+      const candidates = fs
+        .readdirSync(modDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.ini'))
+        .map((entry) => {
+          const fullPath = path.join(modDir, entry.name)
+          let size = 0
+          try {
+            size = fs.statSync(fullPath).size
+          } catch (_) {}
+          return { fullPath, size }
+        })
+        .filter((item) => item.size > 0 && item.size <= 4 * 1024 * 1024)
+        .sort((a, b) => b.size - a.size)
+        .slice(0, 10)
+
+      for (const item of candidates) {
+        try {
+          const namespace = parseIniNamespace(readTextAuto(item.fullPath).content)
+          if (namespace) return namespace
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return ''
+  }
+
+  /**
+   * 识别基底 Mod。
+   * 判据：存在 ShaderCacheSettings.ini（根目录或 DISABLED/）且能解析出 namespace；
+   * mod.json 的 baseMod === true 可作为手动兜底。
+   * explicitBaseMod 传入 false/true 表示调用方已读过 mod.json，避免重复读盘。
+   */
+  public detectBaseMod(modDir: string, explicitBaseMod?: boolean): BaseModInfo | null {
+    const safeDir = this.resolveInsideModRoot(modDir)
+    if (!safeDir || !fs.existsSync(safeDir)) return null
+
+    const shaderCache = this.getShaderCacheState(safeDir)
+    let explicit = explicitBaseMod === true
+    if (explicitBaseMod === undefined) {
+      try {
+        const metaPath = path.join(safeDir, 'mod.json')
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+          explicit = meta?.baseMod === true
+        }
+      } catch (_) {}
+    }
+
+    if (!explicit && !shaderCache.activePath && !shaderCache.templatePath) return null
+
+    const namespace = this.readModNamespace(safeDir)
+    if (!explicit && !namespace) return null
+
+    return { isBaseMod: true, namespace, explicit, shaderCache }
+  }
+
+  /**
+   * 开关着色器缓存：在 Mod 根目录与 DISABLED/ 模板之间复制/移除文件。
+   * 永远保留 DISABLED/ 模板；模板缺失时停用会把根目录文件移回去，避免删掉唯一副本。
+   */
+  public setShaderCacheEnabled(modFullPath: string, enabled: boolean): SetShaderCacheResult {
+    const safeDir = this.resolveInsideModRoot(modFullPath)
+    if (!safeDir || !fs.existsSync(safeDir)) {
+      return { success: false, error: 'Mod 目录不存在' }
+    }
+
+    const activePath = path.join(safeDir, 'ShaderCacheSettings.ini')
+    const templatePath = path.join(safeDir, 'DISABLED', 'ShaderCacheSettings.ini')
+    const state = this.getShaderCacheState(safeDir)
+
+    try {
+      if (enabled) {
+        if (state.installed && state.value === '1') {
+          return { success: true, state }
+        }
+        if (!fs.existsSync(templatePath)) {
+          return { success: false, error: '未找到 ShaderCacheSettings.ini 模板（DISABLED 目录）' }
+        }
+        // 覆盖写入：处理「根目录文件存在但 cache_shaders 不是 1」的残留状态
+        fs.mkdirSync(path.dirname(activePath), { recursive: true })
+        fs.copyFileSync(templatePath, activePath)
+        return { success: true, state: this.getShaderCacheState(safeDir) }
+      }
+
+      if (!fs.existsSync(activePath)) {
+        return { success: true, state }
+      }
+      if (fs.existsSync(templatePath)) {
+        fs.unlinkSync(activePath)
+      } else {
+        fs.mkdirSync(path.dirname(templatePath), { recursive: true })
+        fs.renameSync(activePath, templatePath)
+      }
+      return { success: true, state: this.getShaderCacheState(safeDir) }
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) }
+    }
+  }
+
+  /** 读取 envRoot/d3dx.ini 中与 Mod 扫描、着色器缓存相关的规则 */
+  public getD3dxCacheRules(envRoot?: string): D3dxCacheRules {
+    const root = String(envRoot || this.envRoot || '').trim()
+    const d3dxIniPath = root ? path.join(root, 'd3dx.ini') : ''
+    const defaults: D3dxCacheRules = {
+      d3dxIniPath,
+      exists: false,
+      includeRecursiveMods: false,
+      excludesDisabled: false,
+      cacheDirectory: 'ShaderCache',
+      cacheDirectoryConfigured: false,
+      globalCacheShaders: null
+    }
+    if (!d3dxIniPath || !fs.existsSync(d3dxIniPath)) return defaults
+
+    try {
+      const parsed = parseD3dxCacheRules(readTextAuto(d3dxIniPath).content)
+      return {
+        d3dxIniPath,
+        exists: true,
+        includeRecursiveMods: parsed.includeRecursive.some((v) => /^mods[\\/]?$/i.test(v.trim())),
+        excludesDisabled: parsed.excludeRecursive.some((v) => /^disabled/i.test(v.trim())),
+        cacheDirectory: parsed.cacheDirectory?.trim() || 'ShaderCache',
+        cacheDirectoryConfigured: Boolean(parsed.cacheDirectory?.trim()),
+        globalCacheShaders: parsed.cacheShaders
+      }
+    } catch (_) {
+      return { ...defaults, exists: true }
+    }
+  }
+
+  /** 统计 ShaderCache 目录的文件数 / 体积 / 最近写入时间 */
+  public getShaderCacheInfo(envRoot?: string): ShaderCacheStats {
+    const root = String(envRoot || this.envRoot || '').trim()
+    const rules = this.getD3dxCacheRules(root)
+    const cacheDir = root ? this.resolveCacheDirectory(root, rules.cacheDirectory) : null
+    const empty: ShaderCacheStats = {
+      path: '',
+      exists: false,
+      fileCount: 0,
+      totalBytes: 0,
+      lastModified: 0
+    }
+
+    if (!cacheDir) {
+      return {
+        ...empty,
+        error: root ? `缓存目录不在允许范围内: ${rules.cacheDirectory}` : '未配置游戏运行环境目录'
+      }
+    }
+    if (!fs.existsSync(cacheDir)) return { ...empty, path: cacheDir }
+
+    let fileCount = 0
+    let totalBytes = 0
+    let lastModified = 0
+    const stack: string[] = [cacheDir]
+
+    while (stack.length > 0) {
+      const dir = stack.pop()!
+      let entries: fs.Dirent[]
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      } catch (_) {
+        continue
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isSymbolicLink()) continue
+        if (entry.isDirectory()) {
+          stack.push(fullPath)
+          continue
+        }
+        if (!entry.isFile()) continue
+        try {
+          const stat = fs.statSync(fullPath)
+          fileCount++
+          totalBytes += stat.size
+          if (stat.mtimeMs > lastModified) lastModified = stat.mtimeMs
+        } catch (_) {}
+      }
+    }
+
+    return { path: cacheDir, exists: true, fileCount, totalBytes, lastModified }
+  }
+
+  /** 清空 ShaderCache 目录内容（保留目录本身） */
+  public clearShaderCache(envRoot?: string): ClearShaderCacheResult {
+    const root = String(envRoot || this.envRoot || '').trim()
+    const rules = this.getD3dxCacheRules(root)
+    const cacheDir = root ? this.resolveCacheDirectory(root, rules.cacheDirectory) : null
+
+    if (!cacheDir) {
+      return {
+        success: false,
+        deletedCount: 0,
+        failedCount: 0,
+        errors: [],
+        error: root ? '缓存目录不在允许范围内' : '未配置游戏运行环境目录'
+      }
+    }
+    if (!fs.existsSync(cacheDir)) {
+      return { success: true, deletedCount: 0, failedCount: 0, errors: [] }
+    }
+
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(cacheDir, { withFileTypes: true })
+    } catch (err: any) {
+      return {
+        success: false,
+        deletedCount: 0,
+        failedCount: 0,
+        errors: [],
+        error: err?.message || String(err)
+      }
+    }
+
+    let deletedCount = 0
+    let failedCount = 0
+    const errors: string[] = []
+    for (const entry of entries) {
+      const fullPath = path.join(cacheDir, entry.name)
+      try {
+        fs.rmSync(fullPath, { recursive: true, force: true })
+        deletedCount++
+      } catch (err: any) {
+        failedCount++
+        if (errors.length < 5) errors.push(`${entry.name}: ${err?.message || err}`)
+      }
+    }
+
+    return { success: failedCount === 0, deletedCount, failedCount, errors }
+  }
+
+  /** 基底 Mod 详情页所需的完整状态 */
+  public getBaseModStatus(modFullPath: string, envRoot?: string): BaseModStatus | null {
+    const info = this.detectBaseMod(modFullPath)
+    const safeDir = this.resolveInsideModRoot(modFullPath)
+    if (!info || !safeDir) return null
+
+    return {
+      modFullPath: safeDir,
+      namespace: info.namespace,
+      explicit: info.explicit,
+      enabled: !path.basename(safeDir).startsWith('DISABLED_'),
+      shaderCache: info.shaderCache,
+      cacheStats: this.getShaderCacheInfo(envRoot),
+      d3dx: this.getD3dxCacheRules(envRoot)
     }
   }
 }

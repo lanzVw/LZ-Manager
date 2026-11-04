@@ -2,7 +2,9 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppearanceSection,
   AppConfig,
+  BaseModStatus,
   CharacterConflictReport,
+  ClearShaderCacheResult,
   EnvironmentStatus,
   GameBananaInstallResult,
   GamePresets,
@@ -15,7 +17,8 @@ import type {
   PresetApplyResult,
   PresetChangeReason,
   PresetMutationResult,
-  PresetPruneResult
+  PresetPruneResult,
+  SetShaderCacheResult
 } from '../core/types'
 
 const flairxApi = {
@@ -38,6 +41,14 @@ const flairxApi = {
     ipcRenderer.invoke('mods:toggle', characterName, modName, enabled),
   getModDetails: (modFullPath: string): Promise<ModDetailedInfo | null> =>
     ipcRenderer.invoke('mods:getDetails', modFullPath),
+  getBaseModStatus: (modFullPath: string): Promise<BaseModStatus | null> =>
+    ipcRenderer.invoke('baseMod:getStatus', modFullPath),
+  setShaderCacheEnabled: (modFullPath: string, enabled: boolean): Promise<SetShaderCacheResult> =>
+    ipcRenderer.invoke('baseMod:setShaderCache', modFullPath, enabled),
+  clearShaderCache: (): Promise<ClearShaderCacheResult> =>
+    ipcRenderer.invoke('baseMod:clearShaderCache'),
+  openShaderCacheFolder: (): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('baseMod:openShaderCache'),
   saveModMetadata: (modFullPath: string, metadata: any): Promise<boolean> =>
     ipcRenderer.invoke('mods:saveMetadata', modFullPath, metadata),
   setModBrokenStatus: (modFullPath: string, isBroken: boolean, reason?: string): Promise<{ success: boolean }> =>
