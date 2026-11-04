@@ -6,7 +6,7 @@ function stubMod(
   opts: {
     version?: string
     dateModified: number
-    files: Array<{ id: number; fileName: string; dateAdded: number }>
+    files: Array<{ id: number; fileName: string; dateAdded: number; description?: string; isArchived?: boolean }>
   }
 ) {
   const payload = {
@@ -21,6 +21,8 @@ function stubMod(
       _sFile: f.fileName,
       _nFilesize: 1024,
       _sDownloadUrl: `https://gamebanana.com/dl/${f.id}`,
+      _sDescription: f.description || '',
+      _bIsArchived: f.isArchived || false,
       _tsDateAdded: f.dateAdded
     }))
   }
@@ -149,5 +151,153 @@ describe('checkModUpdate 更新判定', () => {
     expect(res.hasUpdate).toBe(false)
     expect(res.checked).toBe(true)
     expect(res.changelog).toBe('')
+  })
+
+  it('7. 多文件 Mod：工具包比主文件新，本地装的是主文件 → 不报更新，latestFile 指向主文件', async () => {
+    const modId = 671945
+    const mainFile = '28_2d258.zip'
+    stubMod(modId, {
+      version: '2.8 | 4.6E4',
+      dateModified: 1792117599,
+      files: [
+        { id: 1, fileName: 'cnmodfixer_faf22.zip', dateAdded: 1792117481, description: 'CN Mod Fixer Tool' },
+        { id: 2, fileName: 'examples.zip', dateAdded: 1792117403, description: 'Example for modders' },
+        {
+          id: 3,
+          fileName: mainFile,
+          dateAdded: 1792091301,
+          description: 'Main File, if unsure which to download get this one'
+        },
+        { id: 4, fileName: 'v46e4.zip', dateAdded: 1792091301, description: 'EXPERIMENTAL' }
+      ]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: '2026/11/4',
+      localVersion: mainFile
+    })
+
+    expect(res.hasUpdate).toBe(false)
+    expect(res.latestFile?.fileName).toBe(mainFile)
+    expect(res.downloadUrl).toBe('https://gamebanana.com/dl/3')
+  })
+
+  it('8. 本地是人类版本 2.8，线上 _sVersion 是 "2.8 | 4.6E4"（主文件 + 实验版）→ 不报更新', async () => {
+    const modId = 671946
+    stubMod(modId, {
+      version: '2.8 | 4.6E4',
+      dateModified: 1792117599,
+      files: [
+        { id: 1, fileName: '28_2d258.zip', dateAdded: 1792091301, description: 'Main File' },
+        { id: 2, fileName: 'v46e4.zip', dateAdded: 1792091301, description: 'EXPERIMENTAL' }
+      ]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: '2026/11/4',
+      localVersion: '2.8'
+    })
+
+    expect(res.hasUpdate).toBe(false)
+    expect(res.remoteVersion).toBe('2.8 | 4.6E4')
+  })
+
+  it('9. 本地 2.8，线上 2.9 | 4.7E4 → 报更新', async () => {
+    const modId = 671947
+    stubMod(modId, {
+      version: '2.9 | 4.7E4',
+      dateModified: 1793000000,
+      files: [
+        { id: 1, fileName: 'newmain.zip', dateAdded: 1793000000, description: 'Main File' }
+      ]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: '2026/10/16',
+      localVersion: '2.8'
+    })
+
+    expect(res.hasUpdate).toBe(true)
+    expect(res.remoteVersion).toBe('2.9 | 4.7E4')
+  })
+
+  it('10. 本地是旧主文件，线上有新主文件 + 更新的工具包 → 报更新，latestFile 仍是新主文件', async () => {
+    const modId = 671948
+    stubMod(modId, {
+      version: '3.0',
+      dateModified: 1793000000,
+      files: [
+        { id: 1, fileName: 'newtool.zip', dateAdded: 1793000000, description: 'CN Mod Fixer Tool' },
+        { id: 2, fileName: 'newmain.zip', dateAdded: 1792000000, description: 'Main File' },
+        { id: 3, fileName: 'oldmain.zip', dateAdded: 1791000000, description: 'Main File' }
+      ]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: '2026/10/16',
+      localVersion: 'oldmain.zip'
+    })
+
+    expect(res.hasUpdate).toBe(true)
+    expect(res.latestFile?.fileName).toBe('newmain.zip')
+    expect(res.downloadUrl).toBe('https://gamebanana.com/dl/2')
+  })
+
+  it('11. 本地装的是实验版，实验版仍在清单且与主文件同日发布 → 不报更新', async () => {
+    const modId = 671949
+    stubMod(modId, {
+      version: '2.8 | 4.6E4',
+      dateModified: 1792117599,
+      files: [
+        { id: 1, fileName: '28_2d258.zip', dateAdded: 1792091301, description: 'Main File' },
+        { id: 2, fileName: 'v46e4.zip', dateAdded: 1792091301, description: 'EXPERIMENTAL' }
+      ]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: '2026/11/4',
+      localVersion: 'v46e4.zip'
+    })
+
+    expect(res.hasUpdate).toBe(false)
+  })
+
+  it('12. 本地文件名已不在清单（作者重传），新主文件比本地安装时间新 → 报更新', async () => {
+    const modId = 671950
+    stubMod(modId, {
+      version: '3.0',
+      dateModified: 1793000000,
+      files: [{ id: 1, fileName: 'newmain.zip', dateAdded: 1793000000, description: 'Main File' }]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: 1792000000,
+      localVersion: 'oldmain.zip'
+    })
+
+    expect(res.hasUpdate).toBe(true)
+  })
+
+  it('13. 本地文件名已不在清单，但新主文件比本地安装时间旧 → 不报更新', async () => {
+    const modId = 671951
+    stubMod(modId, {
+      version: '3.0',
+      dateModified: 1793000000,
+      files: [{ id: 1, fileName: 'newmain.zip', dateAdded: 1792000000, description: 'Main File' }]
+    })
+
+    const res: any = await checkModUpdate({
+      modId,
+      localDate: 1793000000,
+      localVersion: 'oldmain.zip'
+    })
+
+    expect(res.hasUpdate).toBe(false)
   })
 })

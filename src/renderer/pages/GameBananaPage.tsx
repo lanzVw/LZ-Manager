@@ -1026,6 +1026,8 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                 installingFileId={installingFileId}
                 progressPercent={progressPercent}
                 installedVersions={installedVersions}
+                installedVersion={installedTarget?.existing?.version}
+                remoteVersion={detailMod.version}
                 busy={installingFileId !== null}
                 onInstall={(file) => void handleFileInstall(detailMod, file)}
               />

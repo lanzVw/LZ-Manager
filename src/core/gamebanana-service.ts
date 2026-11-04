@@ -12,6 +12,7 @@ const { pipeline } = require("stream/promises");
 const execFileAsync = promisify(execFile);
 import { getCharactersForGame, normalizeCharacterName } from "./characters-data";
 import { autoTranslateModConfig } from "./mod-translator";
+import { pickMainGameBananaFile, versionsMatch } from "./gamebanana-files";
 import type { GameBananaInstallResult, ModInstallTarget } from "./types";
 
 /**
@@ -2028,72 +2029,111 @@ async function installMod(rawParams: any = {}): Promise<GameBananaInstallResult>
  */
 const updateCache = new Map<number, { data: any; expireAt: number }>()
 
-function evaluateUpdate(details: any, localDate?: any, localVersion?: string) {
-  const remoteDate = details.dateModified || details.dateUpdated || details.dateAdded || 0
-  const remoteVersion = details.version || details.files?.[0]?.fileName || ''
+const ARCHIVE_EXT_PATTERN = /\.(zip|7z|rar|tar|gz|bz2|xz)$/i
 
-  // 提取最新更新日志摘要
-  let changelog = ''
+function toEpochSeconds(value: any): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1e11 ? Math.floor(value / 1000) : value;
+  }
+  if (typeof value === "string" && value) {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return Math.floor(parsed / 1000);
+  }
+  return 0;
+}
+
+function extractChangelog(details: any): string {
   if (Array.isArray(details.changelog) && details.changelog.length > 0) {
-    const latestCl = details.changelog[0]
-    changelog = typeof latestCl === 'string' ? latestCl : (latestCl._sText || latestCl.text || '')
-  } else if (details.description) {
-    changelog = details.description.slice(0, 150)
+    const latest = details.changelog[0];
+    return typeof latest === "string" ? latest : (latest._sText || latest.text || "");
   }
+  return details.description ? details.description.slice(0, 150) : "";
+}
 
-  // 计算本地时间戳 (秒)
-  let localSec = 0
-  if (typeof localDate === 'number') {
-    localSec = localDate > 1e11 ? Math.floor(localDate / 1000) : localDate
-  } else if (typeof localDate === 'string' && localDate) {
-    const parsed = Date.parse(localDate)
-    if (!isNaN(parsed)) localSec = Math.floor(parsed / 1000)
-  }
+/**
+ * 更新判定。
+ *
+ * 关键约束：一个 GameBanana 页面可能同时挂着主文件、实验版、工具包、示例包和演示包，
+ * 不能拿 files[0] 当"线上最新版本"——作者后补一个工具包后，files[0] 会变成工具，
+ * 本地明明是最新主文件也会被误报更新。主文件必须按描述里的 "Main File" 选。
+ */
+function evaluateUpdate(details: any, localDate?: any, localVersion?: string) {
+  const remoteDate = details.dateModified || details.dateUpdated || details.dateAdded || 0;
+  const files = Array.isArray(details.files) ? details.files : [];
+  const mainFile = pickMainGameBananaFile<any>(files);
+  const remoteVersion = details.version || mainFile?.fileName || "";
 
-  // 本地记录的 version 就是安装时那份 GameBanana 文件名，同名即同一份文件
-  // （GameBanana 文件名带随机后缀，重传必然改名），因此版本号字符串和页面修改时间都不应再算作更新。
-  const latestFileName = details.files?.[0]?.fileName ? String(details.files[0].fileName).trim() : ''
-  const cleanLocalVersion = localVersion ? String(localVersion).trim() : ''
-  if (latestFileName && cleanLocalVersion && latestFileName.toLowerCase() === cleanLocalVersion.toLowerCase()) {
-    return {
-      hasUpdate: false,
-      checked: true,
-      modId: details.id,
-      remoteVersion: remoteVersion || '最新版本',
-      remoteDate: remoteDate ? remoteDate * 1000 : 0,
-      remoteName: details.name,
-      changelog: '',
-      latestFile: details.files?.[0] || null,
-      downloadUrl: details.files?.[0]?.downloadUrl || null
-    }
-  }
+  const localRaw = String(localVersion || "").trim();
+  const localIsFileName = ARCHIVE_EXT_PATTERN.test(localRaw);
+  const localFile = localRaw
+    ? files.find(
+        (file: any) =>
+          String(file.fileName || "").trim().toLowerCase() === localRaw.toLowerCase()
+      )
+    : null;
 
-  let hasUpdate = false
-  // 判定规则 1：远程修改时间比本地记录晚 1 小时 (3600秒) 以上
-  if (remoteDate && localSec && remoteDate > localSec + 3600) {
-    hasUpdate = true
-  }
-
-  // 判定规则 2：版本号字符串不同
-  if (!hasUpdate && remoteVersion && localVersion) {
-    const cleanRemote = String(remoteVersion).replace(/^[vV]/, '').replace(/版$/, '').trim()
-    const cleanLocal = String(localVersion).replace(/^[vV]/, '').replace(/版$/, '').trim()
-    if (cleanRemote && cleanLocal && cleanRemote !== cleanLocal) {
-      hasUpdate = true
-    }
-  }
-
-  return {
+  const buildResult = (hasUpdate: boolean, changelog: string) => ({
     hasUpdate,
     checked: true,
     modId: details.id,
-    remoteVersion: remoteVersion || '最新版本',
+    remoteVersion: remoteVersion || "最新版本",
     remoteDate: remoteDate ? remoteDate * 1000 : 0,
     remoteName: details.name,
     changelog,
-    latestFile: details.files?.[0] || null,
-    downloadUrl: details.files?.[0]?.downloadUrl || null
+    latestFile: mainFile,
+    downloadUrl: mainFile?.downloadUrl || null
+  });
+
+  // 1. 本地记录的是文件名，且就是主文件：同一份上传（GameBanana 重传必改名）
+  if (
+    localIsFileName &&
+    mainFile &&
+    String(mainFile.fileName || "").trim().toLowerCase() === localRaw.toLowerCase()
+  ) {
+    return buildResult(false, "");
   }
+
+  // 2. 本地记录的是文件名，仍在远端清单里但不是主文件（实验版 / 旧版）
+  if (localIsFileName && localFile) {
+    const localFileDate = Number(localFile.dateAdded) || 0;
+    const mainFileDate = Number(mainFile?.dateAdded) || 0;
+    const hasUpdate = Boolean(mainFileDate && localFileDate && mainFileDate > localFileDate + 3600);
+    return buildResult(hasUpdate, hasUpdate ? extractChangelog(details) : "");
+  }
+
+  // 3. 本地记录的是文件名，但已不在远端清单：作者重传了主文件
+  if (localIsFileName) {
+    const localSec = toEpochSeconds(localDate);
+    const mainFileDate = Number(mainFile?.dateAdded) || 0;
+    let hasUpdate = false;
+    if (mainFileDate && localSec) {
+      hasUpdate = mainFileDate > localSec + 3600;
+    } else if (mainFileDate) {
+      // 没有本地时间可比，但本地文件已被删除，保守地认为有更新
+      hasUpdate = true;
+    } else if (remoteDate && localSec) {
+      hasUpdate = remoteDate > localSec + 3600;
+    }
+    return buildResult(hasUpdate, hasUpdate ? extractChangelog(details) : "");
+  }
+
+  // 4. 本地记录的是人类版本号：与 profile 的 _sVersion 按 token 比较。
+  //    作者可能写成 "2.8 | 4.6E4"（主文件 + 实验版），本地 "2.8" 命中任意 token 即视为最新。
+  if (localRaw) {
+    if (details.version) {
+      const hasUpdate = !versionsMatch(localRaw, details.version);
+      return buildResult(hasUpdate, hasUpdate ? extractChangelog(details) : "");
+    }
+    const localSec = toEpochSeconds(localDate);
+    const mainFileDate = Number(mainFile?.dateAdded) || 0;
+    const hasUpdate = Boolean(mainFileDate && localSec && mainFileDate > localSec + 3600);
+    return buildResult(hasUpdate, hasUpdate ? extractChangelog(details) : "");
+  }
+
+  // 5. 本地没有版本号：只按日期判断
+  const localSec = toEpochSeconds(localDate);
+  const hasUpdate = Boolean(remoteDate && localSec && remoteDate > localSec + 3600);
+  return buildResult(hasUpdate, hasUpdate ? extractChangelog(details) : "");
 }
 
 /**

@@ -4,6 +4,7 @@ import { Badge } from '../ui/Badge'
 import { GameBananaInstallButton } from './GameBananaInstallButton'
 import { formatDate, formatFileSize } from '../../utils/gamebanana-format'
 import { isGameBananaFileInstalled } from '../../utils/gamebanana-install'
+import { isMainGameBananaFile, mainVersionToken, versionsMatch } from '../../../core/gamebanana-files'
 
 export interface GameBananaMarketFile {
   id: number | string
@@ -23,6 +24,10 @@ export interface GameBananaFileListProps {
   installingFileId: number | string | null
   progressPercent: number
   installedVersions: ReadonlySet<string>
+  /** 本地 mod.json 的 version；用于把「人类版本号」映射回主文件 */
+  installedVersion?: string
+  /** 线上 profile 的 _sVersion；可能写成 "2.8 | 4.6E4" */
+  remoteVersion?: string
   busy: boolean
   onInstall: (file: GameBananaMarketFile) => void
 }
@@ -37,12 +42,28 @@ export const GameBananaFileList: React.FC<GameBananaFileListProps> = ({
   installingFileId,
   progressPercent,
   installedVersions,
+  installedVersion,
+  remoteVersion,
   busy,
   onInstall
 }) => {
-  const sortedFiles = React.useMemo(
-    () => [...(files || [])].sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0)),
-    [files]
+  const sortedFiles = React.useMemo(() => {
+    // 主文件置顶：作者后补的工具/示例包发布时间更晚，不能靠日期把它们排到主文件前面
+    return [...(files || [])].sort((a, b) => {
+      const mainDelta = Number(isMainGameBananaFile(b)) - Number(isMainGameBananaFile(a))
+      if (mainDelta !== 0) return mainDelta
+      return (b.dateAdded || 0) - (a.dateAdded || 0)
+    })
+  }, [files])
+
+  // 本地 version 是 "2.8" 这类人类版本号时，文件清单里没有同名文件可匹配；
+  // 用 profile 版本串的第一个 token 把主文件标成已安装，避免用户以为还要再装一次。
+  const hasExactFileMatch = sortedFiles.some((file) =>
+    isGameBananaFileInstalled(file.fileName, installedVersions)
+  )
+  const mainVersion = mainVersionToken(remoteVersion)
+  const mainInstalledByVersion = Boolean(
+    !hasExactFileMatch && installedVersion && mainVersion && versionsMatch(installedVersion, mainVersion)
   )
 
   return (
@@ -63,8 +84,11 @@ export const GameBananaFileList: React.FC<GameBananaFileListProps> = ({
         ) : (
           sortedFiles.map((file, index, arr) => {
             const isInstalling = installingFileId === file.id
-            const isInstalled = isGameBananaFileInstalled(file.fileName, installedVersions)
-            const isLatest = index === 0 && arr.length > 1 && Boolean(file.dateAdded)
+            const isMain = isMainGameBananaFile(file)
+            const isInstalled =
+              isGameBananaFileInstalled(file.fileName, installedVersions) ||
+              (mainInstalledByVersion && isMain)
+            const showLatest = arr.length === 1 && index === 0 && Boolean(file.dateAdded)
 
             return (
               <div
@@ -77,11 +101,15 @@ export const GameBananaFileList: React.FC<GameBananaFileListProps> = ({
                     <span className="truncate text-xs font-semibold text-text" title={file.fileName}>
                       {file.fileName}
                     </span>
-                    {isLatest && (
+                    {isMain ? (
+                      <Badge variant="success" className="shrink-0">
+                        主文件
+                      </Badge>
+                    ) : showLatest ? (
                       <Badge variant="success" className="shrink-0">
                         最新发布
                       </Badge>
-                    )}
+                    ) : null}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] text-text-muted tabular-nums-strict">
                     {file.dateAdded ? (

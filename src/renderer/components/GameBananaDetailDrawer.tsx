@@ -668,6 +668,8 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
                 installingFileId={installingFileId}
                 progressPercent={progressPercent}
                 installedVersions={installedVersions}
+                installedVersion={installedTarget?.existing?.version}
+                remoteVersion={detailMod.version}
                 busy={installingFileId !== null}
                 onInstall={(file) => void handleFileInstall(detailMod, file)}
               />
