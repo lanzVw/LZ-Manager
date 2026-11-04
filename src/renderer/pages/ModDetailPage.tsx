@@ -764,7 +764,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     if (!details) return
     setToggling(true)
     try {
-      const res = await onToggleActive(details.characterName, details.name, details.enabled)
+      // onToggleActive 的第三个参数是「目标状态」，不是当前状态；
+      // 传反了会让「卸下模组」变成一次幂等的启用请求，基底 Mod 保护也不会触发
+      const res = await onToggleActive(details.characterName, details.name, !details.enabled)
       // 基底 Mod 停用会被二次确认拦截；只有真正成功才翻转本地状态
       if (res?.success) {
         setDetails((prev) => (prev ? { ...prev, enabled: !prev.enabled } : prev))
