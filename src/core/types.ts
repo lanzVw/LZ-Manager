@@ -297,6 +297,40 @@ export interface BaseModStatus {
   shaderCache: ShaderCacheState
   cacheStats: ShaderCacheStats
   d3dx: D3dxCacheRules
+  dependents?: BaseModDependent[]
+  scanTruncated?: boolean
+}
+
+export interface BaseModDependent {
+  fullPath: string
+  characterName: string
+  /** 已剥离 DISABLED_ 前缀 */
+  modName: string
+  /** 磁盘目录名，保留 DISABLED_ 前缀 */
+  folderName: string
+  enabled: boolean
+  /** 命中的 ini 相对路径（最多保留 10 条） */
+  matchedFiles: string[]
+}
+
+export interface BaseModDisableGuard {
+  namespace: string
+  enabledDependents: BaseModDependent[]
+  scanTruncated: boolean
+  needsConfirm: boolean
+  reason?: 'dependents' | 'scan-truncated' | 'namespace-missing'
+}
+
+export interface ToggleModResult {
+  success: boolean
+  error?: string
+  cancelled?: boolean
+  needsConfirm?: boolean
+  namespace?: string
+  dependents?: BaseModDependent[]
+  scanTruncated?: boolean
+  /** 目录改名后的新绝对路径（启用/停用都会改文件夹名） */
+  newFullPath?: string
 }
 
 export interface SetShaderCacheResult {

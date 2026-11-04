@@ -112,3 +112,18 @@ export function parseD3dxCacheRules(content: string): ParsedD3dxCacheRules {
 
   return { includeRecursive, excludeRecursive, cacheDirectory, cacheShaders }
 }
+
+/**
+ * 判断 ini 是否引用了某个 namespace。
+ *
+ * 只认带路径分隔符的引用（`CommandList\RabbitFX\Run`、`$\RabbitFX\h`、
+ * `Resource\RabbitFX\GlowMap`、`Resource/RabbitFX/GlowMap`），
+ * 因此不会把 `namespace = RabbitFX` 自己、`RabbitFX2\...` 或注释里的文字算进来。
+ */
+export function containsNamespaceReference(content: string, namespace: string): boolean {
+  const ns = String(namespace || '').trim()
+  if (!ns) return false
+  const escaped = ns.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`(?:^|[\\\\/$])${escaped}(?:\\\\|/)`, 'im')
+  return pattern.test(stripIniComments(content))
+}

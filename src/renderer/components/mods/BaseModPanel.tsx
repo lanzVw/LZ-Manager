@@ -6,6 +6,7 @@ import {
   Database,
   FolderOpen,
   HardDrive,
+  Layers,
   RefreshCw,
   Trash2
 } from 'lucide-react'
@@ -158,6 +159,12 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath }) => {
   const cache = status.shaderCache
   const stats = status.cacheStats
   const d3dx = status.d3dx
+  const dependents = [...(status.dependents || [])].sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1
+    return a.modName.localeCompare(b.modName)
+  })
+  const enabledDependents = dependents.filter((d) => d.enabled)
+  const disabledDependents = dependents.filter((d) => !d.enabled)
 
   return (
     <div className="space-y-6">
@@ -312,6 +319,72 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath }) => {
               {d3dx.excludesDisabled ? '✓' : '✗'}
             </span>
           </div>
+        </div>
+      </Card>
+
+      {/* 依赖 Mod */}
+      <Card className="p-5 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start space-x-3">
+            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-text tracking-wide uppercase">依赖此基底 Mod 的模组</h3>
+              <p className="text-[11px] text-text-muted leading-relaxed mt-1">
+                扫描所有 Mod 的 ini 中对 <span className="font-mono">{status.namespace || 'namespace'}</span> 的引用；
+                停用基底 Mod 前会先列出这些依赖。
+              </p>
+            </div>
+          </div>
+          <Badge variant="primary" size="sm">
+            {enabledDependents.length} 启用 / {disabledDependents.length} 停用
+          </Badge>
+        </div>
+
+        {status.scanTruncated && (
+          <div className="p-3 rounded-control bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-600 dark:text-amber-400 flex items-start space-x-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>依赖扫描达到上限，结果可能不完整；停用前请自行确认。</span>
+          </div>
+        )}
+
+        {dependents.length === 0 ? (
+          <div className="p-3 rounded-control bg-surface-2 border border-border text-[11px] text-text-muted">
+            未发现引用此 namespace 的 Mod。
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {dependents.map((dependent) => (
+              <div
+                key={dependent.fullPath}
+                className="flex items-center justify-between gap-3 p-3 rounded-control bg-surface-2 border border-border"
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-text truncate">{dependent.modName}</div>
+                  <div className="text-[10px] text-text-muted truncate">
+                    {dependent.characterName}
+                    {dependent.matchedFiles.length > 1 ? ` · ${dependent.matchedFiles.length} 个文件引用` : ''}
+                  </div>
+                </div>
+                <Badge variant={dependent.enabled ? 'success' : 'default'} size="sm">
+                  {dependent.enabled ? '启用中' : '已停用'}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={loadStatus}
+            loading={loading}
+            icon={<RefreshCw className="w-3.5 h-3.5 text-primary" />}
+          >
+            重新扫描依赖
+          </Button>
         </div>
       </Card>
 

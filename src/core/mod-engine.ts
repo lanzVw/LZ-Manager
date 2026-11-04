@@ -1,11 +1,11 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import { ModItem, ModDetailedInfo, AppearanceSection, BaseModInfo, BaseModStatus, ShaderCacheState, ShaderCacheStats, D3dxCacheRules, SetShaderCacheResult, ClearShaderCacheResult } from './types'
+import { ModItem, ModDetailedInfo, AppearanceSection, BaseModInfo, BaseModStatus, BaseModDependent, BaseModDisableGuard, ShaderCacheState, ShaderCacheStats, D3dxCacheRules, SetShaderCacheResult, ClearShaderCacheResult } from './types'
 import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
-import { parseIniNamespace, parseShaderCacheValue, parseD3dxCacheRules } from './base-mod'
+import { parseIniNamespace, parseShaderCacheValue, parseD3dxCacheRules, containsNamespaceReference } from './base-mod'
 
 /** 内容哈希，用于市场截图去重（同一张图可能既在根目录又出现在市场接口里） */
 function hashBuffer(buf: Buffer): string {
@@ -465,7 +465,7 @@ export class ModEngine {
    * 切换单个 Mod 启用/停用状态
    * 如果开启角色单选互斥 (Option A) 且当前操作为启用，则自动将同角色的其他 Mod 全部置为停用
    */
-  public async toggleMod(characterName: string, modRawName: string, enable: boolean): Promise<{ success: boolean; error?: string }> {
+  public async toggleMod(characterName: string, modRawName: string, enable: boolean): Promise<{ success: boolean; error?: string; newFullPath?: string }> {
     // characterName 仅允许作为单级目录名使用（防路径穿越）
     const safeCharName = this.sanitizeSegment(characterName)
     const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
@@ -473,14 +473,24 @@ export class ModEngine {
       return { success: false, error: `角色目录不存在: ${charPath || characterName}` }
     }
 
-    const enabledFolderName = modRawName
-    const disabledFolderName = `DISABLED_${modRawName}`
+    // modRawName 同样只允许单级目录名；sanitizeSegment 不拒绝 ".."，
+    // 因此 src/dst 还必须再过一次 resolveInsideModRoot（否则 ".." 会逃出角色目录）
+    const safeModName = this.sanitizeSegment(modRawName)
+    if (!safeModName) {
+      return { success: false, error: 'Mod 名称无效' }
+    }
+
+    const enabledFolderName = safeModName
+    const disabledFolderName = `DISABLED_${safeModName}`
 
     const srcName = enable ? disabledFolderName : enabledFolderName
     const dstName = enable ? enabledFolderName : disabledFolderName
 
-    const srcPath = path.join(charPath, srcName)
-    const dstPath = path.join(charPath, dstName)
+    const srcPath = this.resolveInsideModRoot(path.join(charPath, srcName))
+    const dstPath = this.resolveInsideModRoot(path.join(charPath, dstName))
+    if (!srcPath || !dstPath) {
+      return { success: false, error: 'Mod 路径越界' }
+    }
 
     if (!fs.existsSync(srcPath)) {
       // 检查是否已经在目标状态
@@ -491,7 +501,7 @@ export class ModEngine {
             this.persistBridgeManager.syncModPersistOnToggle(this.envRoot, this.modFolderPath, dstPath, true)
           } catch (_) {}
         }
-        return { success: true }
+        return { success: true, newFullPath: dstPath }
       }
       return { success: false, error: `源目录不存在: ${srcPath}` }
     }
@@ -536,6 +546,11 @@ export class ModEngine {
           if (!fName.startsWith('DISABLED_') && fName !== enabledFolderName && fName !== disabledFolderName) {
             const oldPath = path.join(charPath, fName)
             const newPath = path.join(charPath, `DISABLED_${fName}`)
+            // 基底 Mod 不能被单选互斥静默关掉：它会连坐所有依赖其 namespace 的角色 Mod
+            if (this.detectBaseMod(oldPath)) {
+              console.warn(`Skip disabling base mod ${fName}: other mods may depend on it`)
+              continue
+            }
             // 目标 DISABLED_ 名已存在（历史残留）时跳过，避免 rename 失败或互相覆盖
             if (fs.existsSync(newPath)) {
               console.warn(`Skip disabling conflicting mod ${fName}: target already exists`)
@@ -558,7 +573,7 @@ export class ModEngine {
       }
     }
 
-    return { success: true }
+    return { success: true, newFullPath: dstPath }
   }
 
   /**
@@ -2258,11 +2273,230 @@ export class ModEngine {
     return { success: failedCount === 0, deletedCount, failedCount, errors }
   }
 
+  /** 有界收集 ini 文件；跳过隐藏目录、DISABLED* 子目录与符号链接 */
+  private collectIniFilesBounded(
+    rootDir: string,
+    options: { maxFiles: number; maxDepth: number; maxFileBytes: number }
+  ): { files: Array<{ fullPath: string; relativePath: string; size: number }>; truncated: boolean } {
+    const files: Array<{ fullPath: string; relativePath: string; size: number }> = []
+    let truncated = false
+    const stack: Array<{ dir: string; depth: number }> = [{ dir: rootDir, depth: 0 }]
+
+    while (stack.length > 0) {
+      if (files.length >= options.maxFiles) {
+        truncated = true
+        break
+      }
+      const { dir, depth } = stack.pop()!
+      let entries: fs.Dirent[]
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      } catch (_) {
+        continue
+      }
+
+      for (const entry of entries) {
+        if (files.length >= options.maxFiles) {
+          truncated = true
+          break
+        }
+        if (entry.name.startsWith('.')) continue
+        const fullPath = path.join(dir, entry.name)
+
+        if (entry.isSymbolicLink()) continue
+        if (entry.isDirectory()) {
+          if (entry.name.toLowerCase().startsWith('disabled')) continue
+          if (depth + 1 > options.maxDepth) {
+            truncated = true
+            continue
+          }
+          stack.push({ dir: fullPath, depth: depth + 1 })
+          continue
+        }
+        if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.ini')) continue
+
+        try {
+          const size = fs.statSync(fullPath).size
+          if (size > options.maxFileBytes) {
+            truncated = true
+            continue
+          }
+          files.push({ fullPath, relativePath: path.relative(rootDir, fullPath), size })
+        } catch (_) {
+          continue
+        }
+      }
+    }
+
+    return { files, truncated }
+  }
+
+  /**
+   * 扫描整个 Mod 库，找出引用指定 namespace 的 Mod。
+   * 依赖判定走 `containsNamespaceReference`，只认带路径分隔符的引用；
+   * 读取前先用原始字节预过滤，避免为每个 ini 做完整解码。
+   */
+  public scanBaseModLibrary(
+    namespace: string,
+    baseModPath: string
+  ): { dependents: BaseModDependent[]; duplicates: string[]; scannedMods: number; truncated: boolean } {
+    const result = {
+      dependents: [] as BaseModDependent[],
+      duplicates: [] as string[],
+      scannedMods: 0,
+      truncated: false
+    }
+    const ns = String(namespace || '').trim()
+    if (!ns || !this.modFolderPath || !fs.existsSync(this.modFolderPath)) return result
+
+    const nsLower = ns.toLowerCase()
+    const baseResolved = path.resolve(baseModPath)
+    const MAX_TOTAL_FILES = 20000
+    const MAX_TOTAL_BYTES = 256 * 1024 * 1024
+    const MAX_FILES_PER_MOD = 500
+    const MAX_FILE_BYTES = 8 * 1024 * 1024
+    const MAX_DEPTH = 8
+    let totalFiles = 0
+    let totalBytes = 0
+
+    try {
+      const charDirs = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
+      outer: for (const charDirent of charDirs) {
+        if (!charDirent.isDirectory()) continue
+        const charName = charDirent.name
+        if (charName.startsWith('.') || charName === 'System Volume Information') continue
+        if (totalFiles >= MAX_TOTAL_FILES || totalBytes >= MAX_TOTAL_BYTES) {
+          result.truncated = true
+          break outer
+        }
+
+        const charPath = path.join(this.modFolderPath, charName)
+        let modDirs: fs.Dirent[]
+        try {
+          modDirs = fs.readdirSync(charPath, { withFileTypes: true })
+        } catch (_) {
+          continue
+        }
+
+        for (const modDirent of modDirs) {
+          if (!modDirent.isDirectory()) continue
+          const folderName = modDirent.name
+          if (folderName.startsWith('.')) continue
+
+          const modDir = path.join(charPath, folderName)
+          if (path.resolve(modDir) === baseResolved) continue
+          result.scannedMods++
+
+          // 同 namespace 的另一份基底 Mod 视为重复安装，不再当依赖扫描
+          const baseInfo = this.detectBaseMod(modDir)
+          if (baseInfo?.namespace && baseInfo.namespace.toLowerCase() === nsLower) {
+            result.duplicates.push(modDir)
+            continue
+          }
+
+          const collected = this.collectIniFilesBounded(modDir, {
+            maxFiles: MAX_FILES_PER_MOD,
+            maxDepth: MAX_DEPTH,
+            maxFileBytes: MAX_FILE_BYTES
+          })
+          if (collected.truncated) result.truncated = true
+
+          const matchedFiles: string[] = []
+          for (const file of collected.files) {
+            if (totalFiles >= MAX_TOTAL_FILES || totalBytes >= MAX_TOTAL_BYTES) {
+              result.truncated = true
+              break
+            }
+            totalFiles++
+            totalBytes += file.size
+
+            let raw: Buffer
+            try {
+              raw = fs.readFileSync(file.fullPath)
+            } catch (_) {
+              continue
+            }
+            // ASCII 内容在 UTF-8 / GBK 下字节一致；UTF-16LE 单独看一遍
+            const latin = raw.toString('latin1').toLowerCase()
+            const utf16 = raw.toString('utf16le').toLowerCase()
+            if (!latin.includes(nsLower) && !utf16.includes(nsLower)) continue
+
+            let content: string
+            try {
+              content = readTextAuto(file.fullPath).content
+            } catch (_) {
+              continue
+            }
+            if (!containsNamespaceReference(content, ns)) continue
+            if (matchedFiles.length < 10) matchedFiles.push(file.relativePath)
+          }
+
+          if (matchedFiles.length > 0) {
+            let rawName = folderName
+            while (rawName.startsWith('DISABLED_')) {
+              rawName = rawName.slice('DISABLED_'.length)
+            }
+            result.dependents.push({
+              fullPath: modDir,
+              characterName: charName,
+              modName: rawName || folderName,
+              folderName,
+              enabled: !folderName.startsWith('DISABLED_'),
+              matchedFiles
+            })
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[ModEngine] scanBaseModLibrary failed:', err)
+    }
+
+    return result
+  }
+
+  /** 停用基底 Mod 前的守卫：只在启用态路径存在时才需要确认 */
+  public getBaseModDisableGuard(characterName: string, modRawName: string): BaseModDisableGuard | null {
+    const safeCharName = this.sanitizeSegment(characterName)
+    const safeModName = this.sanitizeSegment(modRawName)
+    if (!safeCharName || !safeModName) return null
+
+    const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
+    const modPath = charPath ? this.resolveInsideModRoot(path.join(charPath, safeModName)) : null
+    if (!modPath || !fs.existsSync(modPath)) return null
+
+    const info = this.detectBaseMod(modPath)
+    if (!info) return null
+
+    if (!info.namespace) {
+      return {
+        namespace: '',
+        enabledDependents: [],
+        scanTruncated: false,
+        needsConfirm: true,
+        reason: 'namespace-missing'
+      }
+    }
+
+    const scan = this.scanBaseModLibrary(info.namespace, modPath)
+    const enabledDependents = scan.dependents.filter((d) => d.enabled)
+    return {
+      namespace: info.namespace,
+      enabledDependents,
+      scanTruncated: scan.truncated,
+      needsConfirm: enabledDependents.length > 0 || scan.truncated,
+      reason: enabledDependents.length > 0 ? 'dependents' : scan.truncated ? 'scan-truncated' : undefined
+    }
+  }
+
   /** 基底 Mod 详情页所需的完整状态 */
   public getBaseModStatus(modFullPath: string, envRoot?: string): BaseModStatus | null {
     const info = this.detectBaseMod(modFullPath)
     const safeDir = this.resolveInsideModRoot(modFullPath)
     if (!info || !safeDir) return null
+
+    const scan = info.namespace
+      ? this.scanBaseModLibrary(info.namespace, safeDir)
+      : { dependents: [] as BaseModDependent[], duplicates: [] as string[], scannedMods: 0, truncated: false }
 
     return {
       modFullPath: safeDir,
@@ -2271,7 +2505,9 @@ export class ModEngine {
       enabled: !path.basename(safeDir).startsWith('DISABLED_'),
       shaderCache: info.shaderCache,
       cacheStats: this.getShaderCacheInfo(envRoot),
-      d3dx: this.getD3dxCacheRules(envRoot)
+      d3dx: this.getD3dxCacheRules(envRoot),
+      dependents: scan.dependents,
+      scanTruncated: scan.truncated
     }
   }
 }

@@ -1044,7 +1044,31 @@ function setupIpc() {
     return result
   })
 
-  ipcMain.handle('mods:toggle', async (_, charName: string, modName: string, enabled: boolean) => {
+  ipcMain.handle('mods:toggle', async (_, charName: string, modName: string, enabled: boolean, options?: { force?: boolean }) => {
+    const g = configStore.getActiveGame()
+    if (g) modEngine.setModFolderPath(g.modFolderPath)
+
+    // 停用基底 Mod 前先确认依赖；force 由渲染层的二次确认弹窗传入
+    if (!enabled && options?.force !== true) {
+      const guard = modEngine.getBaseModDisableGuard(charName, modName)
+      if (guard?.needsConfirm) {
+        const error =
+          guard.reason === 'namespace-missing'
+            ? '该 Mod 被识别为基底 Mod，但未能解析 namespace，无法确认依赖关系'
+            : guard.reason === 'scan-truncated'
+              ? '依赖扫描未完成，无法确认是否有 Mod 依赖此基底 Mod'
+              : `该 Mod 是基底 Mod，仍有 ${guard.enabledDependents.length} 个启用中的 Mod 依赖它`
+        return {
+          success: false,
+          needsConfirm: true,
+          error,
+          namespace: guard.namespace,
+          dependents: guard.enabledDependents,
+          scanTruncated: guard.scanTruncated
+        }
+      }
+    }
+
     const res = await modEngine.toggleMod(charName, modName, enabled)
     // 切换成功后自动触发 F10 游戏内热刷新
     if (res.success) {

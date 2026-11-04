@@ -46,7 +46,7 @@ import {
 import { parseIniHotkeys, ParsedHotkey } from '../overlay/iniParser'
 import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from '../overlay/hotkeyPresentation'
 import { toFileUrl } from '../utils/fileUrl'
-import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection } from '../../core/types'
+import { ModDetailedInfo, ModConflictSummary, ModPersistInfo, ModPersistVariable, AppearanceSection, ToggleModResult } from '../../core/types'
 import { CropDialog } from '../components/CropDialog'
 import { MoveModModal } from '../components/MoveModModal'
 import { FixResultModal } from '../components/mods/FixResultModal'
@@ -66,7 +66,7 @@ interface ModDetailPageProps {
   modFullPath: string
   activeGame?: any
   onBack: () => void
-  onToggleActive: (charName: string, modName: string, enabled: boolean) => Promise<void>
+  onToggleActive: (charName: string, modName: string, enabled: boolean) => Promise<ToggleModResult>
   onNavigateToMarket?: (modId?: number, searchKeyword?: string, searchScope?: 'all' | 'author') => void
   onDeleteSuccess?: () => void
   onInstallSuccess?: () => void
@@ -726,7 +726,10 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         )
       } else {
         // 停用当前 Mod
-        await window.lz.toggleMod(details.characterName, details.name, false)
+        const res = await window.lz.toggleMod(details.characterName, details.name, false)
+        if (res && !res.success && res.needsConfirm) {
+          toast.warning('需要确认后才能停用基底 Mod', res.error)
+        }
       }
       await loadDetails()
     } catch (err: any) {
@@ -761,9 +764,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     if (!details) return
     setToggling(true)
     try {
-      await onToggleActive(details.characterName, details.name, details.enabled)
-      setDetails({ ...details, enabled: !details.enabled })
-      checkConflicts(details.characterName, details.name)
+      const res = await onToggleActive(details.characterName, details.name, details.enabled)
+      // 基底 Mod 停用会被二次确认拦截；只有真正成功才翻转本地状态
+      if (res?.success) {
+        setDetails((prev) => (prev ? { ...prev, enabled: !prev.enabled } : prev))
+        checkConflicts(details.characterName, details.name)
+      }
     } finally {
       setToggling(false)
     }

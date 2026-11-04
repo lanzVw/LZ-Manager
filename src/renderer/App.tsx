@@ -7,8 +7,11 @@ import { GameBananaPage } from './pages/GameBananaPage'
 import { PresetsPage } from './pages/PresetsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ImportModal } from './components/ImportModal'
+import { Modal } from './components/ui/Modal'
+import { Badge } from './components/ui/Badge'
 import { UploadCloud } from 'lucide-react'
 import { useToast } from './components/ui/Toast'
+import type { BaseModDependent, ToggleModResult } from '../core/types'
 
 export default function App() {
   const toast = useToast()
@@ -29,6 +32,33 @@ export default function App() {
   const [modsView, setModsView] = useState<ModsViewState>(DEFAULT_MODS_VIEW)
   // 记录进入详情前的视图快照：详情页内部可能触发扫描/切换，返回时必须回到进入时那一刻的状态
   const modsViewBeforeDetailRef = useRef<ModsViewState | null>(null)
+
+  // 停用基底 Mod 的二次确认：用 Promise 把弹窗结果交回 handleToggleMod
+  const confirmResolverRef = useRef<((ok: boolean) => void) | null>(null)
+  const [baseModConfirm, setBaseModConfirm] = useState<{
+    description: string
+    dependents: BaseModDependent[]
+  } | null>(null)
+
+  const askBaseModConfirm = useCallback(
+    (payload: { description: string; dependents: BaseModDependent[] }) =>
+      new Promise<boolean>((resolve) => {
+        if (confirmResolverRef.current) {
+          resolve(false)
+          return
+        }
+        confirmResolverRef.current = resolve
+        setBaseModConfirm(payload)
+      }),
+    []
+  )
+
+  const closeBaseModConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolverRef.current
+    confirmResolverRef.current = null
+    setBaseModConfirm(null)
+    resolve?.(ok)
+  }, [])
 
   // 1. 初始化读取配置
   const loadConfig = useCallback(async () => {
@@ -220,12 +250,41 @@ export default function App() {
   }, [scanMods])
 
   // 切换单个 Mod
-  const handleToggleMod = async (charName: string, modName: string, enabled: boolean) => {
-    const res = await window.flairx.toggleMod(charName, modName, enabled)
-    if (res.success) {
-      await scanMods()
-    } else {
-      toast.error('切换模组状态失败', res.error || '未知错误')
+  const handleToggleMod = async (
+    charName: string,
+    modName: string,
+    enabled: boolean
+  ): Promise<ToggleModResult> => {
+    try {
+      let res = await window.flairx.toggleMod(charName, modName, enabled)
+
+      // 主进程识别到基底 Mod 仍有启用依赖时，先让用户确认再强制停用
+      if (res?.needsConfirm) {
+        const ok = await askBaseModConfirm({
+          description: res.error || '停用此基底 Mod 会影响依赖它的 Mod',
+          dependents: res.dependents || []
+        })
+        if (!ok) return { success: false, cancelled: true }
+        res = await window.flairx.toggleMod(charName, modName, enabled, { force: true })
+      }
+
+      if (res?.success) {
+        await scanMods()
+        // 启用/停用会改目录名，详情页不能继续拿着旧路径；只有当前选中的正是它时才跟随
+        if (res.newFullPath && selectedModPath) {
+          const selectedFolder = selectedModPath.split(/[\\/]/).pop()
+          const oldFolder = enabled ? `DISABLED_${modName}` : modName
+          if (selectedFolder === oldFolder) {
+            setSelectedModPath(res.newFullPath)
+          }
+        }
+      } else if (!res?.cancelled) {
+        toast.error('切换模组状态失败', res?.error || '未知错误')
+      }
+      return res
+    } catch (err: any) {
+      toast.error('切换模组状态失败', err?.message || '未知错误')
+      return { success: false, error: err?.message }
     }
   }
 
@@ -320,9 +379,7 @@ export default function App() {
                 setSelectedModPath(newPath)
                 await scanMods()
               }}
-              onToggleActive={async (char, mod, state) => {
-                await handleToggleMod(char, mod, state)
-              }}
+              onToggleActive={handleToggleMod}
               onNavigateToMarket={(modId, searchKeyword, searchScope) => {
                 setSelectedModPath(null)
                 setMarketInitialModId(modId || null)
@@ -402,6 +459,36 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 停用基底 Mod 前的依赖确认 */}
+      <Modal
+        isOpen={Boolean(baseModConfirm)}
+        onClose={() => closeBaseModConfirm(false)}
+        title="停用基底 Mod？"
+        variant="danger"
+        confirmText="仍然停用"
+        onConfirm={() => closeBaseModConfirm(true)}
+      >
+        {baseModConfirm && (
+          <div className="space-y-3">
+            <p className="text-xs text-text-muted leading-relaxed">{baseModConfirm.description}</p>
+            {baseModConfirm.dependents.length > 0 && (
+              <div className="max-h-40 overflow-y-auto space-y-1.5">
+                {baseModConfirm.dependents.map((dependent) => (
+                  <div key={dependent.fullPath} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate">
+                      {dependent.characterName} / {dependent.modName}
+                    </span>
+                    <Badge variant="success" size="sm">
+                      启用中
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {/* Import Confirmation Modal */}
       {importTarget && (

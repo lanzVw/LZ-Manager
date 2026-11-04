@@ -19,7 +19,7 @@ import {
   AlertOctagon,
   ArrowUpCircle
 } from 'lucide-react'
-import { CharacterConflictReport, ModConflictSummary, AppearanceSection } from '../../core/types'
+import { CharacterConflictReport, ModConflictSummary, AppearanceSection, ToggleModResult } from '../../core/types'
 import { useTheme } from '../contexts/ThemeContext'
 import { extractDominantColor, DEFAULT_PRIMARY_RGB, DEFAULT_DARK_PRIMARY_RGB } from '../utils/colorExtractor'
 import { toFileUrl } from '../utils/fileUrl'
@@ -67,7 +67,7 @@ interface ModsPageProps {
   modsData: Record<string, any[]>
   loading: boolean
   onRefresh: () => void
-  onToggleMod: (charName: string, modName: string, enabled: boolean) => Promise<void>
+  onToggleMod: (charName: string, modName: string, enabled: boolean) => Promise<ToggleModResult>
   onSelectMod: (modFullPath: string) => void
   onNavigateTab?: (tab: string) => void
   activeGame?: any

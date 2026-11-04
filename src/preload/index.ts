@@ -18,7 +18,8 @@ import type {
   PresetChangeReason,
   PresetMutationResult,
   PresetPruneResult,
-  SetShaderCacheResult
+  SetShaderCacheResult,
+  ToggleModResult
 } from '../core/types'
 
 const flairxApi = {
@@ -37,8 +38,13 @@ const flairxApi = {
 
   // Mods
   scanMods: (): Promise<Record<string, ModItem[]>> => ipcRenderer.invoke('mods:scan'),
-  toggleMod: (characterName: string, modName: string, enabled: boolean): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('mods:toggle', characterName, modName, enabled),
+  toggleMod: (
+    characterName: string,
+    modName: string,
+    enabled: boolean,
+    options?: { force?: boolean }
+  ): Promise<ToggleModResult> =>
+    ipcRenderer.invoke('mods:toggle', characterName, modName, enabled, options),
   getModDetails: (modFullPath: string): Promise<ModDetailedInfo | null> =>
     ipcRenderer.invoke('mods:getDetails', modFullPath),
   getBaseModStatus: (modFullPath: string): Promise<BaseModStatus | null> =>

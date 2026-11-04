@@ -514,6 +514,15 @@ export const OverlayApp: React.FC = () => {
         setModsData(updated || {})
       } else {
         showToast(`切换失败: ${res?.error || '未知错误'}`)
+        // 上面是乐观更新；失败（例如基底 Mod 需要主界面二次确认）必须回读磁盘纠正状态
+        try {
+          const updated = await window.lz.scanMods()
+          setModsData(updated || {})
+          const refreshed = Object.values(updated || {})
+            .flat()
+            .find((m: any) => m.name === mod.name && (!mod.characterName || m.characterName === mod.characterName))
+          if (refreshed) setActiveDetailMod(refreshed)
+        } catch (_) {}
       }
     } catch {
       showToast('切换异常')
