@@ -725,11 +725,8 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           conflictSummary.conflictingMods
         )
       } else {
-        // 停用当前 Mod
-        const res = await window.lz.toggleMod(details.characterName, details.name, false)
-        if (res && !res.success && res.needsConfirm) {
-          toast.warning('需要确认后才能停用基底 Mod', res.error)
-        }
+        // 停用当前 Mod：走带基底 Mod 确认的统一切换入口，不能绕过依赖保护
+        await onToggleActive(details.characterName, details.name, false)
       }
       await loadDetails()
     } catch (err: any) {

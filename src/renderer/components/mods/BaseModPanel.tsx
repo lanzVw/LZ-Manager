@@ -146,8 +146,12 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggl
       const res = await onToggleBaseMod(true)
       if (res?.success) {
         toast.success('基底 Mod 已启用')
-        await loadStatus()
-        onChanged?.()
+        // 启用会改目录名，旧 modFullPath 立刻失效；
+        // 父组件收到 newFullPath 后会重新挂载并刷新，这里不要再用旧路径读状态
+        if (!res.newFullPath) {
+          await loadStatus()
+          onChanged?.()
+        }
       } else if (!res?.cancelled) {
         toast.error('启用失败', res?.error || '未知错误')
       }

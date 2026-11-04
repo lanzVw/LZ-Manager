@@ -2382,6 +2382,10 @@ export class ModEngine {
           if (!modDirent.isDirectory()) continue
           const folderName = modDirent.name
           if (folderName.startsWith('.')) continue
+          if (totalFiles >= MAX_TOTAL_FILES || totalBytes >= MAX_TOTAL_BYTES) {
+            result.truncated = true
+            break outer
+          }
 
           const modDir = path.join(charPath, folderName)
           if (path.resolve(modDir) === baseResolved) continue
