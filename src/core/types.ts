@@ -299,6 +299,42 @@ export interface BaseModStatus {
   d3dx: D3dxCacheRules
   dependents?: BaseModDependent[]
   scanTruncated?: boolean
+  duplicates?: string[]
+  health?: BaseModHealth
+}
+
+export type BaseModFixAction = 'enable-base-mod'
+
+export type BaseModHealthCheckId =
+  | 'namespace-missing'
+  | 'settings-missing'
+  | 'cache-file-not-active'
+  | 'base-disabled-with-dependents'
+  | 'base-disabled-cache-inert'
+  | 'dependents-enabled'
+  | 'duplicate-base-mods'
+  | 'd3dx-missing'
+  | 'include-recursive-missing'
+  | 'exclude-disabled-missing'
+  | 'global-cache-enabled'
+  | 'cache-directory-default'
+  | 'cache-path-error'
+  | 'cache-dir-missing'
+  | 'cache-empty'
+  | 'scan-truncated'
+
+export interface BaseModHealthCheck {
+  id: BaseModHealthCheckId
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  detail?: string
+  fixAction?: BaseModFixAction
+}
+
+export interface BaseModHealth {
+  /** 没有 error 级问题 */
+  ok: boolean
+  checks: BaseModHealthCheck[]
 }
 
 export interface BaseModDependent {

@@ -5,7 +5,7 @@ import { ModItem, ModDetailedInfo, AppearanceSection, BaseModInfo, BaseModStatus
 import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
-import { parseIniNamespace, parseShaderCacheValue, parseD3dxCacheRules, containsNamespaceReference } from './base-mod'
+import { parseIniNamespace, parseShaderCacheValue, parseD3dxCacheRules, containsNamespaceReference, evaluateBaseModHealth } from './base-mod'
 
 /** 内容哈希，用于市场截图去重（同一张图可能既在根目录又出现在市场接口里） */
 function hashBuffer(buf: Buffer): string {
@@ -2498,16 +2498,33 @@ export class ModEngine {
       ? this.scanBaseModLibrary(info.namespace, safeDir)
       : { dependents: [] as BaseModDependent[], duplicates: [] as string[], scannedMods: 0, truncated: false }
 
+    const enabled = !path.basename(safeDir).startsWith('DISABLED_')
+    const cacheStats = this.getShaderCacheInfo(envRoot)
+    const d3dx = this.getD3dxCacheRules(envRoot)
+    const health = evaluateBaseModHealth({
+      namespace: info.namespace,
+      explicit: info.explicit,
+      enabled,
+      shaderCache: info.shaderCache,
+      cacheStats,
+      d3dx,
+      dependents: scan.dependents,
+      duplicates: scan.duplicates,
+      scanTruncated: scan.truncated
+    })
+
     return {
       modFullPath: safeDir,
       namespace: info.namespace,
       explicit: info.explicit,
-      enabled: !path.basename(safeDir).startsWith('DISABLED_'),
+      enabled,
       shaderCache: info.shaderCache,
-      cacheStats: this.getShaderCacheInfo(envRoot),
-      d3dx: this.getD3dxCacheRules(envRoot),
+      cacheStats,
+      d3dx,
       dependents: scan.dependents,
-      scanTruncated: scan.truncated
+      scanTruncated: scan.truncated,
+      duplicates: scan.duplicates,
+      health
     }
   }
 }

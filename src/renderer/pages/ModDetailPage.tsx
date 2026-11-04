@@ -1852,7 +1852,11 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     {/* Tab 2: 基底 Mod */}
     {activeDetailTab === 'base' && details.baseModInfo?.isBaseMod && (
       <div className="space-y-6 animate-in fade-in duration-fast">
-        <BaseModPanel modFullPath={details.fullPath} />
+        <BaseModPanel
+          modFullPath={details.fullPath}
+          onToggleBaseMod={(enabled) => onToggleActive(details.characterName, details.name, enabled)}
+          onChanged={() => loadDetails()}
+        />
       </div>
     )}
 

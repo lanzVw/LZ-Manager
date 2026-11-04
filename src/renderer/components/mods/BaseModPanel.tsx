@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  AlertOctagon,
   AlertTriangle,
+  CheckCircle2,
   Clock,
   Cpu,
   Database,
   FolderOpen,
   HardDrive,
+  Info,
   Layers,
   RefreshCw,
   Trash2
 } from 'lucide-react'
-import { BaseModStatus } from '../../../core/types'
+import { BaseModStatus, ToggleModResult } from '../../../core/types'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -20,6 +23,8 @@ import { useToast } from '../ui/Toast'
 
 interface BaseModPanelProps {
   modFullPath: string
+  onToggleBaseMod?: (enabled: boolean) => Promise<ToggleModResult>
+  onChanged?: () => void
 }
 
 const formatBytes = (bytes: number): string => {
@@ -47,13 +52,14 @@ const formatTime = (ms: number): string => {
  * 基底 Mod 面板：着色器缓存开关与缓存统计。
  * 依赖检测与健康检查在后续提交里追加，保持这个组件按块增长。
  */
-export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath }) => {
+export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggleBaseMod, onChanged }) => {
   const toast = useToast()
   const [status, setStatus] = useState<BaseModStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [togglingCache, setTogglingCache] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [fixingBaseMod, setFixingBaseMod] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const requestIdRef = useRef(0)
 
@@ -133,6 +139,25 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath }) => {
     }
   }
 
+  const handleFixBaseMod = async () => {
+    if (!onToggleBaseMod || fixingBaseMod) return
+    setFixingBaseMod(true)
+    try {
+      const res = await onToggleBaseMod(true)
+      if (res?.success) {
+        toast.success('基底 Mod 已启用')
+        await loadStatus()
+        onChanged?.()
+      } else if (!res?.cancelled) {
+        toast.error('启用失败', res?.error || '未知错误')
+      }
+    } catch (err: any) {
+      toast.error('启用失败', err?.message || '未知错误')
+    } finally {
+      setFixingBaseMod(false)
+    }
+  }
+
   if (loading && !status) {
     return (
       <Card className="p-6 flex items-center justify-center text-text-muted">
@@ -165,6 +190,12 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath }) => {
   })
   const enabledDependents = dependents.filter((d) => d.enabled)
   const disabledDependents = dependents.filter((d) => !d.enabled)
+  const severityRank = { error: 0, warning: 1, info: 2 } as const
+  const healthChecks = [...(status.health?.checks || [])].sort(
+    (a, b) => severityRank[a.severity] - severityRank[b.severity]
+  )
+  const errorCount = healthChecks.filter((check) => check.severity === 'error').length
+  const warningCount = healthChecks.filter((check) => check.severity === 'warning').length
 
   return (
     <div className="space-y-6">
@@ -386,6 +417,87 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath }) => {
             重新扫描依赖
           </Button>
         </div>
+      </Card>
+
+      {/* 健康检查 */}
+      <Card className="p-5 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start space-x-3">
+            <div
+              className={`p-2 rounded-control border ${
+                errorCount
+                  ? 'bg-danger/10 text-danger border-danger/20'
+                  : warningCount
+                    ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                    : 'bg-success/10 text-success border-success/20'
+              }`}
+            >
+              {errorCount ? (
+                <AlertOctagon className="w-4 h-4" />
+              ) : warningCount ? (
+                <AlertTriangle className="w-4 h-4" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-text tracking-wide uppercase">健康检查</h3>
+              <p className="text-[11px] text-text-muted leading-relaxed mt-1">
+                检查基底 Mod 状态、依赖、d3dx.ini 规则与缓存目录。只报告可确认的事实，不自动改写 d3dx.ini。
+              </p>
+            </div>
+          </div>
+          <Badge variant={errorCount ? 'danger' : warningCount ? 'default' : 'success'} size="sm">
+            {errorCount ? `${errorCount} 个错误` : warningCount ? `${warningCount} 个警告` : '未发现问题'}
+          </Badge>
+        </div>
+
+        {healthChecks.length === 0 ? (
+          <div className="p-3 rounded-control bg-success/10 border border-success/25 text-[11px] text-success">
+            未发现问题。
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {healthChecks.map((check) => {
+              const Icon = check.severity === 'error' ? AlertOctagon : check.severity === 'warning' ? AlertTriangle : Info
+              const color =
+                check.severity === 'error'
+                  ? 'text-danger'
+                  : check.severity === 'warning'
+                    ? 'text-amber-500'
+                    : 'text-primary'
+              return (
+                <div
+                  key={check.id}
+                  className="flex items-start justify-between gap-3 p-3 rounded-control bg-surface-2 border border-border"
+                >
+                  <div className="flex items-start space-x-2 min-w-0">
+                    <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${color}`} />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-medium text-text leading-relaxed">{check.message}</div>
+                      {check.detail && (
+                        <div className="text-[10px] text-text-muted whitespace-pre-wrap break-all mt-1">
+                          {check.detail}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {check.fixAction === 'enable-base-mod' && onToggleBaseMod && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={fixingBaseMod}
+                      onClick={handleFixBaseMod}
+                      className="shrink-0"
+                    >
+                      启用基底 Mod
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </Card>
 
       <Modal
