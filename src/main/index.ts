@@ -21,7 +21,8 @@ import {
   sanitizeProcessName,
   shouldProbeGamePid,
   classifyPidProbeError,
-  GAME_FOREGROUND_PID_MAX_AGE_MS
+  GAME_FOREGROUND_PID_MAX_AGE_MS,
+  GAME_FOREGROUND_PID_MAX_AGE_SELF_MS
 } from '../core/hotkey-dispatch'
 import type { PresetApplyMode, PresetChangeReason } from '../core/types'
 
@@ -167,7 +168,13 @@ overlayManager.setGameFocusService(gameFocusService)
  */
 async function dispatchKeyAction(
   action: (procName: string) => Promise<boolean>,
-  opts: { applyEchoGuard: boolean; procName?: string }
+  opts: {
+    applyEchoGuard: boolean
+    procName?: string
+    /** 调用方提前启动的进程检查；与 gameId 一起传入且游戏未变时才复用 */
+    gameRunning?: Promise<boolean>
+    gameId?: string
+  }
 ): Promise<{ success: boolean; reason?: string }> {
   const g = configStore.getActiveGame()
   const hasGamePath = !!(g && g.gamePath)
@@ -177,7 +184,19 @@ async function dispatchKeyAction(
 
   const procName = opts.procName || path.basename(g!.gamePath)
   const candidates = gameFocusService.getCandidateProcessNames(g)
-  const gameRunning = await isGameRunningCached(candidates.length > 0 ? candidates : procName)
+  const names = candidates.length > 0 ? candidates : procName
+
+  let gameRunning: boolean
+  if (opts.gameRunning && opts.gameId && opts.gameId === g!.id) {
+    try {
+      gameRunning = await opts.gameRunning
+    } catch {
+      // 预检查自身异常不应阻断派发，按常规路径重查一次
+      gameRunning = await isGameRunningCached(names)
+    }
+  } else {
+    gameRunning = await isGameRunningCached(names)
+  }
 
   const verdict = evaluateKeyDispatch({
     hasGamePath,
@@ -290,8 +309,11 @@ async function isGameRunningCached(
   return running
 }
 
-const dispatchReloadF10 = (opts: { applyEchoGuard: boolean }) =>
-  dispatchKeyAction((procName) => gameLauncher.triggerReloadF10(procName), opts)
+const dispatchReloadF10 = (opts: {
+  applyEchoGuard: boolean
+  gameRunning?: Promise<boolean>
+  gameId?: string
+}) => dispatchKeyAction((procName) => gameLauncher.triggerReloadF10(procName), opts)
 
 const dispatchHotkey = (keys: string[], procName?: string) =>
   dispatchKeyAction((resolved) => gameLauncher.triggerHotkey(keys, resolved), {
@@ -1139,10 +1161,30 @@ function setupIpc() {
       }
     }
 
+    // 进程检查与下面的改名/持久化并行：快路径不成立时 tasklist 需要 ~200 ms，
+    // 串行叠加会让 F10 明显变慢。守卫已通过，说明这次切换确实会派发 F10。
+    const gameId = g?.id || ''
+    const candidates = g ? gameFocusService.getCandidateProcessNames(g) : []
+    const procName = g?.gamePath ? path.basename(g.gamePath) : ''
+    const overlayWin = overlayManager.getWindow()
+    const overlayFocused = !!(
+      overlayWin &&
+      !overlayWin.isDestroyed() &&
+      overlayWin.isVisible() &&
+      overlayWin.isFocused()
+    )
+    const gameRunningPromise =
+      g && (candidates.length > 0 || procName)
+        ? isGameRunningCached(
+            candidates.length > 0 ? candidates : procName,
+            overlayFocused ? { maxRecordAgeMs: GAME_FOREGROUND_PID_MAX_AGE_SELF_MS } : undefined
+          )
+        : undefined
+
     const res = await modEngine.toggleMod(charName, modName, enabled)
     // 切换成功后自动触发 F10 游戏内热刷新
     if (res.success) {
-      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
+      dispatchReloadF10({ applyEchoGuard: false, gameRunning: gameRunningPromise, gameId }).catch(() => {})
     }
     return res
   })
