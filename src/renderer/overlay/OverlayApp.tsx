@@ -233,6 +233,7 @@ export const OverlayApp: React.FC = () => {
       const cfg = await window.lz.getConfig()
       if (seq !== loadSeqRef.current) return
       setConfig(cfg)
+      setExclusiveMode(cfg.enableOptionAExclusive ?? true)
       const targetId = forcedGameId || cfg.activeGameId
       const visibleGames = (cfg.games || []).filter((g: any) => !g.hidden)
       const current =
@@ -447,6 +448,22 @@ export const OverlayApp: React.FC = () => {
     localStorage.setItem('lz-overlay-only-in-game', next.toString())
     await window.lz.setOverlayOnlyInGame?.(next)
     showToast(next ? '已开启：仅在游戏前台显示' : '已关闭：可在任何窗口呼出')
+  }
+
+  // 单选互斥是主进程配置，不是悬浮窗本地开关：写回 enableOptionAExclusive 后
+  // config:updateApp 会同步 ModEngine.setOptionAExclusive，两个入口行为才一致
+  const handleToggleExclusiveMode = async () => {
+    const next = !exclusiveMode
+    setExclusiveMode(next)
+    try {
+      const res = await window.lz.updateAppConfig({ enableOptionAExclusive: next })
+      if (!res?.success) throw new Error('updateAppConfig failed')
+      showToast(next ? '已切换为：单选互斥保护模式' : '已切换为：多选并存模式')
+    } catch (err) {
+      console.error('Failed to update exclusive mode:', err)
+      setExclusiveMode(!next)
+      showToast('单选互斥设置失败')
+    }
   }
 
   // 📌 切换窗口置顶并同步到主进程（失败时回滚本地状态并提示）
@@ -1357,10 +1374,7 @@ export const OverlayApp: React.FC = () => {
             {/* 🔘 单选互斥 */}
             <button
               type="button"
-              onClick={() => {
-                setExclusiveMode(!exclusiveMode)
-                showToast(exclusiveMode ? '已切换为：多选并存模式' : '已切换为：单选互斥保护模式')
-              }}
+              onClick={handleToggleExclusiveMode}
               className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition shadow-2xs cursor-pointer active:scale-95 shrink-0 ${
                 exclusiveMode
                   ? 'bg-primary/10 text-primary border-primary/40 font-bold'
@@ -2070,7 +2084,7 @@ export const OverlayApp: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setExclusiveMode(!exclusiveMode)}
+                  onClick={handleToggleExclusiveMode}
                   className={`qaq-switch ${exclusiveMode ? 'active' : ''}`}
                 />
               </div>
