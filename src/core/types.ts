@@ -357,6 +357,13 @@ export interface BaseModDisableGuard {
   reason?: 'dependents' | 'scan-truncated' | 'namespace-missing'
 }
 
+export interface ToggleModSiblingRename {
+  /** 磁盘名，不含 DISABLED_ 前缀 */
+  name: string
+  oldFullPath: string
+  newFullPath: string
+}
+
 export interface ToggleModResult {
   success: boolean
   error?: string
@@ -367,6 +374,8 @@ export interface ToggleModResult {
   scanTruncated?: boolean
   /** 目录改名后的新绝对路径（启用/停用都会改文件夹名） */
   newFullPath?: string
+  /** Option-A 互斥成功停用的同角色其他 Mod，供渲染层做局部补丁 */
+  disabledSiblings?: ToggleModSiblingRename[]
 }
 
 export interface SetShaderCacheResult {

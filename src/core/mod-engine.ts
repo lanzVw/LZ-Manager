@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import { ModItem, ModDetailedInfo, AppearanceSection, BaseModInfo, BaseModStatus, BaseModDependent, BaseModDisableGuard, ShaderCacheState, ShaderCacheStats, D3dxCacheRules, SetShaderCacheResult, ClearShaderCacheResult } from './types'
+import { ModItem, ModDetailedInfo, AppearanceSection, BaseModInfo, BaseModStatus, BaseModDependent, BaseModDisableGuard, ShaderCacheState, ShaderCacheStats, D3dxCacheRules, SetShaderCacheResult, ClearShaderCacheResult, ToggleModResult, ToggleModSiblingRename } from './types'
 import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
@@ -465,7 +465,7 @@ export class ModEngine {
    * 切换单个 Mod 启用/停用状态
    * 如果开启角色单选互斥 (Option A) 且当前操作为启用，则自动将同角色的其他 Mod 全部置为停用
    */
-  public async toggleMod(characterName: string, modRawName: string, enable: boolean): Promise<{ success: boolean; error?: string; newFullPath?: string }> {
+  public async toggleMod(characterName: string, modRawName: string, enable: boolean): Promise<ToggleModResult> {
     // characterName 仅允许作为单级目录名使用（防路径穿越）
     const safeCharName = this.sanitizeSegment(characterName)
     const charPath = this.resolveInsideModRoot(path.join(this.modFolderPath, safeCharName))
@@ -537,6 +537,7 @@ export class ModEngine {
     }
 
     // 启用且单选互斥：在目标已成功启用之后再停用其他 Mod（部分失败仅告警，不回滚已完成的启用）
+    const disabledSiblings: ToggleModSiblingRename[] = []
     if (enable && this.isOptionAExclusive) {
       try {
         const entries = fs.readdirSync(charPath, { withFileTypes: true })
@@ -563,6 +564,8 @@ export class ModEngine {
             }
             try {
               fs.renameSync(oldPath, newPath)
+              // 只有真正改名成功才回报给渲染层；跳过的分支不能把仍在启用的 Mod 标成停用
+              disabledSiblings.push({ name: fName, oldFullPath: oldPath, newFullPath: newPath })
             } catch (muteErr) {
               console.warn(`Failed to disable conflicting mod ${fName}:`, muteErr)
             }
@@ -573,7 +576,11 @@ export class ModEngine {
       }
     }
 
-    return { success: true, newFullPath: dstPath }
+    return {
+      success: true,
+      newFullPath: dstPath,
+      disabledSiblings: disabledSiblings.length > 0 ? disabledSiblings : undefined
+    }
   }
 
   /**

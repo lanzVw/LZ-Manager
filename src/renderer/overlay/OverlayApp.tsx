@@ -41,8 +41,17 @@ import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
 import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from './hotkeyPresentation'
-import { ModDetailedInfo, ModPersistVariable } from '../../core/types'
+import { ModDetailedInfo, ModPersistVariable, ToggleModResult } from '../../core/types'
 import { planPresetApply } from '../../core/preset-plan'
+import {
+  applyModRenames,
+  applyRenameToItem,
+  buildToggleRenames,
+  remapMarkedMods,
+  remapModDetailsPaths,
+  samePath,
+  setModEnabledByFullPath
+} from '../utils/mods-patch'
 import { MoveModModal } from '../components/MoveModModal'
 
 export const OverlayApp: React.FC = () => {
@@ -139,6 +148,8 @@ export const OverlayApp: React.FC = () => {
   const detailLoadSeqRef = useRef<number>(0)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSelfDispatchTime = useRef<number>(0)
+  // 同一 Mod 连点会触发两次 rename，第二次的旧路径已经失效；用稳定 id 做单飞锁
+  const toggleInFlightRef = useRef<Set<string>>(new Set())
   const [isDraggingStrip, setIsDraggingStrip] = useState<boolean>(false)
 
   // 角色胶囊条鼠标滚轮横向滚动（将滚轮 deltaY 转换为横向 scrollLeft）
@@ -474,44 +485,30 @@ export const OverlayApp: React.FC = () => {
   // 切换单个 Mod 状态
   const handleToggleMod = async (mod: any) => {
     const targetChar = mod.characterName || mod.character || currentChar
-    if (!targetChar) return
+    if (!targetChar || !mod.fullPath) return
+
+    const lockKey = String(mod.id || mod.name)
+    if (toggleInFlightRef.current.has(lockKey)) return
+    toggleInFlightRef.current.add(lockKey)
+
     const nextState = !mod.enabled
     lastSelfDispatchTime.current = Date.now()
 
     // 详情抽屉内同步响应开关状态
-    if (activeDetailMod && (activeDetailMod.name === mod.name || activeDetailMod.id === mod.id)) {
+    if (activeDetailMod && (activeDetailMod.fullPath === mod.fullPath || activeDetailMod.id === mod.id)) {
       setActiveDetailMod((prev: any) => (prev ? { ...prev, enabled: nextState } : null))
     }
 
-    // 单选互斥逻辑
-    if (exclusiveMode && nextState) {
-      setModsData((prev) => {
-        const copy = { ...prev }
-        if (copy[targetChar]) {
-          copy[targetChar] = copy[targetChar].map((m) =>
-            m.name === mod.name ? { ...m, enabled: true } : { ...m, enabled: false }
-          )
-        }
-        return copy
-      })
-    } else {
-      setModsData((prev) => {
-        const copy = { ...prev }
-        if (copy[targetChar]) {
-          copy[targetChar] = copy[targetChar].map((m) =>
-            m.name === mod.name ? { ...m, enabled: nextState } : m
-          )
-        }
-        return copy
-      })
-    }
+    // 乐观更新只翻目标开关：按 fullPath 跨桶查找，避免别名角色目录的 raw
+    // characterName 与 canonical 桶键不一致导致更新静默失效。
+    // Option-A 的兄弟停用不再靠本地 exclusiveMode 猜测，改由主进程结果补丁回填。
+    setModsData((prev) => setModEnabledByFullPath(prev, mod.fullPath, nextState) ?? prev)
 
     try {
       const res = await window.lz.toggleMod(targetChar, mod.name, nextState)
       if (res && res.success) {
         showToast(`${mod.name} ${nextState ? '已装配' : '已停用'}`)
-        const updated = await window.lz.scanMods()
-        setModsData(updated || {})
+        await applyToggleResultPatch(mod, res, nextState)
       } else {
         showToast(`切换失败: ${res?.error || '未知错误'}`)
         // 上面是乐观更新；失败（例如基底 Mod 需要主界面二次确认）必须回读磁盘纠正状态
@@ -520,13 +517,49 @@ export const OverlayApp: React.FC = () => {
           setModsData(updated || {})
           const refreshed = Object.values(updated || {})
             .flat()
-            .find((m: any) => m.name === mod.name && (!mod.characterName || m.characterName === mod.characterName))
+            .find((m: any) => samePath(m.fullPath, mod.fullPath))
           if (refreshed) setActiveDetailMod(refreshed)
         } catch (_) {}
       }
     } catch {
       showToast('切换异常')
+    } finally {
+      toggleInFlightRef.current.delete(lockKey)
     }
+  }
+
+  /**
+   * 成功切换后只补丁变化的条目，不再全量 scanMods：
+   * 目录改名只影响 enabled / folderName / fullPath 与目录内的图片路径，
+   * 元数据、INI 内容都没变。补丁按 fullPath 匹配；万一没命中就保持原状态，
+   * 下次 loadData / overlay:shown 会自然修正。
+   */
+  const applyToggleResultPatch = async (mod: any, res: ToggleModResult, nextState: boolean) => {
+    if (!res.newFullPath) {
+      const updated = await window.lz.scanMods()
+      setModsData(updated || {})
+      return
+    }
+
+    const renames = buildToggleRenames(mod.fullPath, res, nextState)
+    setModsData((prev) => applyModRenames(prev, renames))
+    setMarkedMods((prev) => {
+      const next = remapMarkedMods(prev, renames)
+      if (next !== prev) {
+        try { localStorage.setItem('lz-marked-mods', JSON.stringify(next)) } catch (_) {}
+      }
+      return next
+    })
+    setActiveDetailMod((prev: any) => {
+      if (!prev) return prev
+      const rename = renames.find((item) => samePath(item.oldFullPath, prev.fullPath))
+      return rename ? applyRenameToItem(prev, rename) : prev
+    })
+    setActiveModDetails((prev) => {
+      if (!prev) return prev
+      const rename = renames.find((item) => samePath(item.oldFullPath, prev.fullPath))
+      return rename ? remapModDetailsPaths(prev, rename.oldFullPath, rename.newFullPath) : prev
+    })
   }
 
   // 触发 F10 热刷新
@@ -547,8 +580,7 @@ export const OverlayApp: React.FC = () => {
         showToast(res.reason === 'game_not_running' ? '游戏未启动，已跳过热刷新' : '热刷新未执行')
         return
       }
-      const updated = await window.lz.scanMods()
-      setModsData(updated || {})
+      // F10 不改任何文件，无需重扫列表
       showToast('F10 热刷新成功！')
     } catch {
       showToast('刷新失败')

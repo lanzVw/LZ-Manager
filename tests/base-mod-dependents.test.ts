@@ -178,5 +178,47 @@ describe('toggleMod 的路径与基底 Mod 保护', () => {
     expect(fs.existsSync(path.join(modsRoot, '功能', '普通Mod'))).toBe(true)
     expect(fs.existsSync(baseDir)).toBe(true)
     expect(fs.existsSync(path.join(modsRoot, '功能', 'DISABLED_RabbitFX'))).toBe(false)
+    expect(res.disabledSiblings).toBeUndefined()
+  })
+
+  it('Option-A 停用兄弟时返回改名清单，供渲染层局部更新', async () => {
+    const siblingDir = path.join(modsRoot, '简', '已启用A')
+    writeIni(siblingDir, 'main.ini', 'namespace = A\n')
+    const targetDir = path.join(modsRoot, '简', 'DISABLED_B')
+    writeIni(targetDir, 'main.ini', 'namespace = B\n')
+
+    const exclusiveEngine = new ModEngine(modsRoot, true)
+    const res = await exclusiveEngine.toggleMod('简', 'B', true)
+
+    expect(res.success).toBe(true)
+    expect(res.disabledSiblings).toEqual([
+      {
+        name: '已启用A',
+        oldFullPath: siblingDir,
+        newFullPath: path.join(modsRoot, '简', 'DISABLED_已启用A')
+      }
+    ])
+    expect(fs.existsSync(path.join(modsRoot, '简', 'DISABLED_已启用A'))).toBe(true)
+  })
+
+  it('兄弟的 DISABLED_ 目标已存在时跳过且不回报', async () => {
+    const siblingDir = path.join(modsRoot, '简', '已启用A')
+    writeIni(siblingDir, 'main.ini', 'namespace = A\n')
+    fs.mkdirSync(path.join(modsRoot, '简', 'DISABLED_已启用A'), { recursive: true })
+    writeIni(path.join(modsRoot, '简', 'DISABLED_B'), 'main.ini', 'namespace = B\n')
+
+    const exclusiveEngine = new ModEngine(modsRoot, true)
+    const res = await exclusiveEngine.toggleMod('简', 'B', true)
+
+    expect(res.success).toBe(true)
+    expect(res.disabledSiblings).toBeUndefined()
+    expect(fs.existsSync(siblingDir)).toBe(true)
+  })
+
+  it('停用操作不返回兄弟改名清单', async () => {
+    writeIni(path.join(modsRoot, '简', 'B'), 'main.ini', 'namespace = B\n')
+    const res = await engine.toggleMod('简', 'B', false)
+    expect(res.success).toBe(true)
+    expect(res.disabledSiblings).toBeUndefined()
   })
 })
