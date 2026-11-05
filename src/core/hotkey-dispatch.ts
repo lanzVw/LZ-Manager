@@ -10,6 +10,66 @@
 /** 一次刷新派发后，多长时间内忽略再次的用户刷新，避免吞掉自己的按键回声（毫秒） */
 export const KEY_ECHO_GUARD_MS = 450
 
+/**
+ * 最近一次「游戏在前台」记录默认可信多久（毫秒）。
+ * 超过这个时间就回退 tasklist：进程可能已经退出、PID 可能已被复用。
+ */
+export const GAME_FOREGROUND_PID_MAX_AGE_MS = 10 * 60 * 1000
+
+/**
+ * 悬浮窗聚焦时的放宽上限。
+ * 此时即使 PID 被复用误判，F10 也只会落到已聚焦的悬浮窗；切换在点击时已写入
+ * 自派发时间戳，800 ms 内的回声会被悬浮窗吞掉，不会自激。放宽是为了避免
+ * 悬浮窗连续打开超过 10 分钟后，每次切换都退回 tasklist。
+ */
+export const GAME_FOREGROUND_PID_MAX_AGE_SELF_MS = 12 * 60 * 60 * 1000
+
+export interface GameForegroundRecord {
+  pid: number
+  process: string
+  gameId: string
+  /** 最后一次确认该 PID 属于前台游戏的时间 */
+  at: number
+}
+
+export interface GamePidProbeInput {
+  record: GameForegroundRecord | null | undefined
+  activeGameId: string
+  now: number
+  maxAgeMs: number
+  /** 当前前台必须是游戏或本应用，否则一律回退 tasklist，避免盲发全局按键 */
+  foregroundIsGameOrSelf: boolean
+}
+
+/**
+ * 是否可以用「最近前台游戏 PID 是否存活」代替 tasklist。
+ * 只做纯判定；真正的 process.kill 留在主进程，便于单测覆盖所有边界。
+ */
+export function shouldProbeGamePid(input: GamePidProbeInput): boolean {
+  const { record, activeGameId, now, maxAgeMs, foregroundIsGameOrSelf } = input
+  if (!foregroundIsGameOrSelf) return false
+  if (!record || !activeGameId || !record.gameId || record.gameId !== activeGameId) return false
+  if (!Number.isInteger(record.pid) || record.pid <= 0) return false
+  if (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0) return false
+
+  const age = now - record.at
+  // 负 age 说明时钟被回拨，记录不再可信；非有限值同样回退
+  if (!Number.isFinite(age) || age < 0 || age > maxAgeMs) return false
+  return true
+}
+
+export type PidProbeOutcome = 'alive' | 'dead' | 'unknown'
+
+/**
+ * process.kill(pid, 0) 的错误码归类：
+ * ESRCH = 进程不存在；EPERM = 进程存在但当前权限打不开（游戏常以管理员运行）。
+ */
+export function classifyPidProbeError(code: string | null | undefined): PidProbeOutcome {
+  if (code === 'ESRCH') return 'dead'
+  if (code === 'EPERM') return 'alive'
+  return 'unknown'
+}
+
 export type KeyDispatchVerdict = 'dispatch' | 'no_game' | 'game_not_running' | 'echo_suppressed'
 
 export interface KeyDispatchInput {

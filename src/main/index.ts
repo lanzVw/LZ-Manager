@@ -18,7 +18,10 @@ import { PersistBridgeManager } from '../core/persist-bridge'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
 import {
   evaluateKeyDispatch,
-  sanitizeProcessName
+  sanitizeProcessName,
+  shouldProbeGamePid,
+  classifyPidProbeError,
+  GAME_FOREGROUND_PID_MAX_AGE_MS
 } from '../core/hotkey-dispatch'
 import type { PresetApplyMode, PresetChangeReason } from '../core/types'
 
@@ -124,6 +127,7 @@ import { ConflictDetector } from '../core/conflict-detector'
 import { EnvironmentDeployer } from '../core/environment-deployer'
 import { TrayManager } from './tray-manager'
 import { GameFocusService } from './game-focus-service'
+import type { ForegroundInfo } from './game-focus-service'
 import { ModFixer, getWuwaFixRuleMetadata } from '../core/mod-fixer'
 import { listIniBackupsForMod, restoreIniBackupForMod } from '../core/ini-backup'
 
@@ -216,15 +220,73 @@ let lastKeyDispatchAt = 0
 const PROCESS_CHECK_TTL_MS = 1000
 let processCheckCache: { key: string; running: boolean; at: number } | null = null
 
-async function isGameRunningCached(names: string | string[]): Promise<boolean> {
-  const list = (Array.isArray(names) ? names : [names]).sort()
+// tasklist 启动后、返回前，游戏可能刚好被切到前台；用代际号丢弃失效的旧结果，
+// 避免迟到的 false 把刚建立的「游戏已运行」判断覆盖掉
+let processCheckGeneration = 0
+
+function invalidateGameRunningCache() {
+  processCheckCache = null
+  processCheckGeneration++
+}
+
+/** process.kill(pid, 0) 探测 PID 是否仍存活；EPERM 说明进程存在但当前权限打不开 */
+function probeProcessAlive(pid: number): boolean | null {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err: any) {
+    const outcome = classifyPidProbeError(err?.code)
+    if (outcome === 'alive') return true
+    if (outcome === 'dead') return false
+    return null
+  }
+}
+
+async function isGameRunningCached(
+  names: string | string[],
+  opts?: { maxRecordAgeMs?: number }
+): Promise<boolean> {
+  const list = (Array.isArray(names) ? names : [names]).map((n) => String(n || '').trim()).sort()
   const key = list.join('|').toLowerCase()
   const now = Date.now()
   if (processCheckCache && processCheckCache.key === key && now - processCheckCache.at < PROCESS_CHECK_TTL_MS) {
     return processCheckCache.running
   }
+
+  // 游戏刚在前台时直接用 PID 存活探测代替 tasklist：悬浮窗切换 Mod 的主路径
+  // 因此不再付 200 ms 左右的进程枚举开销。任一条件不满足（前台是其它应用、
+  // 记录过期、PID 已退出）都回退 tasklist，绝不盲发全局按键。
+  const g = configStore.getActiveGame()
+  const fg = gameFocusService.getLastInfo()
+  const record = gameFocusService.getLastGameForeground()
+  const foregroundIsGameOrSelf =
+    fg.isSelf || (fg.isGame && gameFocusService.isTargetGameProcess(fg.process, g))
+  if (
+    g &&
+    shouldProbeGamePid({
+      record,
+      activeGameId: g.id,
+      now,
+      maxAgeMs: opts?.maxRecordAgeMs ?? GAME_FOREGROUND_PID_MAX_AGE_MS,
+      foregroundIsGameOrSelf
+    })
+  ) {
+    const alive = probeProcessAlive(record!.pid)
+    if (alive === true) {
+      processCheckCache = { key, running: true, at: now }
+      return true
+    }
+    if (alive === false) {
+      // 记录里的进程已退出；游戏可能换 PID 重启，必须回退 tasklist 确认
+      gameFocusService.clearLastGameForeground()
+    }
+  }
+
+  const generation = processCheckGeneration
   const running = await gameLauncher.isGameRunning(list)
-  processCheckCache = { key, running, at: now }
+  if (generation === processCheckGeneration) {
+    processCheckCache = { key, running, at: now }
+  }
   return running
 }
 
@@ -249,6 +311,8 @@ function applyActiveGame(gameId: string, origin: 'manual' | 'auto-focus' = 'manu
   const prevId = cfg.activeGameId
   if (prevId !== gameId) {
     configStore.setActiveGame(gameId)
+    // 换游戏后候选进程名与 PID 记录都变了，旧缓存必须作废
+    invalidateGameRunningCache()
   } else if (origin === 'auto-focus') {
     // 焦点切回的仍是当前激活游戏：什么都不用重置，也不向两个窗口重复广播 game:changed，
     // 否则每次 alt-tab 回游戏都会触发两份全量扫描 + 悬浮窗浏览状态丢失
@@ -320,6 +384,12 @@ gameFocusService.on('game-change', (matchedGame: any) => {
   if (matchedGame && matchedGame.id) {
     applyActiveGame(matchedGame.id, 'auto-focus')
   }
+})
+
+// 游戏刚获得前台时，之前缓存的「未运行」已经失效；同时让 PID 快路径能立刻用上
+// observeForeground 刚写入的新记录
+gameFocusService.on('focus-change', (info: ForegroundInfo) => {
+  if (info?.isGame) invalidateGameRunningCache()
 })
 
 function getAppIconPath(): string {

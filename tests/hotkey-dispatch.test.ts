@@ -3,7 +3,11 @@ import {
   evaluateKeyDispatch,
   parseRequiresForegroundInput,
   sanitizeProcessName,
+  shouldProbeGamePid,
+  classifyPidProbeError,
   KEY_ECHO_GUARD_MS,
+  GAME_FOREGROUND_PID_MAX_AGE_MS,
+  type GameForegroundRecord,
   type KeyDispatchInput
 } from '../src/core/hotkey-dispatch'
 
@@ -84,5 +88,80 @@ describe('sanitizeProcessName', () => {
   it('拒绝空值', () => {
     expect(sanitizeProcessName('')).toBe('')
     expect(sanitizeProcessName('   ')).toBe('')
+  })
+})
+
+describe('shouldProbeGamePid', () => {
+  const now = 1_800_000_000_000
+  const record: GameForegroundRecord = {
+    pid: 4321,
+    process: 'ZenlessZoneZero.exe',
+    gameId: 'zzz',
+    at: now - 1000
+  }
+  const base = {
+    record,
+    activeGameId: 'zzz',
+    now,
+    maxAgeMs: GAME_FOREGROUND_PID_MAX_AGE_MS,
+    foregroundIsGameOrSelf: true
+  }
+
+  it('记录新鲜且属于当前游戏、前台是游戏或本应用时走快路径', () => {
+    expect(shouldProbeGamePid(base)).toBe(true)
+  })
+
+  it('没有记录时不走快路径', () => {
+    expect(shouldProbeGamePid({ ...base, record: null })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, record: undefined })).toBe(false)
+  })
+
+  it('PID 非法时不走快路径', () => {
+    expect(shouldProbeGamePid({ ...base, record: { ...record, pid: 0 } })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, record: { ...record, pid: -1 } })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, record: { ...record, pid: 1.5 } })).toBe(false)
+  })
+
+  it('记录不属于当前游戏时不走快路径', () => {
+    expect(shouldProbeGamePid({ ...base, activeGameId: 'wuwa' })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, activeGameId: '' })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, record: { ...record, gameId: '' } })).toBe(false)
+  })
+
+  it('记录过期时不走快路径，边界值仍可信', () => {
+    expect(shouldProbeGamePid({ ...base, record: { ...record, at: now - base.maxAgeMs - 1 } })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, record: { ...record, at: now - base.maxAgeMs } })).toBe(true)
+  })
+
+  it('时钟回拨或时间戳非有限值时不走快路径', () => {
+    expect(shouldProbeGamePid({ ...base, record: { ...record, at: now + 1 } })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, record: { ...record, at: Number.NaN } })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, now: Number.NaN })).toBe(false)
+  })
+
+  it('maxAgeMs 非法时不走快路径', () => {
+    expect(shouldProbeGamePid({ ...base, maxAgeMs: 0 })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, maxAgeMs: -1 })).toBe(false)
+    expect(shouldProbeGamePid({ ...base, maxAgeMs: Number.POSITIVE_INFINITY })).toBe(false)
+  })
+
+  it('前台不是游戏或本应用时一律回退 tasklist', () => {
+    expect(shouldProbeGamePid({ ...base, foregroundIsGameOrSelf: false })).toBe(false)
+  })
+})
+
+describe('classifyPidProbeError', () => {
+  it('ESRCH 说明进程已退出', () => {
+    expect(classifyPidProbeError('ESRCH')).toBe('dead')
+  })
+
+  it('EPERM 说明进程存在但权限不足', () => {
+    expect(classifyPidProbeError('EPERM')).toBe('alive')
+  })
+
+  it('其它错误码一律视为未知，回退 tasklist', () => {
+    expect(classifyPidProbeError('EINVAL')).toBe('unknown')
+    expect(classifyPidProbeError(undefined)).toBe('unknown')
+    expect(classifyPidProbeError(null)).toBe('unknown')
   })
 })

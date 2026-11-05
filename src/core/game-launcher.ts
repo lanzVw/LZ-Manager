@@ -713,8 +713,13 @@ export class GameLauncher {
     if (candidates.length === 0) return Promise.resolve(false)
 
     return new Promise((resolve) => {
-      // 不加 /FI 过滤列出全部进程：进程多时输出可能超过默认 1MB，需放宽 maxBuffer
-      exec('tasklist /NH', { maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      // 不加 /FI 过滤列出全部进程：进程多时输出可能超过默认 1MB，需放宽 maxBuffer。
+      // 用 %SystemRoot%\System32\tasklist.exe 而不是依赖 PATH，避免打包后环境变量差异；
+      // execFile 也不经过 cmd.exe，少一次进程创建。
+      const systemRoot = process.env.SystemRoot || process.env.windir || ''
+      const systemTasklist = systemRoot ? path.join(systemRoot, 'System32', 'tasklist.exe') : ''
+      const tasklistExe = systemTasklist && fs.existsSync(systemTasklist) ? systemTasklist : 'tasklist'
+      execFile(tasklistExe, ['/NH'], { maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
         if (err || !stdout) return resolve(false)
         const lower = stdout.toLowerCase()
         resolve(candidates.some((name) => lower.includes(name)))

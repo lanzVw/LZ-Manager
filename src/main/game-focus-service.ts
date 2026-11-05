@@ -3,6 +3,7 @@ import { spawn, ChildProcess, execFile } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { GameConfig } from '../core/types'
+import type { GameForegroundRecord } from '../core/hotkey-dispatch'
 
 // 游戏 ID 别名归一化映射
 const GAME_ID_MAP: Record<string, string> = {
@@ -88,6 +89,8 @@ export class GameFocusService extends EventEmitter {
     isSelf: false,
     matchedGame: null
   }
+  /** 最近一次确认「游戏在前台」的进程记录，供按键派发跳过 tasklist */
+  private lastGameForeground: GameForegroundRecord | null = null
 
   constructor(binariesDir: string) {
     super()
@@ -99,7 +102,21 @@ export class GameFocusService extends EventEmitter {
   }
 
   public setActiveGame(game: GameConfig | null) {
+    const prevId = this.activeGame?.id || ''
     this.activeGame = game
+    // 只有真正换游戏时才清空。applyActiveGame 在 game-change 监听里还会用同一个
+    // 游戏再调一次 setActiveGame，无条件清空会把 observeForeground 刚写入的记录抹掉。
+    if (!game || prevId !== game.id) {
+      this.lastGameForeground = null
+    }
+  }
+
+  public getLastGameForeground(): GameForegroundRecord | null {
+    return this.lastGameForeground
+  }
+
+  public clearLastGameForeground() {
+    this.lastGameForeground = null
   }
 
   public getCanonicalGameKey(id: string): string {
@@ -204,27 +221,35 @@ export class GameFocusService extends EventEmitter {
   }
 
   /**
+   * 进程名是否属于指定游戏（配置的 exe 名或该游戏的官方进程清单）。
+   * 只认进程名，不认窗口标题：标题匹配会把标题里带游戏名的浏览器/启动器也算进来。
+   */
+  private isProcessOfGame(processName: string, game: GameConfig | null | undefined): boolean {
+    if (!processName || !game) return false
+    const nameLower = processName.toLowerCase().trim()
+    if (game.gamePath) {
+      const configuredExe = path.basename(game.gamePath).toLowerCase().trim()
+      if (configuredExe && (nameLower === configuredExe || nameLower === `${configuredExe}.exe`)) {
+        return true
+      }
+    }
+    const canonicalKey = this.getCanonicalGameKey(game.id)
+    if (canonicalKey && KNOWN_GAME_PROCESSES[canonicalKey]) {
+      if (KNOWN_GAME_PROCESSES[canonicalKey].some((k) => k.toLowerCase() === nameLower)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
    * 判断指定进程是否是当前游戏（或任意已知游戏）
    */
   public isTargetGameProcess(processName: string, game?: GameConfig | null): boolean {
     if (!processName) return false
-    const nameLower = processName.toLowerCase().trim()
     const targetGame = game || this.activeGame
 
-    if (targetGame) {
-      if (targetGame.gamePath) {
-        const configuredExe = path.basename(targetGame.gamePath).toLowerCase().trim()
-        if (configuredExe && (nameLower === configuredExe || nameLower === `${configuredExe}.exe`)) {
-          return true
-        }
-      }
-      const canonicalKey = this.getCanonicalGameKey(targetGame.id)
-      if (canonicalKey && KNOWN_GAME_PROCESSES[canonicalKey]) {
-        if (KNOWN_GAME_PROCESSES[canonicalKey].some((k) => k.toLowerCase() === nameLower)) {
-          return true
-        }
-      }
-    }
+    if (this.isProcessOfGame(processName, targetGame)) return true
 
     const matched = this.findMatchingGame(processName)
     if (matched) return true
@@ -240,6 +265,44 @@ export class GameFocusService extends EventEmitter {
     if (!processName) return false
     const n = processName.toLowerCase()
     return n.includes('electron') || n.includes('lz-manager') || n.includes('lz manager') || n.includes('qaqmanager')
+  }
+
+  /**
+   * 记录前台窗口变化，并维护「最近一次确认游戏在前台」的记录。
+   *
+   * GameFocusHelper --watch 只在窗口句柄变化时输出，长时间打游戏时不会重复上报；
+   * 因此「游戏 → 其它窗口」的这次切换本身就是游戏刚刚还在前台的证据，必须刷新
+   * 时间戳，否则悬浮窗打开时记录已经过期，PID 快路径永远命中不了。
+   */
+  public observeForeground(info: ForegroundInfo) {
+    const prev = this.lastForegroundInfo
+    this.lastForegroundInfo = info
+
+    if (
+      info.isGame &&
+      !info.isSelf &&
+      info.pid > 0 &&
+      info.matchedGame &&
+      this.isProcessOfGame(info.process, info.matchedGame)
+    ) {
+      this.lastGameForeground = {
+        pid: info.pid,
+        process: info.process,
+        gameId: info.matchedGame.id,
+        at: Date.now()
+      }
+      return
+    }
+
+    if (
+      !info.isGame &&
+      prev.isGame &&
+      !prev.isSelf &&
+      this.lastGameForeground &&
+      prev.pid === this.lastGameForeground.pid
+    ) {
+      this.lastGameForeground = { ...this.lastGameForeground, at: Date.now() }
+    }
   }
 
   /**
@@ -298,7 +361,7 @@ export class GameFocusService extends EventEmitter {
             isSelf,
             matchedGame
           }
-          this.lastForegroundInfo = info
+          this.observeForeground(info)
           resolve(info)
         } catch (_) {
           resolve({
@@ -388,7 +451,7 @@ export class GameFocusService extends EventEmitter {
               matchedGame
             }
 
-            this.lastForegroundInfo = info
+            this.observeForeground(info)
             this.emit('focus-change', info)
           } catch (parseErr) {
             console.warn('[GameFocusService] Failed to parse helper output line:', parseErr)
