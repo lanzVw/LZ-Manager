@@ -6,6 +6,7 @@ import { PersistBridgeManager } from './persist-bridge'
 import { normalizeCharacterName } from './characters-data'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
 import { parseIniNamespace, parseShaderCacheValue, parseD3dxCacheRules, containsNamespaceReference, evaluateBaseModHealth } from './base-mod'
+import { getHttpFetch } from './http-client'
 
 /** 内容哈希，用于市场截图去重（同一张图可能既在根目录又出现在市场接口里） */
 function hashBuffer(buf: Buffer): string {
@@ -1773,7 +1774,7 @@ export class ModEngine {
         continue
       }
       try {
-        const res = await fetch(url)
+        const res = await getHttpFetch()(url)
         if (!res.ok) {
           failed++
           continue

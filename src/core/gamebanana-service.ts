@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 import { getCharactersForGame, normalizeCharacterName } from "./characters-data";
 import { autoTranslateModConfig } from "./mod-translator";
 import { pickMainGameBananaFile, versionsMatch } from "./gamebanana-files";
+import { getHttpFetch } from "./http-client";
 import type { GameBananaInstallResult, ModInstallTarget } from "./types";
 
 /**
@@ -223,7 +224,7 @@ async function fetchWithRetry(url, options: any = {}, maxRetries = 3, timeoutMs 
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(url, {
+      const response = await getHttpFetch()(url, {
         ...options,
         headers: mergedHeaders,
         signal: controller.signal

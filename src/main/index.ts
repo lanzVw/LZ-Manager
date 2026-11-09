@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog, nativeImage, net } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
@@ -14,6 +14,7 @@ import { GameLauncher } from '../core/game-launcher'
 import { getCharactersForGame, normalizeCharacterName, detectCharacterForMod } from '../core/characters-data'
 import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpdates, sweepStaleDownloadDirs, inspectInstalledMod } from '../core/gamebanana-service'
 import { translateModDetails } from '../core/translate-service'
+import { setHttpFetch } from '../core/http-client'
 import { PersistBridgeManager } from '../core/persist-bridge'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
 import {
@@ -1872,6 +1873,13 @@ if (app) {
   process.on('exit', (code) => syncLog(`process exit, code = ${code}`))
   app.whenReady().then(() => {
     syncLog('app ready, creating windows')
+
+    // 把 core 层的网络实现切到 Chromium 网络栈：
+    // undici 不读 Windows 系统代理、只走 HTTP/1.1；net.fetch 会自动跟随系统代理/PAC、
+    // 复用连接并协商 br/zstd。国内用户多数依赖「系统代理」模式，这一步让他们的市场请求
+    // 无需额外配置就能走上代理。必须在任何 IPC 触发网络请求前注入。
+    setHttpFetch((input: string, init?: any) => net.fetch(input, init))
+
     if (process.platform === 'win32') {
       app.setAppUserModelId('com.lz.manager.v1')
     }
