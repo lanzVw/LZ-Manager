@@ -76,7 +76,7 @@ npm start
 ```
 
 - `npm run dev` 会并发起 Vite dev server + 三个 watch 构建 + Electron，仅开发时使用；`dev:renderer` 单独起 5173 端口
-- `npm run dist`（electron-builder 打 NSIS 安装包，读 `electron-builder.yml`）未验证，未在本次执行；该配置的 `publish: null` 表示当前只做本地打包，不上传
+- `npm run dist`（electron-builder 打 NSIS 安装包，读 `electron-builder.yml`）已在本机验证通过：产物在 `release/<version>/`，安装包为 `LZ-Manager-Setup-<version>.exe`，另有免安装的 `win-unpacked/`。当前体积约 181 MB，主要来自随包 `resources/`（修复器与 `dxcompiler.dll`）。该配置的 `publish: null` 表示当前只做本地打包、不上传，也没有代码签名证书，安装时 Windows 会提示「未知发布者」
 
 ## 编码约定
 
@@ -112,7 +112,7 @@ npm start
 ## 已知问题与陷阱
 
 - **TypeScript 7.0.2（原生版）与 typescript-eslint 不兼容**，`eslint.config.mjs` 因此退化为 `@babel/eslint-parser` 的纯语法 lint，没有类型相关规则（详见该文件顶部注释）。`react-hooks/*` 是当前唯一有实质价值的静态检查
-- `npm run lint` 目前退出码为 0，但有 **24 条 warning**（`no-useless-escape`、`preserve-caught-error`、`no-useless-assignment`、`react-hooks/exhaustive-deps`），属已知的历史代码风格问题，被刻意降级为 warn
+- `npm run lint` 目前退出码为 0，但有 **23 条 warning**（`no-useless-escape`、`preserve-caught-error`、`no-useless-assignment`、`react-hooks/exhaustive-deps`），属已知的历史代码风格问题，被刻意降级为 warn
 - 三个 vite 配置都是 `.ts` 且 `package.json` 为 `type: "commonjs"`，每次构建都会打印 `configLoader: 'native'` 的 ESM/CommonJS 警告，可用 `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` 抑制
 - `src/core/characters-data.ts`（2422 行）与 `src/core/mod-translator-dict.ts` 是生成式大文件，手工编辑易冲突。**生成方式待确认**：未找到生成脚本，也未找到读取源，无法判断改数据应该改哪个文件
 - `resources/games/*/character-config.json` 只有各目录的 README 提及，`src/` 下 grep 不到任何读取处（运行时用 `characters-data.ts` 的内嵌数据），已确认只是离线参考。改角色数据只需动 `characters-data.ts`
@@ -128,7 +128,7 @@ npm start
 
 - 改代码前先读对应模块本身及其调用方（`src/main/index.ts` 的 IPC 注册处是几乎所有 core 能力的入口地图）
 - 修 bug 先补一个能在 `tests/` 复现的 vitest 用例；测试目录不在 ESLint 与 `tsc` 的覆盖范围内（`tsconfig.json` 只 `include: ["src"]`），需自行保证类型正确
-- 提交前跑 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`；四者当前均通过（lint 有上述 24 条 warning）
+- 提交前跑 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`；四者当前均通过（lint 有上述 23 条 warning）
 - 由谁执行改动（当前会话直接做，或交给 agy 等外部执行方）由维护者当次决定，文档不做统一规定。无论谁执行，其验证自述均不作数，提交前必须由审查方独立复跑上述四条命令
 - 开工前先确认工作区状态，避免改动归属混杂难以审查
 - 一次只做一件事，改动保持小范围
