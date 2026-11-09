@@ -43,6 +43,16 @@ import {
 import { formatDate } from '../utils/gamebanana-format'
 import { parseAuthorQuery, resolveSearchQuery, stripAuthorPrefix } from '../utils/gamebanana-search'
 import type { SearchScope } from '../utils/gamebanana-search'
+import {
+  MARKET_DETAIL_FRESH_MS,
+  MARKET_LIST_FRESH_MS,
+  buildDetailCacheKey,
+  buildSearchCacheKey,
+  dedupeMarketRequest,
+  isMarketCacheFresh,
+  readMarketCache,
+  writeMarketCache
+} from '../utils/marketCache'
 
 interface GameBananaPageProps {
   activeGame: any
@@ -134,6 +144,8 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   const perPage = 30
 
   const [loading, setLoading] = useState<boolean>(false)
+  // 有缓存时不再用全屏 loading，改用刷新图标提示后台正在校对数据
+  const [refreshing, setRefreshing] = useState<boolean>(false)
   const [installingFileId, setInstallingFileId] = useState<number | string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [progressMsg, setProgressMsg] = useState<string>('')
@@ -230,33 +242,58 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   )
 
   // 执行搜索/列表刷新（请求序号守卫：快速翻页/切换过滤时丢弃过期响应）
+  // force=true 用于刷新按钮：即使缓存仍在新鲜期内也强制回源
   const fetchMods = useCallback(
-    async (pageToLoad = 1) => {
+    async (pageToLoad = 1, options?: { force?: boolean }) => {
       if (!activeGame) return
+      const activeChar = characters.find((c) => c.id === selectedCharId)
+      const params = {
+        gameId: activeGame.id,
+        characterGbCatId: activeChar?.gbCatId || null,
+        searchQuery: effectiveQuery || undefined,
+        sort: sortOption,
+        page: pageToLoad,
+        perPage
+      }
+      const cacheKey = buildSearchCacheKey(params)
+      const cached = readMarketCache<any>(cacheKey)
       const seq = ++searchSeqRef.current
-      setLoading(true)
+
+      if (cached) {
+        // 先渲染旧结果：页签/筛选来回切换时不再闪一次全屏 loading
+        const records = cached.data?.records || []
+        setMods(records)
+        setTotalRecords(cached.data?.total || records.length || 0)
+        setCurrentPage(pageToLoad)
+        setLoading(false)
+        if (!options?.force && isMarketCacheFresh(cached, MARKET_LIST_FRESH_MS)) {
+          setRefreshing(false)
+          return
+        }
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
+
       try {
-        const activeChar = characters.find((c) => c.id === selectedCharId)
-        const res = await window.flairx.searchGameBanana({
-          gameId: activeGame.id,
-          characterGbCatId: activeChar?.gbCatId || null,
-          searchQuery: effectiveQuery || undefined,
-          sort: sortOption,
-          page: pageToLoad,
-          perPage
-        })
+        const res = await dedupeMarketRequest(cacheKey, () => window.flairx.searchGameBanana(params))
         if (seq !== searchSeqRef.current) return
 
         const records = res?.records || []
         setMods(records)
         setTotalRecords(res?.total || records.length || 0)
         setCurrentPage(pageToLoad)
+        writeMarketCache(cacheKey, res)
       } catch (err) {
         console.error('Failed to search GameBanana:', err)
-        toast.error('搜索失败，请检查网络', err instanceof Error ? err.message : '请稍后重试')
+        // 有旧数据时后台刷新失败不应清空列表，也不该打断用户；无缓存才提示
+        if (!cached) {
+          toast.error('搜索失败，请检查网络', err instanceof Error ? err.message : '请稍后重试')
+        }
       } finally {
         if (seq === searchSeqRef.current) {
           setLoading(false)
+          setRefreshing(false)
         }
       }
     },
@@ -320,18 +357,29 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   const openDetailDrawer = useCallback(
     async (mod: any) => {
       const seq = ++detailSeqRef.current
+      const detailParams = {
+        itemType: mod.itemType || 'Mod',
+        itemId: mod.id,
+        modId: mod.id,
+        gameId: activeGame.id
+      }
+      const cacheKey = buildDetailCacheKey(detailParams)
+      const cached = readMarketCache<any>(cacheKey)
+      // 有缓存时先用缓存渲染，loading 不再挡住文件清单；数据在后台校对
+      const base = cached?.data || mod
+
       // 打开新详情时重置旧详情状态（详情/文件清单一并替换为安全初值，翻译态清零）
       setDetailMod({
-        ...mod,
-        loading: true
+        ...base,
+        loading: !cached
       })
-      setLoadingDetail(true)
+      setLoadingDetail(!cached)
       setIsTranslating(false)
       setIsTranslated(false)
       setLightboxOpen(false)
 
       // 记忆模式：若开启自动翻译偏好且已在当前内存中，秒出中文
-      const modKey = String(mod.id)
+      const modKey = String(base.id)
       if (autoTranslate && translatedMap[modKey]) {
         setIsTranslated(true)
       } else {
@@ -339,20 +387,24 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
       }
 
       // 默认大图
-      const initialThumb = pickPreviewUrl(mod)
+      const initialThumb = pickPreviewUrl(base)
       setActivePreviewImg(initialThumb)
-      setActiveFullImg(mod.images?.[0]?.url || initialThumb)
+      setActiveFullImg(base.images?.[0]?.url || initialThumb)
+
+      if (cached && isMarketCacheFresh(cached, MARKET_DETAIL_FRESH_MS)) {
+        // 新鲜期内直接复用，不再回源；自动翻译仍按偏好触发
+        if (autoTranslate) triggerTranslate(base, seq)
+        return
+      }
 
       try {
-        const details = await window.flairx.getGameBananaDetails({
-          itemType: mod.itemType || 'Mod',
-          itemId: mod.id,
-          modId: mod.id,
-          gameId: activeGame.id
-        })
+        const details = await dedupeMarketRequest(cacheKey, () =>
+          window.flairx.getGameBananaDetails(detailParams)
+        )
         if (seq !== detailSeqRef.current) return
 
         if (details) {
+          writeMarketCache(cacheKey, details)
           setDetailMod(details)
           const firstImg = pickPreviewUrl(details, 'thumb') || initialThumb
           setActivePreviewImg(firstImg)
@@ -725,12 +777,12 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
             <Button
               variant="ghost"
               size="md"
-              onClick={() => fetchMods(1)}
-              disabled={loading}
+              onClick={() => fetchMods(1, { force: true })}
+              disabled={loading || refreshing}
               title="刷新列表"
               aria-label="刷新列表"
               className="w-8 px-0"
-              icon={<RefreshCw className={`w-3.5 h-3.5 text-primary ${loading ? 'animate-spin' : ''}`} />}
+              icon={<RefreshCw className={`w-3.5 h-3.5 text-primary ${loading || refreshing ? 'animate-spin' : ''}`} />}
             />
           </div>
         </div>
