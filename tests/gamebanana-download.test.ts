@@ -235,4 +235,518 @@ describe('sweepStaleDownloadDirs 清理陈旧下载缓存残留', () => {
   })
 })
 
+describe('断点续传与多分片并行下载', () => {
+  it('分片成功：探测返回 206+content-range，分片请求返回对应片段，拼接后长度/magic/format 正确且 chunk 已清理', async () => {
+    const dir = path.join(tmpRoot, 'chunked-success')
+    fs.mkdirSync(dir, { recursive: true })
+
+    // 构造 2MB 测试数据（>1MB 且 <=8MB，自适应为 4 分片）
+    const totalSize = 2 * 1024 * 1024
+    const fullBuffer = Buffer.alloc(totalSize, 0x41)
+    fullBuffer[0] = 0x50
+    fullBuffer[1] = 0x4b
+    fullBuffer[2] = 0x03
+    fullBuffer[3] = 0x04
+
+    const requestedRanges: string[] = []
+
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+      requestedRanges.push(range)
+
+      if (range === 'bytes=0-0') {
+        // 探测阶段：返回 206 + content-range
+        return new Response(fullBuffer.subarray(0, 1), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      const match = range.match(/bytes=(\d+)-(\d+)/)
+      if (match) {
+        const start = parseInt(match[1], 10)
+        const end = parseInt(match[2], 10)
+        const chunkData = fullBuffer.subarray(start, end + 1)
+        return new Response(chunkData, {
+          status: 206,
+          headers: {
+            'content-range': `bytes ${start}-${end}/${totalSize}`,
+            'content-length': String(chunkData.length),
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      return new Response('bad request', { status: 400 })
+    })
+
+    const progressReports: any[] = []
+    const res = await downloadFile({
+      downloadUrl: 'https://gamebanana.com/dl/12345',
+      targetDir: dir,
+      fileName: 'multichunk.zip',
+      onProgress: (p) => progressReports.push(p)
+    })
+
+    expect(res.format).toBe('zip')
+    expect(res.size).toBe(totalSize)
+    expect(fs.existsSync(res.archivePath)).toBe(true)
+    const diskContent = fs.readFileSync(res.archivePath)
+    expect(diskContent.equals(fullBuffer)).toBe(true)
+
+    // 断言分片临时文件与 .part 均已清理
+    const files = fs.readdirSync(dir)
+    expect(files.some((f) => f.includes('.part'))).toBe(false)
+    expect(files.some((f) => f.includes('.chunk'))).toBe(false)
+    expect(requestedRanges[0]).toBe('bytes=0-0')
+    // 探测之后应有 4 个分片请求
+    expect(requestedRanges.length).toBe(5)
+
+    // 断言最终进度为 100%
+    const lastProgress = progressReports[progressReports.length - 1]
+    expect(lastProgress.percent).toBe(100)
+    expect(lastProgress.downloaded).toBe(totalSize)
+  })
+
+  it('单片失败后续传：某片前两次抛错第三次成功，断言该片第二个 Range 起始偏移等于已下载字节数', async () => {
+    const dir = path.join(tmpRoot, 'chunked-resume')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const totalSize = 2 * 1024 * 1024
+    const fullBuffer = Buffer.alloc(totalSize, 0x42)
+    fullBuffer[0] = 0x50
+    fullBuffer[1] = 0x4b
+    fullBuffer[2] = 0x03
+    fullBuffer[3] = 0x04
+
+    const chunk1Ranges: string[] = []
+    let chunk1Attempts = 0
+
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+
+      if (range === 'bytes=0-0') {
+        return new Response(fullBuffer.subarray(0, 1), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      const match = range.match(/bytes=(\d+)-(\d+)/)
+      if (match) {
+        const start = parseInt(match[1], 10)
+        const end = parseInt(match[2], 10)
+
+        // 对分片 1（起始位置 524288）进行失败与断点模拟
+        if (start >= 524288 && start < 1048576) {
+          chunk1Attempts++
+          chunk1Ranges.push(range)
+
+          if (chunk1Attempts === 1) {
+            // 第 1 次尝试：写入 1024 字节后流中断
+            const written = 1024
+            const stream = new ReadableStream({
+              start(c) {
+                c.enqueue(fullBuffer.subarray(start, start + written))
+              },
+              pull(c) {
+                setTimeout(() => c.error(new Error('模拟网络连接重置 1')), 50)
+              }
+            })
+            return new Response(stream, {
+              status: 206,
+              headers: {
+                'content-range': `bytes ${start}-${end}/${totalSize}`,
+                'content-length': String(end - start + 1),
+                'content-type': 'application/zip'
+              }
+            })
+          }
+
+          if (chunk1Attempts === 2) {
+            // 第 2 次尝试：再写入 2048 字节后流中断
+            const written = 2048
+            const stream = new ReadableStream({
+              start(c) {
+                c.enqueue(fullBuffer.subarray(start, start + written))
+              },
+              pull(c) {
+                setTimeout(() => c.error(new Error('模拟网络连接重置 2')), 50)
+              }
+            })
+            return new Response(stream, {
+              status: 206,
+              headers: {
+                'content-range': `bytes ${start}-${end}/${totalSize}`,
+                'content-length': String(end - start + 1),
+                'content-type': 'application/zip'
+              }
+            })
+          }
+
+          // 第 3 次尝试：完整传输剩余数据
+          const remainingData = fullBuffer.subarray(start, end + 1)
+          return new Response(remainingData, {
+            status: 206,
+            headers: {
+              'content-range': `bytes ${start}-${end}/${totalSize}`,
+              'content-length': String(remainingData.length),
+              'content-type': 'application/zip'
+            }
+          })
+        }
+
+        // 其他分片正常返回
+        const chunkData = fullBuffer.subarray(start, end + 1)
+        return new Response(chunkData, {
+          status: 206,
+          headers: {
+            'content-range': `bytes ${start}-${end}/${totalSize}`,
+            'content-length': String(chunkData.length),
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      return new Response('bad request', { status: 400 })
+    })
+
+    const res = await downloadFile({
+      downloadUrl: 'https://gamebanana.com/dl/resume',
+      targetDir: dir,
+      fileName: 'resume.zip'
+    })
+
+    expect(res.format).toBe('zip')
+    expect(res.size).toBe(totalSize)
+    expect(fs.readFileSync(res.archivePath).equals(fullBuffer)).toBe(true)
+
+    // 断言分片 1 尝试了 3 次，且第 2、3 次的 Range 起始偏移精确等于此前已落盘的字节数
+    expect(chunk1Attempts).toBe(3)
+    expect(chunk1Ranges[0]).toBe('bytes=524288-1048575')
+    expect(chunk1Ranges[1]).toBe(`bytes=${524288 + 1024}-1048575`)
+    expect(chunk1Ranges[2]).toBe(`bytes=${524288 + 1024 + 2048}-1048575`)
+
+    const files = fs.readdirSync(dir)
+    expect(files.some((f) => f.includes('.part'))).toBe(false)
+    expect(files.some((f) => f.includes('.chunk'))).toBe(false)
+  })
+
+  it('全片停滞：所有片返回挂起流，断言 DOWNLOAD_STALLED 且消息含「下载停滞」，.part 与 chunk 均清理', async () => {
+    const dir = path.join(tmpRoot, 'chunked-stalled')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const totalSize = 2 * 1024 * 1024
+
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+      if (range === 'bytes=0-0') {
+        return new Response(new Uint8Array([0x50]), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      // 所有分片返回挂起的流（永远不发数据）
+      const hangingStream = new ReadableStream({
+        start() {}
+      })
+      return new Response(hangingStream, {
+        status: 206,
+        headers: {
+          'content-range': range ? `${range}/${totalSize}` : '',
+          'content-length': '524288',
+          'content-type': 'application/zip'
+        }
+      })
+    })
+
+    await expect(
+      downloadFile({
+        downloadUrl: 'https://gamebanana.com/dl/stalled',
+        targetDir: dir,
+        fileName: 'stall.zip',
+        stallTimeoutMs: 300
+      })
+    ).rejects.toMatchObject({
+      code: 'DOWNLOAD_STALLED',
+      message: expect.stringMatching(/下载停滞/)
+    })
+
+    const files = fs.readdirSync(dir)
+    expect(files.some((f) => f.includes('.part'))).toBe(false)
+    expect(files.some((f) => f.includes('.chunk'))).toBe(false)
+  })
+
+  it('取消：下载中中止 signal，断言 DOWNLOAD_CANCELLED 且无残留', async () => {
+    const dir = path.join(tmpRoot, 'chunked-cancelled')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const totalSize = 2 * 1024 * 1024
+    const controller = new AbortController()
+
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+      if (range === 'bytes=0-0') {
+        return new Response(new Uint8Array([0x50]), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      // 收到分片请求时触发取消
+      setTimeout(() => controller.abort(), 50)
+      const hangingStream = new ReadableStream({ start() {} })
+      return new Response(hangingStream, {
+        status: 206,
+        headers: {
+          'content-range': range ? `${range}/${totalSize}` : '',
+          'content-length': '524288',
+          'content-type': 'application/zip'
+        }
+      })
+    })
+
+    await expect(
+      downloadFile({
+        downloadUrl: 'https://gamebanana.com/dl/cancel',
+        targetDir: dir,
+        fileName: 'cancel.zip',
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({
+      code: 'DOWNLOAD_CANCELLED'
+    })
+
+    const files = fs.readdirSync(dir)
+    expect(files.some((f) => f.includes('.part'))).toBe(false)
+    expect(files.some((f) => f.includes('.chunk'))).toBe(false)
+  })
+
+  it('HTML 中间页：探测返回 206 + content-type text/html，断言 DOWNLOAD_INTERSTITIAL', async () => {
+    const dir = path.join(tmpRoot, 'chunked-html')
+    fs.mkdirSync(dir, { recursive: true })
+
+    vi.stubGlobal('fetch', async () => {
+      return new Response('<!DOCTYPE html><html><body>Interstitial Page</body></html>', {
+        status: 206,
+        headers: {
+          'content-range': 'bytes 0-0/49000',
+          'content-length': '49000',
+          'content-type': 'text/html; charset=utf-8'
+        }
+      })
+    })
+
+    await expect(
+      downloadFile({
+        downloadUrl: 'https://gamebanana.com/dl/html-page',
+        targetDir: dir,
+        fileName: 'page.zip'
+      })
+    ).rejects.toMatchObject({
+      code: 'DOWNLOAD_INTERSTITIAL'
+    })
+
+    const files = fs.readdirSync(dir)
+    expect(files.some((f) => f.includes('.part'))).toBe(false)
+    expect(files.some((f) => f.includes('.chunk'))).toBe(false)
+  })
+
+  it('200 回退单流：探测返回 200（服务端不支持 Range），复用响应走单流路径成功完成', async () => {
+    const dir = path.join(tmpRoot, 'stream-fallback')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const body = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(1024, 0x43)])
+    let fetchCount = 0
+
+    vi.stubGlobal('fetch', async () => {
+      fetchCount++
+      // 服务端忽略 Range: bytes=0-0，直接返回 200 全量包
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'content-length': String(body.length),
+          'content-type': 'application/zip'
+        }
+      })
+    })
+
+    const res = await downloadFile({
+      downloadUrl: 'https://gamebanana.com/dl/fallback',
+      targetDir: dir,
+      fileName: 'fallback.zip'
+    })
+
+    expect(res.format).toBe('zip')
+    expect(res.size).toBe(body.length)
+    expect(fs.existsSync(res.archivePath)).toBe(true)
+    // 关键断言：探测阶段的 200 响应必须被直接复用，不应发第二次请求
+    expect(fetchCount).toBe(1)
+  })
+
+  it('416 范围请求无效：探测返回 416，断言 DOWNLOAD_RANGE_UNSATISFIABLE 并包含文件总大小', async () => {
+    const dir = path.join(tmpRoot, 'range-416')
+    fs.mkdirSync(dir, { recursive: true })
+
+    vi.stubGlobal('fetch', async () => {
+      return new Response('Requested Range Not Satisfiable', {
+        status: 416,
+        statusText: 'Range Not Satisfiable',
+        headers: {
+          'content-range': 'bytes */0'
+        }
+      })
+    })
+
+    await expect(
+      downloadFile({
+        downloadUrl: 'https://gamebanana.com/dl/range-416',
+        targetDir: dir,
+        fileName: 'empty.zip'
+      })
+    ).rejects.toMatchObject({
+      code: 'DOWNLOAD_RANGE_UNSATISFIABLE'
+    })
+  })
+
+  it('分片竞态清理：某分片立即失败、其余分片慢速时，断言 reject 后目录不存在任何 .part 或 .chunk 文件', async () => {
+    const dir = path.join(tmpRoot, 'chunked-race-cleanup')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const totalSize = 2 * 1024 * 1024
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+
+      if (range === 'bytes=0-0') {
+        return new Response(new Uint8Array([0x50]), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      const match = range.match(/bytes=(\d+)-(\d+)/)
+      if (match) {
+        const start = parseInt(match[1], 10)
+        // 让分片 0 立即失败（400 Bad Request）
+        if (start === 0) {
+          return new Response('chunk 0 error', { status: 400, statusText: 'Bad Request' })
+        }
+
+        // 其余分片返回慢速流（模拟网络延迟）
+        const slowStream = new ReadableStream({
+          start(controller) {
+            setTimeout(() => {
+              try {
+                controller.enqueue(Buffer.alloc(1024, 0x41))
+              } catch (_) {}
+            }, 50)
+          }
+        })
+        return new Response(slowStream, {
+          status: 206,
+          headers: {
+            'content-range': `${range}/${totalSize}`,
+            'content-length': '524288',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      return new Response('not found', { status: 404 })
+    })
+
+    // 断言 downloadFile 抛错且错误码为 DOWNLOAD_CHUNK_FAILED
+    await expect(
+      downloadFile({
+        downloadUrl: 'https://gamebanana.com/dl/race-test',
+        targetDir: dir,
+        fileName: 'race.zip'
+      })
+    ).rejects.toMatchObject({
+      code: 'DOWNLOAD_CHUNK_FAILED',
+      message: expect.stringMatching(/分片 0/)
+    })
+
+    // 等待 200ms 确保慢速流若有未停止的写入操作也能暴露出来
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    // 断言目录中绝对没有任何残留
+    const files = fs.readdirSync(dir)
+    expect(files.filter((f) => f.includes('.part') || f.includes('.chunk'))).toEqual([])
+  })
+
+  it('分片失败错误码：分片失败抛出 DOWNLOAD_CHUNK_FAILED 且包含分片序号与原因', async () => {
+    const dir = path.join(tmpRoot, 'chunked-error-code')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const totalSize = 2 * 1024 * 1024
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+
+      if (range === 'bytes=0-0') {
+        return new Response(new Uint8Array([0x50]), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      const match = range.match(/bytes=(\d+)-(\d+)/)
+      if (match) {
+        const start = parseInt(match[1], 10)
+        // 让分片 2（start = 1048576）返回 403 Forbidden 明确失败
+        if (start === 1048576) {
+          return new Response('forbidden', { status: 403, statusText: 'Forbidden' })
+        }
+        return new Response(Buffer.alloc(524288, 0x41), {
+          status: 206,
+          headers: {
+            'content-range': `${range}/${totalSize}`,
+            'content-length': '524288',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      return new Response('not found', { status: 404 })
+    })
+
+    const err: any = await downloadFile({
+      downloadUrl: 'https://gamebanana.com/dl/chunk2-fail',
+      targetDir: dir,
+      fileName: 'fail.zip'
+    }).catch((e) => e)
+
+    expect(err).toBeInstanceOf(Error)
+    expect(err.code).toBe('DOWNLOAD_CHUNK_FAILED')
+    expect(err.chunkIndex).toBe(2)
+    expect(err.message).toMatch(/分片 2/)
+    expect(err.message).toMatch(/403/)
+  })
+})
+
 

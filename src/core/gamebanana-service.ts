@@ -223,17 +223,25 @@ async function fetchWithRetry(url, options: any = {}, maxRetries = 3, timeoutMs 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+    // 为什么：controller.signal 若无条件覆盖 options.signal，外部传入的取消信号在单次请求超时前无法生效
+    const signals = [controller.signal];
+    if (options.signal) {
+      signals.push(options.signal);
+    }
+    const combinedSignal = AbortSignal.any(signals);
+
     try {
       const response = await getHttpFetch()(url, {
         ...options,
         headers: mergedHeaders,
-        signal: controller.signal
+        signal: combinedSignal
       });
       clearTimeout(timer);
 
       if (!response.ok) {
         const httpError: any = new Error(`HTTP ${response.status} ${response.statusText} (${url})`);
         httpError.status = response.status;
+        httpError.response = response;
         // 4xx（除 429 限流）是请求本身的问题，重试只会无意义地重复打 API、加剧限速
         if (response.status >= 400 && response.status < 500 && response.status !== 429) {
           throw httpError;
@@ -248,9 +256,13 @@ async function fetchWithRetry(url, options: any = {}, maxRetries = 3, timeoutMs 
         throw httpError;
       }
       return response;
-    } catch (err) {
+    } catch (err: any) {
       clearTimeout(timer);
       lastError = err;
+      // 为什么：外部 signal 主动中止时不应继续重试或 sleep，立即向上传播取消
+      if (options.signal?.aborted) {
+        throw err;
+      }
       // 明确不可重试的 4xx：立即抛出，不再 sleep 重试
       if (err && typeof err.status === "number" && err.status >= 400 && err.status < 500 && err.status !== 429) {
         throw err;
@@ -1098,69 +1110,204 @@ async function inspectArchiveSecurity(archivePath, sevenZipPath, format = "zip",
 }
 
 const DOWNLOAD_STALL_TIMEOUT_MS = 60000;
+const DOWNLOAD_CHUNK_MIN_SIZE = 1 * 1024 * 1024;        // <1MB 不分片
+const DOWNLOAD_CHUNK_LARGE_THRESHOLD = 8 * 1024 * 1024; // >8MB 用 8 路
+const DOWNLOAD_CHUNK_MAX = 8;
+const DOWNLOAD_CHUNK_RETRIES = 3;                        // 单片最大重试次数（每次从已落盘偏移续传）
+const DOWNLOAD_CHUNK_MIN_SLICE_SIZE = 256 * 1024;       // 单片下限保护 256KB
+
+interface ChunkRange {
+  index: number;
+  start: number;
+  end: number;
+  expectedSize: number;
+}
+
+type DownloadPlan =
+  | { mode: "single-stream"; response: Response; totalBytes: number }
+  | { mode: "chunks"; totalBytes: number };
 
 /**
- * 5. Stream download to dedicated `.part` file with progress callback
- * @param {object} params
- * @param {string} params.downloadUrl
- * @param {string} params.targetDir
- * @param {string} [params.fileName]
- * @param {string} [params.expectedMd5]
- * @param {function} [params.onProgress] - ({ downloaded, total, percent, speed })
- * @param {number} [params.stallTimeoutMs]
- * @param {AbortSignal} [params.signal]
- * @returns {Promise<{ archivePath: string, size: number, format: string, md5: string }>}
+ * 根据文件总大小自适应计算分片数
+ * 为什么：小文件分片会导致建连 RTT 开销超过带宽收益，故 <1MB 单流；>8MB 开启 8 路突破单连接限速
  */
-async function downloadFile({
+function chunkCountForSize(totalBytes: number): number {
+  if (totalBytes < DOWNLOAD_CHUNK_MIN_SIZE) {
+    return 1;
+  }
+  let count = totalBytes > DOWNLOAD_CHUNK_LARGE_THRESHOLD ? DOWNLOAD_CHUNK_MAX : 4;
+  const maxBySlice = Math.floor(totalBytes / DOWNLOAD_CHUNK_MIN_SLICE_SIZE);
+  if (maxBySlice > 0) {
+    count = Math.min(count, maxBySlice);
+  }
+  return Math.max(1, count);
+}
+
+/**
+ * 划分分片字节范围
+ */
+function calculateChunkRanges(totalBytes: number, numChunks: number): ChunkRange[] {
+  const chunkSize = Math.floor(totalBytes / numChunks);
+  const ranges: ChunkRange[] = [];
+  for (let i = 0; i < numChunks; i++) {
+    const start = i * chunkSize;
+    const end = i === numChunks - 1 ? totalBytes - 1 : (i + 1) * chunkSize - 1;
+    ranges.push({
+      index: i,
+      start,
+      end,
+      expectedSize: end - start + 1
+    });
+  }
+  return ranges;
+}
+
+/**
+ * 获取分片临时文件路径
+ */
+function getChunkPath(partPath: string, index: number): string {
+  const padded = String(index).padStart(2, "0");
+  return `${partPath}.chunk${padded}`;
+}
+
+/**
+ * 清理指定文件的所有分片临时文件
+ */
+function cleanupAllChunks(targetDir: string, safeFileName: string) {
+  const prefix = `${safeFileName}.part.chunk`;
+  try {
+    const files = fs.readdirSync(targetDir);
+    for (const file of files) {
+      if (file.startsWith(prefix)) {
+        try { fs.unlinkSync(path.join(targetDir, file)); } catch {}
+      }
+    }
+  } catch {}
+}
+
+/**
+ * 探测下载策略：发送 Range: bytes=0-0 探测服务端是否支持 Range、是否返回 HTML 中间页
+ */
+async function probeDownloadPlan({
   downloadUrl,
-  targetDir,
-  fileName,
-  expectedMd5,
-  onProgress,
-  stallTimeoutMs = DOWNLOAD_STALL_TIMEOUT_MS,
   signal
 }: {
   downloadUrl: string;
-  targetDir: string;
-  fileName?: string;
-  expectedMd5?: string;
-  onProgress?: (progress: any) => void;
-  stallTimeoutMs?: number;
   signal?: AbortSignal;
-}) {
-  if (!downloadUrl) throw new Error("下载链接不能为空");
+}): Promise<DownloadPlan> {
+  let probeResponse: Response;
+  try {
+    probeResponse = await fetchWithRetry(
+      downloadUrl,
+      {
+        headers: {
+          Range: "bytes=0-0"
+        },
+        redirect: "follow",
+        signal
+      },
+      3,
+      30000
+    );
+  } catch (err: any) {
+    if (signal?.aborted) {
+      const error: any = new Error("流式下载中断: 安装已取消", { cause: err });
+      error.code = "DOWNLOAD_CANCELLED";
+      throw error;
+    }
+    // 416 范围无效错误处理
+    if (err?.status === 416 || err?.response?.status === 416) {
+      try { await err.response?.body?.cancel(); } catch {}
+      const contentRange = err.response?.headers?.get?.("content-range") || "";
+      const match = contentRange.match(/\/\s*(\d+|\*)/);
+      const total = match && match[1] !== "*" ? match[1] : "未知";
+      const customErr: any = new Error(
+        `请求的范围无效 (HTTP 416 Range Not Satisfiable, 文件总大小: ${total} 字节)`,
+        { cause: err }
+      );
+      customErr.code = "DOWNLOAD_RANGE_UNSATISFIABLE";
+      customErr.status = 416;
+      throw customErr;
+    }
+    throw err;
+  }
+
+  const contentType = (probeResponse.headers.get("content-type") || "").toLowerCase();
+  // 识别 HTML 中间页（GameBanana 某些 Mod 下载链接重定向到网页）
+  if (contentType.includes("text/html")) {
+    try { await probeResponse.body?.cancel(); } catch {}
+    const err: any = new Error("下载链接返回了 HTML 页面而非压缩包文件（中间页），请前往 Mod 页面手动下载");
+    err.code = "DOWNLOAD_INTERSTITIAL";
+    throw err;
+  }
+
+  // 200 分支：服务端忽略 Range（或单测桩未模拟 Range），直接复用该响应作为单流下载体
+  // 为什么必须复用：现有单测传入同一个 ReadableStream，若丢弃响应重新请求会导致流已被锁定而报错
+  if (probeResponse.status === 200) {
+    const totalBytes = parseInt(probeResponse.headers.get("content-length") || "0", 10);
+    return {
+      mode: "single-stream",
+      response: probeResponse,
+      totalBytes: isNaN(totalBytes) ? 0 : totalBytes
+    };
+  }
+
+  // 206 分支：服务端支持分片，解析总大小
+  if (probeResponse.status === 206) {
+    const contentRange = probeResponse.headers.get("content-range") || "";
+    const match = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+    if (!match || match[3] === "*") {
+      try { await probeResponse.body?.cancel(); } catch {}
+      throw new Error(`服务端返回了无法解析的 Content-Range: ${contentRange}`);
+    }
+    const totalBytes = parseInt(match[3], 10);
+    if (isNaN(totalBytes) || totalBytes <= 0) {
+      try { await probeResponse.body?.cancel(); } catch {}
+      throw new Error(`服务端返回了无效的文件大小: ${match[3]}`);
+    }
+
+    // 释放探测连接（分片将分别发起独立连接）
+    try { await probeResponse.body?.cancel(); } catch {}
+
+    return {
+      mode: "chunks",
+      totalBytes
+    };
+  }
+
+  try { await probeResponse.body?.cancel(); } catch {}
+  throw new Error(`不支持的 HTTP 响应状态码: ${probeResponse.status}`);
+}
+
+/**
+ * 单流下载实现（保持既有行为与测试兼容）
+ */
+async function downloadSingleStream({
+  response,
+  targetDir,
+  safeFileName,
+  partPath,
+  totalBytes,
+  onProgress,
+  stallTimeoutMs,
+  signal
+}: {
+  response: Response;
+  targetDir: string;
+  safeFileName: string;
+  partPath: string;
+  totalBytes: number;
+  onProgress?: (progress: any) => void;
+  stallTimeoutMs: number;
+  signal?: AbortSignal;
+}): Promise<void> {
   fs.mkdirSync(targetDir, { recursive: true });
 
-  const safeFileName = sanitizeFileName(fileName || `gb_mod_${Date.now()}.zip`);
-  const finalPath = path.join(targetDir, safeFileName);
-  const partPath = path.join(targetDir, `${safeFileName}.part`);
-
-  // Remove stale .part or destination
-  if (fs.existsSync(partPath)) {
-    try { fs.unlinkSync(partPath); } catch {}
-  }
-  if (fs.existsSync(finalPath)) {
-    try { fs.unlinkSync(finalPath); } catch {}
-  }
-
-  const response = await fetchWithRetry(
-    downloadUrl,
-    { redirect: "follow" },
-    3,
-    30000
-  );
-
-  // 为什么：fetch（含最多 3 次重试 / 单次 30s 超时）期间 %TEMP% 下载目录可能被系统清理，此时 open 会抛原始 ENOENT
-  fs.mkdirSync(targetDir, { recursive: true });
-
-  const totalBytes = parseInt(response.headers.get("content-length") || "0", 10);
   let downloadedBytes = 0;
   let lastReportTime = Date.now();
   let lastReportBytes = 0;
   let lastByteAt = Date.now();
 
-  // 使用 stream pipeline：统一处理背压（慢盘快网不再堆积内存）、
-  // 写流 error（磁盘满/权限，此前为 unhandled error 会击穿主进程）与资源清理
   const progressCounter = new Transform({
     transform(chunk, _enc, cb) {
       lastByteAt = Date.now();
@@ -1193,9 +1340,7 @@ async function downloadFile({
   });
 
   const writeStream = fs.createWriteStream(partPath);
-  let streamError = null;
-  // 为什么：pipeline 结算后会撤走自己的监听，此后残余的写流 error 事件会变成 uncaughtException
-  // 直接击穿主进程（现场表现就是原始 fs ENOENT + 系统错误框，绕过渲染层安装失败提示）
+  let streamError: any = null;
   writeStream.on("error", (err) => {
     streamError = err;
   });
@@ -1207,7 +1352,7 @@ async function downloadFile({
   }
   const combined = AbortSignal.any(signals);
 
-  let stallTimer = null;
+  let stallTimer: NodeJS.Timeout | null = null;
 
   try {
     if (!response.body) {
@@ -1221,14 +1366,25 @@ async function downloadFile({
       }
     }, Math.max(250, Math.min(5000, Math.floor(stallTimeoutMs / 4))));
 
-    await pipeline(Readable.fromWeb(response.body), progressCounter, writeStream, { signal: combined });
-  } catch (err) {
+    await pipeline(Readable.fromWeb(response.body as any), progressCounter, writeStream, { signal: combined });
+
+    if (typeof onProgress === "function" && totalBytes > 0) {
+      try {
+        onProgress({
+          downloaded: downloadedBytes,
+          total: totalBytes,
+          percent: 100,
+          speed: 0
+        });
+      } catch (_) {}
+    }
+  } catch (err: any) {
     if (fs.existsSync(partPath)) {
       try { fs.unlinkSync(partPath); } catch {}
     }
+    cleanupAllChunks(targetDir, safeFileName);
     const cause = streamError || err;
 
-    // 为什么：pipeline 因 signal abort 时一律抛 AbortError，不透传自定义 abort reason，因此通过标志判断
     const cancelledByUser = signal?.aborted === true;
     const stalled = stallController.signal.aborted === true;
 
@@ -1240,16 +1396,578 @@ async function downloadFile({
     if (stalled) {
       const error: any = new Error(
         `流式下载中断: 下载停滞：${Math.round(stallTimeoutMs / 1000)} 秒内未收到数据，请重试`,
-        { cause }
+        { cause: err }
       );
       error.code = "DOWNLOAD_STALLED";
       throw error;
     }
-    throw new Error(`流式下载中断: ${cause.message}`);
+    throw new Error(`流式下载中断: ${cause.message}`, { cause: err });
   } finally {
     if (stallTimer) {
       clearInterval(stallTimer);
     }
+  }
+}
+
+/**
+ * 单个分片下载：支持已落盘字节续传与分片级局部重试
+ */
+async function downloadChunk({
+  downloadUrl,
+  chunkPath,
+  range,
+  signal,
+  globalStallController,
+  internalSignal,
+  stallTimeoutMs,
+  onProgressUpdate,
+  onActivity
+}: {
+  downloadUrl: string;
+  chunkPath: string;
+  range: ChunkRange;
+  signal?: AbortSignal;
+  globalStallController: AbortController;
+  internalSignal?: AbortSignal;
+  stallTimeoutMs: number;
+  onProgressUpdate: (index: number, bytes: number) => void;
+  onActivity: () => void;
+}): Promise<void> {
+  for (let attempt = 1; attempt <= DOWNLOAD_CHUNK_RETRIES; attempt++) {
+    if (signal?.aborted) {
+      const err: any = new Error("流式下载中断: 安装已取消");
+      err.code = "DOWNLOAD_CANCELLED";
+      throw err;
+    }
+    if (globalStallController.signal.aborted) {
+      const err: any = new Error("流式下载中断: 下载停滞");
+      err.code = "DOWNLOAD_STALLED";
+      throw err;
+    }
+    if (internalSignal?.aborted) {
+      const err: any = new Error("流式下载中断: 兄弟分片下载失败");
+      err.code = "DOWNLOAD_SIBLING_ABORTED";
+      throw err;
+    }
+
+    let have = 0;
+    if (fs.existsSync(chunkPath)) {
+      try {
+        have = fs.statSync(chunkPath).size;
+      } catch {
+        have = 0;
+      }
+    }
+
+    if (have >= range.expectedSize) {
+      if (have > range.expectedSize) {
+        try { fs.unlinkSync(chunkPath); } catch {}
+        have = 0;
+        onProgressUpdate(range.index, 0);
+      } else {
+        onProgressUpdate(range.index, have);
+        return;
+      }
+    }
+    onProgressUpdate(range.index, have);
+
+    const reqStart = range.start + have;
+    const reqEnd = range.end;
+
+    const chunkStallController = new AbortController();
+    let chunkLastByteAt = Date.now();
+    const chunkSignals: AbortSignal[] = [chunkStallController.signal, globalStallController.signal];
+    if (signal) {
+      chunkSignals.push(signal);
+    }
+    if (internalSignal) {
+      chunkSignals.push(internalSignal);
+    }
+    const combinedSignal = AbortSignal.any(chunkSignals);
+
+    const chunkStallTimer = setInterval(() => {
+      if (
+        Date.now() - chunkLastByteAt >= stallTimeoutMs &&
+        !signal?.aborted &&
+        !globalStallController.signal.aborted &&
+        !internalSignal?.aborted
+      ) {
+        chunkStallController.abort();
+      }
+    }, Math.max(100, Math.min(2500, Math.floor(stallTimeoutMs / 4))));
+
+    let response: Response;
+    try {
+      response = await fetchWithRetry(
+        downloadUrl,
+        {
+          headers: {
+            Range: `bytes=${reqStart}-${reqEnd}`
+          },
+          redirect: "follow",
+          signal: combinedSignal
+        },
+        1, // 禁用内部重试，由本函数按已落盘偏移续传重试
+        30000
+      );
+    } catch (err: any) {
+      clearInterval(chunkStallTimer);
+      if (signal?.aborted || globalStallController.signal.aborted || internalSignal?.aborted) {
+        throw err;
+      }
+      if (attempt < DOWNLOAD_CHUNK_RETRIES) {
+        console.warn(`[GameBananaService] 分片 ${range.index} 请求异常 (${err?.message})，重试 (${attempt}/${DOWNLOAD_CHUNK_RETRIES})`);
+        await sleep(300 * attempt);
+        continue;
+      }
+      const error: any = new Error(`分片 ${range.index} 下载失败: ${err?.message || err}`, { cause: err });
+      error.chunkIndex = range.index;
+      throw error;
+    }
+
+    if (response.status !== 206) {
+      clearInterval(chunkStallTimer);
+      try { await response.body?.cancel(); } catch {}
+      try { fs.unlinkSync(chunkPath); } catch {}
+      onProgressUpdate(range.index, 0);
+      if (attempt < DOWNLOAD_CHUNK_RETRIES) {
+        console.warn(`[GameBananaService] 分片 ${range.index} 响应状态码为 ${response.status}（非 206），重置重试 (${attempt}/${DOWNLOAD_CHUNK_RETRIES})`);
+        await sleep(300 * attempt);
+        continue;
+      }
+      const error: any = new Error(`分片 ${range.index} 请求返回非 206 状态码: ${response.status}`);
+      error.chunkIndex = range.index;
+      throw error;
+    }
+
+    const rangeHeader = response.headers.get("content-range") || "";
+    if (rangeHeader) {
+      const match = rangeHeader.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+      if (match) {
+        const serverStart = parseInt(match[1], 10);
+        if (serverStart !== reqStart) {
+          clearInterval(chunkStallTimer);
+          try { await response.body?.cancel(); } catch {}
+          try { fs.unlinkSync(chunkPath); } catch {}
+          onProgressUpdate(range.index, 0);
+          if (attempt < DOWNLOAD_CHUNK_RETRIES) {
+            console.warn(`[GameBananaService] 分片 ${range.index} 范围偏移不一致 (期望 ${reqStart}, 服务端 ${serverStart})，重置重试`);
+            await sleep(300 * attempt);
+            continue;
+          }
+          const error: any = new Error(`分片 ${range.index} 范围偏移不匹配: 期望 ${reqStart}, 服务端返回 ${serverStart}`);
+          error.chunkIndex = range.index;
+          throw error;
+        }
+      }
+    }
+
+    let currentBytes = have;
+    const writeStream = fs.createWriteStream(chunkPath, { flags: "a" });
+    let streamError: any = null;
+    writeStream.on("error", (err) => {
+      streamError = err;
+    });
+
+    const progressCounter = new Transform({
+      transform(chunk, _enc, cb) {
+        chunkLastByteAt = Date.now();
+        onActivity();
+        currentBytes += chunk.length;
+        onProgressUpdate(range.index, currentBytes);
+        cb(null, chunk);
+      }
+    });
+
+    try {
+      if (!response.body) {
+        throw new Error("分片响应体为空");
+      }
+      await pipeline(Readable.fromWeb(response.body as any), progressCounter, writeStream, { signal: combinedSignal });
+    } catch (err: any) {
+      clearInterval(chunkStallTimer);
+      if (signal?.aborted || globalStallController.signal.aborted || internalSignal?.aborted) {
+        throw err;
+      }
+      const cause = streamError || err;
+      if (attempt < DOWNLOAD_CHUNK_RETRIES) {
+        console.warn(`[GameBananaService] 分片 ${range.index} 流传输中断 (${cause?.message})，准备续传重试 (${attempt}/${DOWNLOAD_CHUNK_RETRIES})`);
+        await sleep(300 * attempt);
+        continue;
+      }
+      const error: any = new Error(`分片 ${range.index} 传输失败: ${cause?.message}`, { cause: err });
+      error.chunkIndex = range.index;
+      throw error;
+    } finally {
+      clearInterval(chunkStallTimer);
+    }
+
+    let finalHave: number;
+    try {
+      finalHave = fs.statSync(chunkPath).size;
+    } catch {
+      finalHave = 0;
+    }
+    onProgressUpdate(range.index, finalHave);
+
+    if (finalHave === range.expectedSize) {
+      return;
+    }
+
+    if (finalHave > range.expectedSize) {
+      try { fs.unlinkSync(chunkPath); } catch {}
+      onProgressUpdate(range.index, 0);
+      const error: any = new Error(`分片 ${range.index} 大小超出预期: 实际 ${finalHave}, 预期 ${range.expectedSize}`);
+      error.chunkIndex = range.index;
+      throw error;
+    }
+
+    if (attempt < DOWNLOAD_CHUNK_RETRIES) {
+      console.warn(`[GameBananaService] 分片 ${range.index} 连接提前关闭 (已收 ${finalHave}/${range.expectedSize})，准备续传 (${attempt}/${DOWNLOAD_CHUNK_RETRIES})`);
+      await sleep(300 * attempt);
+      continue;
+    }
+    const error: any = new Error(`分片 ${range.index} 接收不完整: 实际 ${finalHave}, 预期 ${range.expectedSize}`);
+    error.chunkIndex = range.index;
+    throw error;
+  }
+}
+
+/**
+ * 顺序拼接所有分片为 .part 文件并校验文件完整大小
+ */
+async function assembleChunks({
+  targetDir,
+  safeFileName,
+  partPath,
+  numChunks,
+  expectedTotalBytes,
+  signal
+}: {
+  targetDir: string;
+  safeFileName: string;
+  partPath: string;
+  numChunks: number;
+  expectedTotalBytes: number;
+  signal?: AbortSignal;
+}): Promise<void> {
+  if (fs.existsSync(partPath)) {
+    try { fs.unlinkSync(partPath); } catch {}
+  }
+
+  try {
+    for (let i = 0; i < numChunks; i++) {
+      if (signal?.aborted) {
+        const err: any = new Error("流式下载中断: 安装已取消");
+        err.code = "DOWNLOAD_CANCELLED";
+        throw err;
+      }
+      const chunkPath = getChunkPath(partPath, i);
+      if (!fs.existsSync(chunkPath)) {
+        throw new Error(`缺少分片文件: ${chunkPath}`);
+      }
+      const inStream = fs.createReadStream(chunkPath);
+      const outStream = fs.createWriteStream(partPath, { flags: i === 0 ? "w" : "a" });
+      let streamError: any = null;
+      outStream.on("error", (err) => {
+        streamError = err;
+      });
+
+      try {
+        await pipeline(inStream, outStream, { signal });
+      } catch (err: any) {
+        const cause = streamError || err;
+        throw cause;
+      }
+    }
+  } catch (err: any) {
+    if (fs.existsSync(partPath)) {
+      try { fs.unlinkSync(partPath); } catch {}
+    }
+    cleanupAllChunks(targetDir, safeFileName);
+    if (signal?.aborted) {
+      const error: any = new Error("流式下载中断: 安装已取消", { cause: err });
+      error.code = "DOWNLOAD_CANCELLED";
+      throw error;
+    }
+    throw new Error(`分片拼接失败: ${err?.message || err}`, { cause: err });
+  }
+
+  const stat = fs.statSync(partPath);
+  if (expectedTotalBytes > 0 && stat.size !== expectedTotalBytes) {
+    if (fs.existsSync(partPath)) {
+      try { fs.unlinkSync(partPath); } catch {}
+    }
+    cleanupAllChunks(targetDir, safeFileName);
+    const err: any = new Error(
+      `分片拼接后文件大小不匹配: 实际 ${stat.size} 字节, 预期 ${expectedTotalBytes} 字节`
+    );
+    err.code = "DOWNLOAD_SIZE_MISMATCH";
+    throw err;
+  }
+
+  cleanupAllChunks(targetDir, safeFileName);
+}
+
+/**
+ * Range 多分片并行下载入口
+ */
+async function downloadRangeParallel({
+  downloadUrl,
+  targetDir,
+  safeFileName,
+  partPath,
+  totalBytes,
+  onProgress,
+  stallTimeoutMs,
+  signal
+}: {
+  downloadUrl: string;
+  targetDir: string;
+  safeFileName: string;
+  partPath: string;
+  totalBytes: number;
+  onProgress?: (progress: any) => void;
+  stallTimeoutMs: number;
+  signal?: AbortSignal;
+}): Promise<void> {
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const numChunks = chunkCountForSize(totalBytes);
+  const ranges = calculateChunkRanges(totalBytes, numChunks);
+
+  const chunkBytesMap: number[] = new Array(numChunks).fill(0);
+  let lastReportTime = Date.now();
+  let lastReportBytes = 0;
+  let lastPercent = 0;
+
+  const reportProgress = () => {
+    const downloaded = Math.min(totalBytes, chunkBytesMap.reduce((sum, b) => sum + b, 0));
+    const now = Date.now();
+    if (now - lastReportTime >= 200 || (totalBytes > 0 && downloaded === totalBytes)) {
+      const timeDiff = (now - lastReportTime) / 1000;
+      const bytesDiff = downloaded - lastReportBytes;
+      const speed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
+      const percent = totalBytes > 0 ? Math.min(100, Math.round((downloaded / totalBytes) * 100)) : 0;
+      lastPercent = Math.max(lastPercent, percent);
+
+      if (typeof onProgress === "function") {
+        try {
+          onProgress({
+            downloaded,
+            total: totalBytes,
+            percent: lastPercent,
+            speed
+          });
+        } catch (_) {}
+      }
+
+      lastReportTime = now;
+      lastReportBytes = downloaded;
+    }
+  };
+
+  const globalStallController = new AbortController();
+  let globalLastByteAt = Date.now();
+  const onActivity = () => {
+    globalLastByteAt = Date.now();
+  };
+
+  const watchdogTimer = setInterval(() => {
+    if (Date.now() - globalLastByteAt >= stallTimeoutMs && !signal?.aborted) {
+      globalStallController.abort();
+    }
+  }, Math.max(250, Math.min(5000, Math.floor(stallTimeoutMs / 4))));
+
+  // 为什么：分片错误时需立即通知所有兄弟分片停下，避免慢速分片在 catch 清理后继续落盘留下孤儿 .chunkNN
+  const internalAbortController = new AbortController();
+  const chunkPromises = ranges.map((range) =>
+    downloadChunk({
+      downloadUrl,
+      chunkPath: getChunkPath(partPath, range.index),
+      range,
+      signal,
+      globalStallController,
+      internalSignal: internalAbortController.signal,
+      stallTimeoutMs,
+      onProgressUpdate: (index, bytes) => {
+        chunkBytesMap[index] = bytes;
+        reportProgress();
+      },
+      onActivity
+    })
+  );
+
+  try {
+    await Promise.all(
+      chunkPromises.map((p) =>
+        p.catch((err) => {
+          internalAbortController.abort();
+          throw err;
+        })
+      )
+    );
+
+    if (typeof onProgress === "function") {
+      try {
+        const now = Date.now();
+        const timeDiff = (now - lastReportTime) / 1000;
+        const bytesDiff = totalBytes - lastReportBytes;
+        const speed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
+        onProgress({
+          downloaded: totalBytes,
+          total: totalBytes,
+          percent: 100,
+          speed
+        });
+      } catch (_) {}
+    }
+
+    await assembleChunks({
+      targetDir,
+      safeFileName,
+      partPath,
+      numChunks,
+      expectedTotalBytes: totalBytes,
+      signal
+    });
+  } catch (err: any) {
+    // 为什么：在执行 cleanup 之前必须确保所有分片写流均已 settle，彻底杜绝已删路径被后续 flush 重建的竞态
+    internalAbortController.abort();
+    const settled = await Promise.allSettled(chunkPromises);
+
+    cleanupAllChunks(targetDir, safeFileName);
+    if (fs.existsSync(partPath)) {
+      try { fs.unlinkSync(partPath); } catch {}
+    }
+
+    const cancelledByUser = signal?.aborted === true;
+    const stalled = globalStallController.signal.aborted === true;
+
+    if (cancelledByUser) {
+      const error: any = new Error("流式下载中断: 安装已取消", { cause: err });
+      error.code = "DOWNLOAD_CANCELLED";
+      throw error;
+    }
+    if (stalled) {
+      const error: any = new Error(
+        `流式下载中断: 下载停滞：${Math.round(stallTimeoutMs / 1000)} 秒内未收到数据，请重试`,
+        { cause: err }
+      );
+      error.code = "DOWNLOAD_STALLED";
+      throw error;
+    }
+
+    // 寻找最初导致失败的根因错误，避免将兄弟分片被动 abort 的错误当成主因
+    let rootErr = err;
+    if (rootErr?.code === "DOWNLOAD_SIBLING_ABORTED") {
+      const rejected = settled.find(
+        (s): s is PromiseRejectedResult => s.status === "rejected" && s.reason?.code !== "DOWNLOAD_SIBLING_ABORTED"
+      );
+      if (rejected) {
+        rootErr = rejected.reason;
+      }
+    }
+
+    if (rootErr?.code && rootErr.code !== "DOWNLOAD_SIBLING_ABORTED") {
+      throw rootErr;
+    }
+
+    const chunkIdx = typeof rootErr?.chunkIndex === "number" ? rootErr.chunkIndex : 0;
+    const chunkError: any = new Error(
+      rootErr?.message?.startsWith("分片 ")
+        ? rootErr.message
+        : `分片 ${chunkIdx} 下载失败: ${rootErr?.message || rootErr}`,
+      { cause: err }
+    );
+    chunkError.code = "DOWNLOAD_CHUNK_FAILED";
+    chunkError.chunkIndex = chunkIdx;
+    throw chunkError;
+  } finally {
+    clearInterval(watchdogTimer);
+  }
+}
+
+/**
+ * 5. Stream download to dedicated `.part` file with progress callback
+ * @param {object} params
+ * @param {string} params.downloadUrl
+ * @param {string} params.targetDir
+ * @param {string} [params.fileName]
+ * @param {string} [params.expectedMd5]
+ * @param {function} [params.onProgress] - ({ downloaded, total, percent, speed })
+ * @param {number} [params.stallTimeoutMs]
+ * @param {AbortSignal} [params.signal]
+ * @returns {Promise<{ archivePath: string, size: number, format: string, md5: string }>}
+ */
+async function downloadFile({
+  downloadUrl,
+  targetDir,
+  fileName,
+  expectedMd5,
+  onProgress,
+  stallTimeoutMs = DOWNLOAD_STALL_TIMEOUT_MS,
+  signal
+}: {
+  downloadUrl: string;
+  targetDir: string;
+  fileName?: string;
+  expectedMd5?: string;
+  onProgress?: (progress: any) => void;
+  stallTimeoutMs?: number;
+  signal?: AbortSignal;
+}) {
+  if (!downloadUrl) throw new Error("下载链接不能为空");
+  if (signal?.aborted) {
+    const error: any = new Error("流式下载中断: 安装已取消");
+    error.code = "DOWNLOAD_CANCELLED";
+    throw error;
+  }
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const safeFileName = sanitizeFileName(fileName || `gb_mod_${Date.now()}.zip`);
+  const finalPath = path.join(targetDir, safeFileName);
+  const partPath = path.join(targetDir, `${safeFileName}.part`);
+
+  // Remove stale .part, chunks or destination
+  if (fs.existsSync(partPath)) {
+    try { fs.unlinkSync(partPath); } catch {}
+  }
+  if (fs.existsSync(finalPath)) {
+    try { fs.unlinkSync(finalPath); } catch {}
+  }
+  cleanupAllChunks(targetDir, safeFileName);
+
+  const plan = await probeDownloadPlan({
+    downloadUrl,
+    signal
+  });
+
+  // 为什么：fetch 探测期间目标目录可能被删除（如临时目录清理机制），必须再次确保存在
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  if (plan.mode === "single-stream") {
+    await downloadSingleStream({
+      response: plan.response,
+      targetDir,
+      safeFileName,
+      partPath,
+      totalBytes: plan.totalBytes,
+      onProgress,
+      stallTimeoutMs,
+      signal
+    });
+  } else {
+    await downloadRangeParallel({
+      downloadUrl,
+      targetDir,
+      safeFileName,
+      partPath,
+      totalBytes: plan.totalBytes,
+      onProgress,
+      stallTimeoutMs,
+      signal
+    });
   }
 
   // Verify Magic Bytes
