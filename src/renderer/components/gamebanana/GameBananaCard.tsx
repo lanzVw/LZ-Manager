@@ -4,6 +4,8 @@ import { ThumbsUp, User } from 'lucide-react'
 interface GameBananaCardProps {
   mod: any
   previewUrl: string
+  /** 2x 档（530）地址；为空时不输出 srcSet，浏览器沿用 1x */
+  previewUrl2x?: string
   onOpenDetail: (mod: any) => void
   onSearchByAuthor: (authorName: string, e?: React.MouseEvent) => void
 }
@@ -17,6 +19,7 @@ interface GameBananaCardProps {
 const GameBananaCardBase: React.FC<GameBananaCardProps> = ({
   mod,
   previewUrl,
+  previewUrl2x,
   onOpenDetail,
   onSearchByAuthor
 }) => {
@@ -35,9 +38,11 @@ const GameBananaCardBase: React.FC<GameBananaCardProps> = ({
         {previewUrl ? (
           <img
             src={previewUrl}
+            srcSet={previewUrl2x ? `${previewUrl} 1x, ${previewUrl2x} 2x` : undefined}
             alt={mod.name}
             className="w-full h-full object-cover transition-transform duration-normal group-hover:scale-105"
             loading="lazy"
+            decoding="async"
             onError={(e) => {
               // 图片加载失败时回退到占位块
               ;(e.target as HTMLElement).style.display = 'none'

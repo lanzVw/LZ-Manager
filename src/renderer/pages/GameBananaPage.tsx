@@ -72,17 +72,38 @@ const sanitizeModHtml = (raw?: string): string => {
 // 统一预览图回退链（此前详情首屏/详情加载完成/安装预览/列表卡片 4 处各写一份推导）
 // size:
 // - 'full'（默认）：详情大图与安装预览用，不取缩略图档 thumbUrl
-// - 'thumb'：列表卡片缩略图用，多回退一档 thumbUrl
-// 兜底顺序：previewImage → images[0]（medUrl → thumbUrl? → url）→ previewImages[0]
-const pickPreviewUrl = (mod: any, size: 'full' | 'thumb' = 'full'): string => {
+// - 'thumb'：详情抽屉首屏等中等尺寸展示用，走 medUrl
+// - 'card'：仅列表卡片用。优先 220 档 cardUrl，比 medUrl（530/800）省约 80% 流量；
+//   HiDPI 由卡片 img 的 srcSet 升到 530 档，不牺牲清晰度
+// 兜底顺序：cardUrl → previewImage → images[0]（medUrl → thumbUrl? → url）→ previewImages[0]
+const pickPreviewUrl = (mod: any, size: 'full' | 'thumb' | 'card' = 'full'): string => {
   if (!mod) return ''
   const firstImg = mod.images?.[0]
   const previewHead =
     Array.isArray(mod.previewImages) && mod.previewImages.length > 0 ? mod.previewImages[0] : ''
+  if (size === 'card') {
+    return (
+      firstImg?.cardUrl ||
+      mod.previewImage ||
+      firstImg?.medUrl ||
+      firstImg?.thumbUrl ||
+      firstImg?.url ||
+      previewHead ||
+      ''
+    )
+  }
   if (size === 'thumb') {
     return mod.previewImage || firstImg?.medUrl || firstImg?.thumbUrl || firstImg?.url || previewHead || ''
   }
   return mod.previewImage || firstImg?.medUrl || firstImg?.url || previewHead || ''
+}
+
+/** 卡片缩略图的 2x 档；缺失时返回空串，由 <img> 忽略 srcSet */
+const pickPreviewUrl2x = (mod: any): string => {
+  const firstImg = mod?.images?.[0]
+  const base = firstImg?.cardUrl || ''
+  const hi = firstImg?.cardUrl2x || ''
+  return hi && hi !== base ? hi : ''
 }
 
 export const GameBananaPage: React.FC<GameBananaPageProps> = ({
@@ -834,7 +855,8 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                 <GameBananaCard
                   key={mod.id}
                   mod={mod}
-                  previewUrl={pickPreviewUrl(mod, 'thumb')}
+                  previewUrl={pickPreviewUrl(mod, 'card')}
+                  previewUrl2x={pickPreviewUrl2x(mod)}
                   onOpenDetail={openDetailDrawer}
                   onSearchByAuthor={handleSearchByAuthor}
                 />

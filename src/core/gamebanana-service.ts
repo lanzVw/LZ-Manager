@@ -320,6 +320,11 @@ function normalizeModRecord(raw) {
       thumbUrl: file100 ? `${base}/${file100}` : file220 ? `${base}/${file220}` : file530 ? `${base}/${file530}` : `${base}/${file}`,
       // 800 比 530 大，优先取 800；两者都不存在时退回更小的变体
       medUrl: file800 ? `${base}/${file800}` : file530 ? `${base}/${file530}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
+      // 列表卡片专用：卡片渲染宽度约 200–260px，220 档足够。
+      // 实测 30 张卡片首图走 medUrl 档共 2.71 MB，220 档只有 0.53 MB。
+      // HiDPI 由卡片 srcSet 升到 530 档，不牺牲清晰度。
+      cardUrl: file220 ? `${base}/${file220}` : file530 ? `${base}/${file530}` : file800 ? `${base}/${file800}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
+      cardUrl2x: file530 ? `${base}/${file530}` : file800 ? `${base}/${file800}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
       width: img._wFile800 || img._wFile530 || img._wFile220 || img._wFile100 || 0,
       height: img._hFile800 || img._hFile530 || img._hFile220 || img._hFile100 || 0,
       caption: img._sCaption || ""
@@ -713,6 +718,11 @@ async function getModDetails(params: any = {}) {
       thumbUrl: file100 ? `${base}/${file100}` : file220 ? `${base}/${file220}` : file530 ? `${base}/${file530}` : `${base}/${file}`,
       // 800 比 530 大，优先取 800；两者都不存在时退回更小的变体
       medUrl: file800 ? `${base}/${file800}` : file530 ? `${base}/${file530}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
+      // 列表卡片专用：卡片渲染宽度约 200–260px，220 档足够。
+      // 实测 30 张卡片首图走 medUrl 档共 2.71 MB，220 档只有 0.53 MB。
+      // HiDPI 由卡片 srcSet 升到 530 档，不牺牲清晰度。
+      cardUrl: file220 ? `${base}/${file220}` : file530 ? `${base}/${file530}` : file800 ? `${base}/${file800}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
+      cardUrl2x: file530 ? `${base}/${file530}` : file800 ? `${base}/${file800}` : file220 ? `${base}/${file220}` : file100 ? `${base}/${file100}` : `${base}/${file}`,
       width: img._wFile800 || img._wFile530 || img._wFile220 || img._wFile100 || 0,
       height: img._hFile800 || img._hFile530 || img._hFile220 || img._hFile100 || 0,
       caption: img._sCaption || ""

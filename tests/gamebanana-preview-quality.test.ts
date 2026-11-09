@@ -102,3 +102,38 @@ describe('市场截图 URL 选择：必须用原图', () => {
     expect(info.previewImages[0]).not.toBe('')
   })
 })
+
+/**
+ * 回归来源：市场列表 30 张卡片首图走 medUrl（530/800 档）实测共 2.71 MB，
+ * 而卡片渲染宽度只有 200–260px，220 档只要 0.53 MB。
+ * cardUrl 专供列表卡片，medUrl/previewImage 的语义保持不变（详情大图仍要清晰）。
+ */
+describe('列表卡片图档位：cardUrl 走 220，2x 档走 530', () => {
+  it('有 220 变体时 cardUrl 取 220', async () => {
+    stubDetails([makeImage('g.jpg', ['100', '220', '530', '800'])])
+    const info = await getModDetails({ itemType: 'Mod', itemId: 730473 })
+    expect(info.images[0].cardUrl).toBe(`${BASE}/220-90_g.jpg`)
+  })
+
+  it('2x 档取 530，供 HiDPI 屏升档', async () => {
+    stubDetails([makeImage('h.jpg', ['100', '220', '530', '800'])])
+    const info = await getModDetails({ itemType: 'Mod', itemId: 730473 })
+    expect(info.images[0].cardUrl2x).toBe(`${BASE}/530-90_h.jpg`)
+  })
+
+  it('没有 220 时 cardUrl 退回 530，不会掉到 100', async () => {
+    stubDetails([makeImage('i.jpg', ['100', '530'])])
+    const info = await getModDetails({ itemType: 'Mod', itemId: 730473 })
+    expect(info.images[0].cardUrl).toBe(`${BASE}/530-90_i.jpg`)
+    expect(info.images[0].cardUrl).not.toContain('100-90_')
+  })
+
+  it('cardUrl 不影响 previewImage / medUrl 的老语义', async () => {
+    stubDetails([makeImage('j.jpg', ['100', '220', '530', '800'])])
+    const info = await getModDetails({ itemType: 'Mod', itemId: 730473 })
+    // 详情与安装流程仍取大图
+    expect(info.previewImage).toBe(`${BASE}/800-90_j.jpg`)
+    expect(info.images[0].medUrl).toBe(`${BASE}/800-90_j.jpg`)
+    expect(info.previewImages[0]).toBe(`${BASE}/j.jpg`)
+  })
+})
