@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { ArchiveInspectionResult } from '../../core/import-engine'
 import { Button } from './ui/Button'
+import { HoverHint } from './ui/HoverHint'
 import { Input } from './ui/Input'
 import { Badge } from './ui/Badge'
 import { Switch } from './ui/Switch'
@@ -121,8 +122,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           <div>
             <label className="block text-xs font-semibold text-text mb-1.5 flex items-center space-x-1.5">
               <User className="w-3.5 h-3.5 text-primary" />
-              <span>目标所属角色</span>
-              <span className="text-[10px] text-emerald-600 font-normal">(智能预测匹配)</span>
+              <HoverHint content="根据 Mod 文件名与 INI 内容自动预测所属角色，可手动更正">
+                <span>目标所属角色</span>
+              </HoverHint>
             </label>
             <Select
               value={targetChar}

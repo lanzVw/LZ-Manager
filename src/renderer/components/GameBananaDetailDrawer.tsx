@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import { Button } from './ui/Button'
+import { HoverHint } from './ui/HoverHint'
 import { Input } from './ui/Input'
 import { ImageLightbox } from './ui/ImageLightbox'
 import { useToast } from './ui/Toast'
@@ -805,8 +806,11 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
                   <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-text">选择目标角色安装目录</h3>
-                  <p className="text-[11px] text-text-muted mt-0.5">该模组未包含明确角色标签，请指定解压目标文件夹</p>
+                  <h3 className="text-sm font-bold text-text">
+                    <HoverHint content="该模组未包含明确角色标签，请指定解压目标文件夹" focusable>
+                      选择目标角色安装目录
+                    </HoverHint>
+                  </h3>
                 </div>
               </div>
               <button

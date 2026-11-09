@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Monitor, X, ArrowDownToLine, Power, Check } from 'lucide-react'
+import { HoverHint } from './HoverHint'
 
 export interface CloseConfirmModalProps {
   isOpen: boolean
@@ -58,8 +59,11 @@ export const CloseConfirmModal: React.FC<CloseConfirmModalProps> = ({
               <Monitor className="w-5 h-5 align-neg-125" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-text tracking-tight text-balance-native">关闭窗口</h3>
-              <p className="text-xs text-text-muted mt-0.5 text-pretty-native">请选择点击窗口关闭按钮时的行为</p>
+              <h3 className="text-base font-bold text-text tracking-tight text-balance-native">
+                <HoverHint content="请选择点击窗口关闭按钮时的行为" focusable>
+                  关闭窗口
+                </HoverHint>
+              </h3>
             </div>
           </div>
           <button
@@ -101,14 +105,13 @@ export const CloseConfirmModal: React.FC<CloseConfirmModalProps> = ({
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold text-text">最小化到系统托盘</span>
+                <HoverHint content="应用在后台常驻，可通过托盘图标或全局热键随时唤醒">
+                  <span className="text-xs font-bold text-text">最小化到系统托盘</span>
+                </HoverHint>
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
                   推荐
                 </span>
               </div>
-              <p className="text-[11px] text-text-muted mt-0.5 leading-tight text-pretty-native">
-                应用在后台常驻，可通过托盘图标或全局热键随时唤醒
-              </p>
             </div>
           </button>
 
@@ -139,11 +142,10 @@ export const CloseConfirmModal: React.FC<CloseConfirmModalProps> = ({
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold text-text">彻底退出程序</span>
+                <HoverHint content="完全关闭所有窗口，退出后台服务与游戏内悬浮窗">
+                  <span className="text-xs font-bold text-text">彻底退出程序</span>
+                </HoverHint>
               </div>
-              <p className="text-[11px] text-text-muted mt-0.5 leading-tight text-pretty-native">
-                完全关闭所有窗口，退出后台服务与游戏内悬浮窗
-              </p>
             </div>
           </button>
         </div>

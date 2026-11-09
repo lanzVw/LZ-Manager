@@ -17,6 +17,7 @@ import { BaseModStatus, ToggleModResult } from '../../../core/types'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { HoverHint } from '../ui/HoverHint'
 import { Modal } from '../ui/Modal'
 import { Switch } from '../ui/Switch'
 import { useToast } from '../ui/Toast'
@@ -212,7 +213,9 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggl
             </div>
             <div>
               <h2 className="text-sm font-bold text-text tracking-wide flex items-center gap-2">
-                基底 Mod
+                <HoverHint content="此 Mod 为其他角色 Mod 提供 namespace 资源。停用或删除会影响所有依赖它的 Mod。">
+                  基底 Mod
+                </HoverHint>
                 <Badge variant="primary" size="sm">
                   namespace {status.namespace || '未识别'}
                 </Badge>
@@ -222,9 +225,6 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggl
                   </Badge>
                 )}
               </h2>
-              <p className="text-[11px] text-text-muted leading-relaxed mt-1">
-                此 Mod 为其他角色 Mod 提供 namespace 资源。停用或删除会影响所有依赖它的 Mod。
-              </p>
             </div>
           </div>
           <Badge variant={status.enabled ? 'success' : 'danger'} size="sm">
@@ -241,10 +241,14 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggl
               <Database className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-text tracking-wide uppercase">着色器缓存 (SHADER CACHE)</h3>
-              <p className="text-[11px] text-text-muted leading-relaxed mt-1">
-                在 Mod 根目录放置 ShaderCacheSettings.ini，让 3DMigoto 把编译过的着色器缓存到 ShaderCache 目录。
-                <span className="text-amber-500 font-semibold"> 需重启游戏生效。</span>
+              <h3 className="text-xs font-bold text-text tracking-wide uppercase">
+                <HoverHint content="在 Mod 根目录放置 ShaderCacheSettings.ini，让 3DMigoto 把编译过的着色器缓存到 ShaderCache 目录。">
+                  着色器缓存 (SHADER CACHE)
+                </HoverHint>
+              </h3>
+              {/* 重启提示是操作前置条件，不随说明一起隐藏 */}
+              <p className="text-[11px] leading-relaxed mt-1">
+                <span className="text-amber-500 font-semibold">需重启游戏生效。</span>
               </p>
             </div>
           </div>
@@ -365,11 +369,19 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggl
               <Layers className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-text tracking-wide uppercase">依赖此基底 Mod 的模组</h3>
-              <p className="text-[11px] text-text-muted leading-relaxed mt-1">
-                扫描所有 Mod 的 ini 中对 <span className="font-mono">{status.namespace || 'namespace'}</span> 的引用；
-                停用基底 Mod 前会先列出这些依赖。
-              </p>
+              <h3 className="text-xs font-bold text-text tracking-wide uppercase">
+                <HoverHint
+                  content={
+                    <>
+                      扫描所有 Mod 的 ini 中对{' '}
+                      <span className="font-mono">{status.namespace || 'namespace'}</span>{' '}
+                      的引用；停用基底 Mod 前会先列出这些依赖。
+                    </>
+                  }
+                >
+                  依赖此基底 Mod 的模组
+                </HoverHint>
+              </h3>
             </div>
           </div>
           <Badge variant="primary" size="sm">
@@ -445,10 +457,11 @@ export const BaseModPanel: React.FC<BaseModPanelProps> = ({ modFullPath, onToggl
               )}
             </div>
             <div>
-              <h3 className="text-xs font-bold text-text tracking-wide uppercase">健康检查</h3>
-              <p className="text-[11px] text-text-muted leading-relaxed mt-1">
-                检查基底 Mod 状态、依赖、d3dx.ini 规则与缓存目录。只报告可确认的事实，不自动改写 d3dx.ini。
-              </p>
+              <h3 className="text-xs font-bold text-text tracking-wide uppercase">
+                <HoverHint content="检查基底 Mod 状态、依赖、d3dx.ini 规则与缓存目录。只报告可确认的事实，不自动改写 d3dx.ini。">
+                  健康检查
+                </HoverHint>
+              </h3>
             </div>
           </div>
           <Badge variant={errorCount ? 'danger' : warningCount ? 'default' : 'success'} size="sm">

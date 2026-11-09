@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from '../components/Logo'
+import { HoverHint } from '../components/ui/HoverHint'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
@@ -2079,8 +2080,9 @@ export const OverlayApp: React.FC = () => {
               {/* 单选互斥保护模式 */}
               <div className="flex items-center justify-between p-3.5 rounded-xl bg-surface-2/40 border border-border/70 shadow-2xs">
                 <div>
-                  <div className="font-bold text-text text-xs">单选互斥保护</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">启用同角色新 Mod 时自动停用其他 Mod</div>
+                  <div className="font-bold text-text text-xs">
+                    <HoverHint content="启用同角色新 Mod 时自动停用其他 Mod">单选互斥保护</HoverHint>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -2092,8 +2094,9 @@ export const OverlayApp: React.FC = () => {
               {/* 仅在游戏界面显示 (智能跟随) */}
               <div className="flex items-center justify-between p-3.5 rounded-xl bg-surface-2/40 border border-border/70 shadow-2xs">
                 <div>
-                  <div className="font-bold text-text text-xs">仅在游戏界面显示</div>
-                  <div className="text-[11px] text-text-muted mt-0.5">切出游戏时自动隐藏，切回游戏自动恢复</div>
+                  <div className="font-bold text-text text-xs">
+                    <HoverHint content="切出游戏时自动隐藏，切回游戏自动恢复">仅在游戏界面显示</HoverHint>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -2105,8 +2108,9 @@ export const OverlayApp: React.FC = () => {
               {/* 当前关联游戏 (智能跟随或手动切换) */}
               <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/70 space-y-2 shadow-2xs">
                 <div className="flex items-center justify-between">
-                  <div className="font-bold text-text text-xs">当前关联游戏</div>
-                  <span className="text-[10px] text-text-muted">前台智能识别跟随</span>
+                  <div className="font-bold text-text text-xs">
+                    <HoverHint content="前台智能识别跟随">当前关联游戏</HoverHint>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {(config?.games || [])
@@ -2139,8 +2143,9 @@ export const OverlayApp: React.FC = () => {
               {/* 唤出热键提示 */}
               <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/70 flex items-center justify-between shadow-2xs">
                 <div>
-                  <div className="font-bold text-text text-xs">呼出/隐藏快捷键</div>
-                  <div className="text-[10px] text-text-muted mt-0.5">系统全局监听</div>
+                  <div className="font-bold text-text text-xs">
+                    <HoverHint content="系统全局监听">呼出/隐藏快捷键</HoverHint>
+                  </div>
                 </div>
                 <kbd className="detail-kbd text-xs px-2.5 py-1">Ctrl + F</kbd>
               </div>

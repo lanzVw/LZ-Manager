@@ -4,6 +4,7 @@ import type { GameBananaInstallResult } from '../../core/types'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 import { Badge } from './ui/Badge'
+import { HoverHint } from './ui/HoverHint'
 import {
   findInstalledCopyByVersion,
   type GameBananaInstalledTarget
@@ -116,20 +117,14 @@ const OverwriteBody: React.FC<{
       <div className="space-y-1">
         <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 align-neg-125" />
-          更新后保留
+          <HoverHint content="启用状态、外观分区、预设引用与自定义设置">更新后保留</HoverHint>
         </div>
-        <p className="text-pretty-native text-[11px] leading-relaxed text-text-muted">
-          启用状态、外观分区、预设引用与自定义设置
-        </p>
       </div>
       <div className="space-y-1">
         <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text">
           <ArchiveRestore className="h-3.5 w-3.5 text-primary align-neg-125" />
-          安全覆盖
+          <HoverHint content="覆盖前自动备份，失败自动回滚">安全覆盖</HoverHint>
         </div>
-        <p className="text-pretty-native text-[11px] leading-relaxed text-text-muted">
-          覆盖前自动备份，失败自动回滚
-        </p>
       </div>
     </div>
 
@@ -174,10 +169,6 @@ const ReinstallBody: React.FC<{
       </div>
     )}
 
-    <p className="text-pretty-native px-0.5 text-[11px] leading-relaxed text-text-muted">
-      重新安装会用这份市场文件覆盖本地版本；启用状态、外观分区与自定义设置都会保留，覆盖前自动备份。
-    </p>
-
     <DuplicatesWarning duplicates={duplicates} />
   </div>
 )
@@ -203,6 +194,11 @@ export const GameBananaOverwriteConfirm: React.FC<GameBananaOverwriteConfirmProp
       isOpen={isOpen}
       onClose={onCancel}
       title={isReinstall ? '该版本已安装' : '该模组已在本地安装'}
+      titleHint={
+        isReinstall
+          ? '重新安装会用这份市场文件覆盖本地版本；启用状态、外观分区与自定义设置都会保留，覆盖前自动备份。'
+          : undefined
+      }
       variant={isReinstall ? 'info' : 'warning'}
       maxWidth={isReinstall ? 'max-w-sm' : 'max-w-md'}
       confirmText={isReinstall ? '重新安装' : '覆盖更新'}

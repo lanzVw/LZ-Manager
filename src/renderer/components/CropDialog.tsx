@@ -13,6 +13,7 @@ import {
   Check,
   Image as ImageIcon
 } from 'lucide-react'
+import { HoverHint } from './ui/HoverHint'
 import { Modal } from './ui/Modal'
 import { calculateSmartCrop, calculateCenterCrop } from '../../core/crop-algorithm'
 import { toFileUrl } from '../utils/fileUrl'
@@ -603,10 +604,11 @@ export const CropDialog: React.FC<CropDialogProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold">{m.label}</span>
+                        <HoverHint content={m.desc} tone="dark">
+                          <span className="text-xs font-semibold">{m.label}</span>
+                        </HoverHint>
                         {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />}
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{m.desc}</p>
                     </div>
                   )
                 })}

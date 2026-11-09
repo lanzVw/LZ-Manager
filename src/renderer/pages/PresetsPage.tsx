@@ -3,6 +3,7 @@ import { Layers, Plus, Sliders } from 'lucide-react'
 import type { ModItem, Preset, PresetApplyMode } from '../../core/types'
 import { planPresetApply, type PresetPlan } from '../../core/preset-plan'
 import { Button } from '../components/ui/Button'
+import { HoverHint } from '../components/ui/HoverHint'
 import { Modal } from '../components/ui/Modal'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
@@ -269,11 +270,13 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
         <div>
           <h2 className="text-lg font-bold text-text flex items-center space-x-2.5 tracking-wide">
             <Sliders className="w-5 h-5 text-primary" />
-            <span>MOD 阵容预设与一键切换</span>
+            <HoverHint
+              content="将当前全角色的 Mod 装配保存为方案快照，应用前可实时预检差异并选择还原方式"
+              focusable
+            >
+              <span>MOD 阵容预设与一键切换</span>
+            </HoverHint>
           </h2>
-          <p className="text-xs text-text-muted mt-1">
-            将当前全角色的 Mod 装配保存为方案快照，应用前可实时预检差异并选择还原方式
-          </p>
         </div>
 
         <Button

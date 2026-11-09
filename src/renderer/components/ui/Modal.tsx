@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useId, useRef } from 'react'
 import { X, AlertTriangle, Info } from 'lucide-react'
 import { Button } from './Button'
+import { HoverHint } from './HoverHint'
 
 // 容器内可聚焦元素选择器（排除禁用与显式 tabindex=-1 的元素）
 const FOCUSABLE_SELECTOR =
@@ -10,6 +11,8 @@ export interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title?: React.ReactNode
+  /** 标题的悬停说明；传入后替代可见的副标题 */
+  titleHint?: React.ReactNode
   description?: React.ReactNode
   children?: React.ReactNode
   variant?: 'default' | 'danger' | 'warning' | 'info'
@@ -27,6 +30,7 @@ export const Modal: React.FC<ModalProps> = ({
   isOpen,
   onClose,
   title,
+  titleHint,
   description,
   children,
   variant = 'default',
@@ -40,6 +44,7 @@ export const Modal: React.FC<ModalProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  const titleHintId = `modal-title-hint-${useId().replace(/:/g, '')}`
 
   // 打开时锁定页面滚动、记录并转移焦点；关闭时恢复滚动与焦点
   useEffect(() => {
@@ -129,6 +134,7 @@ export const Modal: React.FC<ModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
+        aria-describedby={titleHint ? titleHintId : undefined}
         tabIndex={-1}
         className={`bg-surface border border-border/80 rounded-2xl shadow-popover w-full ${maxWidth} p-6 space-y-4 animate-in zoom-in-95 duration-150 text-text select-none outline-none ${className || ''}`}
       >
@@ -136,7 +142,17 @@ export const Modal: React.FC<ModalProps> = ({
         <div className="flex items-center justify-between border-b border-border/80 pb-3">
           <div className="flex items-center space-x-2.5">
             {getIcon()}
-            {title && <h3 className="text-sm font-bold text-text text-balance-native">{title}</h3>}
+            {title && (
+              <h3 className="text-sm font-bold text-text text-balance-native">
+                {titleHint ? (
+                  <HoverHint content={titleHint} descriptionId={titleHintId}>
+                    {title}
+                  </HoverHint>
+                ) : (
+                  title
+                )}
+              </h3>
+            )}
           </div>
           <button
             type="button"

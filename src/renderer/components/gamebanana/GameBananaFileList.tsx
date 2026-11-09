@@ -1,6 +1,7 @@
 import React from 'react'
 import { FileArchive, PackageCheck } from 'lucide-react'
 import { Badge } from '../ui/Badge'
+import { HoverHint } from '../ui/HoverHint'
 import { GameBananaInstallButton } from './GameBananaInstallButton'
 import { formatDate, formatFileSize } from '../../utils/gamebanana-format'
 import { isGameBananaFileInstalled } from '../../utils/gamebanana-install'
@@ -71,9 +72,10 @@ export const GameBananaFileList: React.FC<GameBananaFileListProps> = ({
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-1.5 font-title text-xs font-extrabold uppercase tracking-wider text-text">
           <PackageCheck className="h-4 w-4 text-primary align-neg-125" />
-          可安装文件清单 ({files?.length || 0})
+          <HoverHint content="选择对应版本进行解压装载">
+            可安装文件清单 ({files?.length || 0})
+          </HoverHint>
         </h3>
-        <span className="text-[10px] text-text-muted">选择对应版本进行解压装载</span>
       </div>
 
       <div className="space-y-2">

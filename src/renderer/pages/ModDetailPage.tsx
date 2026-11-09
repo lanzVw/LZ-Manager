@@ -58,6 +58,7 @@ import { Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Select'
 import { Switch } from '../components/ui/Switch'
 import { Modal } from '../components/ui/Modal'
+import { HoverHint } from '../components/ui/HoverHint'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/Toast'
 import { GameBananaDetailDrawer } from '../components/GameBananaDetailDrawer'
@@ -1389,7 +1390,11 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               </div>
               <div>
                 <div className="flex items-center space-x-2">
-                  <h4 className="text-sm font-bold text-amber-500">检测到作者已发布新版本！</h4>
+                  <h4 className="text-sm font-bold text-amber-500">
+                    <HoverHint content="将就地覆盖当前模组，保留启用状态与自定义设置">
+                      检测到作者已发布新版本！
+                    </HoverHint>
+                  </h4>
                   <Badge variant="accent" size="sm" className="font-mono text-[10px]">
                     {updateInfo.remoteVersion}
                   </Badge>
@@ -1410,9 +1415,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 >
                   在市场中获取更新
                 </Button>
-                <span className="text-[10px] text-text-muted leading-tight text-right">
-                  将就地覆盖当前模组，保留启用状态与自定义设置
-                </span>
               </div>
             </div>
           </div>
@@ -2307,6 +2309,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             <span>重命名 Mod</span>
           </span>
         }
+        titleHint="名称会同时改动磁盘目录（停用状态的前缀会自动保留）。重命名后可从上方「作者原名」一键还原。"
         confirmText={renameBusy ? '处理中...' : '保存'}
         cancelText="取消"
       >
@@ -2359,10 +2362,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             </Button>
           </div>
 
-          <p className="text-[11px] text-text-muted leading-relaxed">
-            名称会同时改动磁盘目录（停用状态的前缀会自动保留）。
-            重命名后可从上方「作者原名」一键还原。
-          </p>
         </div>
       </Modal>
 
@@ -2433,12 +2432,16 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         confirmText="保存名称"
         cancelText="取消"
         title="自定义配置项中文名称"
+        titleHint={
+          <>
+            为原作者变量{' '}
+            <span className="font-mono text-primary font-bold">${editingVar?.name}</span>{' '}
+            设定直观易懂的中文别名。保存后将同步写入配置并在游戏内悬浮窗实时生效：
+          </>
+        }
         maxWidth="max-w-sm"
       >
         <div className="space-y-3 py-2">
-          <p className="text-xs text-text-muted leading-relaxed">
-            为原作者变量 <span className="font-mono text-primary font-bold">${editingVar?.name}</span> 设定直观易懂的中文别名。保存后将同步写入配置并在游戏内悬浮窗实时生效：
-          </p>
           <Input
             value={editingAliasName}
             onChange={(e) => setEditingAliasName(e.target.value)}
@@ -2489,12 +2492,10 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         confirmText="回滚至选中备份"
         cancelText="取消"
         title="回滚 Mod 修复备份"
+        titleHint="选择一次修复时自动生成的 ini 备份快照进行恢复："
         maxWidth="max-w-lg"
       >
         <div className="space-y-3 py-2 text-sm text-text-secondary">
-          <p className="text-xs text-text-muted">
-            选择一次修复时自动生成的 ini 备份快照进行恢复：
-          </p>
           {loadingBackups ? (
             <div className="py-8 text-center text-xs text-text-muted">正在读取备份记录...</div>
           ) : backupsList.length === 0 ? (

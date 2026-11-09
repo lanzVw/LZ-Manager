@@ -61,7 +61,7 @@ export const PresetEditorModal: React.FC<PresetEditorModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={isCreate ? '保存当前装配为新方案' : '编辑方案信息'}
-      description={
+      titleHint={
         isCreate
           ? '将当前所有已启用的 Mod 记录为一份可一键切换的快照。'
           : '只修改方案名称与描述，不会改动方案包含的 Mod 列表。'

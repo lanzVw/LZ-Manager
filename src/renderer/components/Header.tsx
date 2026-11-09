@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { Logo } from './Logo'
+import { HoverHint } from './ui/HoverHint'
 import { Select } from './ui/Select'
 import { SegmentedControl } from './ui/SegmentedControl'
 import { CloseConfirmModal } from './ui/CloseConfirmModal'
@@ -262,10 +263,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-bold text-text group-hover:text-primary transition-colors">
-                      开始游戏
-                    </div>
-                    <div className="text-[11px] text-text-muted mt-0.5 leading-tight">
-                      启动当前关联的游戏客户端
+                      <HoverHint content="启动当前关联的游戏客户端">开始游戏</HoverHint>
                     </div>
                   </div>
                 </button>
@@ -283,10 +281,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-bold text-text group-hover:text-primary transition-colors">
-                      启动 XXMI 加载器
-                    </div>
-                    <div className="text-[11px] text-text-muted mt-0.5 leading-tight">
-                      调起 3DMigoto / XXMI 独立环境
+                      <HoverHint content="调起 3DMigoto / XXMI 独立环境">启动 XXMI 加载器</HoverHint>
                     </div>
                   </div>
                 </button>

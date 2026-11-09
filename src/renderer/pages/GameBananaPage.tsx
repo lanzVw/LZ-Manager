@@ -21,6 +21,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { SearchField } from '../components/ui/SearchField'
 import { Badge } from '../components/ui/Badge'
+import { HoverHint } from '../components/ui/HoverHint'
 import { Select } from '../components/ui/Select'
 import { ImageLightbox } from '../components/ui/ImageLightbox'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
@@ -1210,8 +1211,11 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                   <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-text">选择目标角色安装目录</h3>
-                  <p className="text-[11px] text-text-muted mt-0.5">该模组未包含明确角色标签，请指定解压目标文件夹</p>
+                  <h3 className="text-sm font-bold text-text">
+                    <HoverHint content="该模组未包含明确角色标签，请指定解压目标文件夹" focusable>
+                      选择目标角色安装目录
+                    </HoverHint>
+                  </h3>
                 </div>
               </div>
               <button

@@ -1,4 +1,5 @@
 import React from 'react'
+import { HoverHint } from './HoverHint'
 
 export interface SwitchProps {
   checked: boolean
@@ -47,10 +48,16 @@ export const Switch: React.FC<SwitchProps> = ({
       </div>
       {(label || description) && (
         <div className="flex flex-col">
-          {label && <span className="text-xs font-medium text-text">{label}</span>}
-          {description && (
-            <span className="text-[11px] text-text-muted">{description}</span>
+          {label && (
+            <span className="text-xs font-medium text-text">
+              {description ? (
+                <HoverHint content={description}>{label}</HoverHint>
+              ) : (
+                label
+              )}
+            </span>
           )}
+          {!label && description && <span className="sr-only">{description}</span>}
         </div>
       )}
     </label>

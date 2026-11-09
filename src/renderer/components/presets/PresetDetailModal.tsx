@@ -23,14 +23,17 @@ interface PresetDetailModalProps {
 }
 
 const MODE_ITEMS: SegmentedControlItem<PresetApplyMode>[] = [
-  { id: 'replace', label: '严格还原' },
-  { id: 'merge', label: '仅叠加启用' }
+  {
+    id: 'replace',
+    label: '严格还原',
+    hint: '与方案完全一致：启用方案内的 Mod，并停用方案外已启用的 Mod。'
+  },
+  {
+    id: 'merge',
+    label: '仅叠加启用',
+    hint: '只叠加启用方案内的 Mod，方案外已启用的 Mod 保持现状。'
+  }
 ]
-
-const MODE_HINTS: Record<PresetApplyMode, string> = {
-  replace: '与方案完全一致：启用方案内的 Mod，并停用方案外已启用的 Mod。',
-  merge: '只叠加启用方案内的 Mod，方案外已启用的 Mod 保持现状。'
-}
 
 const ACTION_META: Record<
   PresetPlanAction,
@@ -166,7 +169,6 @@ export const PresetDetailModal: React.FC<PresetDetailModalProps> = ({
             size="sm"
             fullWidth
           />
-          <p className="text-[11px] text-text-muted leading-relaxed">{MODE_HINTS[mode]}</p>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

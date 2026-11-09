@@ -29,6 +29,7 @@ import { Input } from '../components/ui/Input'
 import { SearchField } from '../components/ui/SearchField'
 import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
+import { HoverHint } from '../components/ui/HoverHint'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { useToast } from '../components/ui/Toast'
 import { MoveModModal } from '../components/MoveModModal'
@@ -1414,9 +1415,10 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                 >
                   <div className="flex items-center space-x-1 font-bold text-xs">
                     <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>新增分区</span>
+                    <HoverHint content="名称与封面自定义">
+                      <span>新增分区</span>
+                    </HoverHint>
                   </div>
-                  <span className="text-[9px] text-text-muted mt-0.5">名称与封面自定义</span>
                 </button>
               </div>
 

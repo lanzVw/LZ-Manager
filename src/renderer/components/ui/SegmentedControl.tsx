@@ -1,8 +1,11 @@
 import React from 'react'
+import { HoverHint } from './HoverHint'
 
 export interface SegmentedControlItem<T extends string = string> {
   id: T
   label: React.ReactNode
+  /** 悬停标签时展示的说明；由于位于 tab 按钮内，不额外增加 tab 停靠点 */
+  hint?: React.ReactNode
   icon?: React.ReactNode
   badge?: React.ReactNode
   disabled?: boolean
@@ -77,7 +80,18 @@ export function SegmentedControl<T extends string = string>({
             }`}
           >
             {item.icon && <span className="shrink-0 align-neg-125 inline-flex">{item.icon}</span>}
-            <span className="truncate">{item.label}</span>
+            {item.hint ? (
+              <HoverHint
+                content={item.hint}
+                focusable={false}
+                srOnlyDescription={false}
+                className="max-w-full"
+              >
+                <span className="truncate">{item.label}</span>
+              </HoverHint>
+            ) : (
+              <span className="truncate">{item.label}</span>
+            )}
             {item.badge && <span className="tabular-nums-strict">{item.badge}</span>}
           </button>
         )

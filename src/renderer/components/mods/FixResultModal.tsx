@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import { X, Wrench, Terminal, CheckCircle2, AlertTriangle, ExternalLink } from 'lucide-react'
 import { Button } from '../ui/Button'
+import { HoverHint } from '../ui/HoverHint'
 
 export interface FixChange {
   from: string
@@ -171,9 +172,10 @@ export const FixResultModal: React.FC<FixResultModalProps> = ({
             </div>
             <h2 className="text-base font-bold text-text flex items-center space-x-2">
               <Terminal className="w-4 h-4 text-primary" />
-              <span>{titleText}</span>
+              <HoverHint content={subtitleText} focusable>
+                <span>{titleText}</span>
+              </HoverHint>
             </h2>
-            <p className="text-xs text-text-muted">{subtitleText}</p>
           </div>
           <button
             type="button"

@@ -32,6 +32,7 @@ import { EnvironmentStatus } from '../../core/types'
 import { useTheme } from '../contexts/ThemeContext'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import { HoverHint } from '../components/ui/HoverHint'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
 import { Badge } from '../components/ui/Badge'
@@ -513,11 +514,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div>
               <h3 className="text-base font-bold text-text tracking-tight text-balance-native">
-                {activeMeta.title}
+                <HoverHint content={activeMeta.description} focusable>
+                  {activeMeta.title}
+                </HoverHint>
               </h3>
-              <p className="text-xs text-text-muted leading-relaxed mt-1 text-pretty-native max-w-2xl">
-                {activeMeta.description}
-              </p>
             </div>
 
             {/* 可展开详细说明抽屉 */}
@@ -609,7 +609,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               {/* 标题与激活状态 */}
               <div className="flex items-center justify-between mt-0.5">
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs font-bold text-text">经典主题</span>
+                  <HoverHint content="经典清爽科技风格；浅色呈现瓷白钴蓝，深色模式自动适配「深青 · 墨夜」">
+                    <span className="text-xs font-bold text-text">经典主题</span>
+                  </HoverHint>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full font-medium bg-[#1F4FC4]/10 text-[#1F4FC4] dark:bg-[#5B8CFF]/15 dark:text-[#5B8CFF]">
                     经典科技蓝
                   </span>
@@ -624,10 +626,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 )}
               </div>
 
-              {/* 描述信息 */}
-              <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-                经典清爽科技风格；浅色呈现瓷白钴蓝，深色模式自动适配「深青 · 墨夜」
-              </p>
             </button>
 
             {/* 卡片 2：CDS 主题 (clay) */}
@@ -684,7 +682,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               {/* 标题与激活状态 */}
               <div className="flex items-center justify-between mt-0.5">
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs font-bold text-text">CDS 主题</span>
+                  <HoverHint content="Claude 官方纸质暖调风格；浅色呈现暖纸陶土，深色模式自动适配「黑曜 · 陶土」">
+                    <span className="text-xs font-bold text-text">CDS 主题</span>
+                  </HoverHint>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full font-medium bg-[#d97757]/15 text-[#d97757]">
                     Claude 陶土
                   </span>
@@ -699,10 +699,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 )}
               </div>
 
-              {/* 描述信息 */}
-              <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-                Claude 官方纸质暖调风格；浅色呈现暖纸陶土，深色模式自动适配「黑曜 · 陶土」
-              </p>
             </button>
           </div>
         </Card>
@@ -713,7 +709,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Sliders className="w-4 h-4" />
             </div>
-            <h3 className="text-sm font-bold text-text">窗口与任务栏交互控制</h3>
+            <h3 className="text-sm font-bold text-text">
+              <HoverHint
+                content="设为最小化至托盘时，关闭后可在任务栏右下角托盘区找到图标；右键可呼出快捷菜单。可在顶部「功能指南与说明」中查看完整说明。"
+                focusable
+              >
+                窗口与任务栏交互控制
+              </HoverHint>
+            </h3>
           </div>
 
           <div className="space-y-4 pt-1">
@@ -738,14 +741,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                   <div>
                     <div className="text-xs font-bold text-text flex items-center space-x-2">
-                      <span>最小化到系统托盘</span>
+                      <HoverHint content="主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗">
+                        <span>最小化到系统托盘</span>
+                      </HoverHint>
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
                         默认推荐
                       </span>
                     </div>
-                    <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
-                      主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗
-                    </p>
                   </div>
                 </div>
                 <div
@@ -774,10 +776,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <LogOut className="w-5 h-5 align-neg-125" />
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-text">彻底退出程序</div>
-                    <p className="text-[11px] text-text-muted mt-1 leading-relaxed text-pretty-native">
-                      关闭所有窗口并终止后台进程，立即完全释放系统与显存占用
-                    </p>
+                    <div className="text-xs font-bold text-text">
+                      <HoverHint content="关闭所有窗口并终止后台进程，立即完全释放系统与显存占用">
+                        彻底退出程序
+                      </HoverHint>
+                    </div>
                   </div>
                 </div>
                 <div
@@ -796,6 +799,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="flex items-center space-x-2.5 pt-1">
               <button
                 type="button"
+                role="checkbox"
+                aria-checked={!closePromptRemembered}
+                aria-label="关闭时弹出确认提示"
                 onClick={async () => {
                   const next = !closePromptRemembered
                   setClosePromptRemembered(next)
@@ -817,17 +823,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   await onUpdateAppConfig?.({ closePromptRemembered: next })
                 }}
               >
-                点击右上角关闭按钮 (✕) 时弹出确认提示（取消勾选后将按上述选择直接执行）
+                <HoverHint content="取消勾选后将按上述选择直接执行">
+                  点击右上角关闭按钮 (✕) 时弹出确认提示
+                </HoverHint>
               </span>
             </div>
 
-            {/* 任务栏与托盘状态说明提示 */}
-            <div className="mt-2 p-3 rounded-xl bg-surface-2/60 border border-border/70 flex items-start space-x-2.5 text-[11px] text-text-muted leading-relaxed">
-              <Info className="w-3.5 h-3.5 text-primary align-neg-125 shrink-0 mt-0.5" />
-              <span className="text-pretty-native">
-                设为最小化至托盘时，关闭后可在任务栏右下角托盘区找到图标；右键可呼出快捷菜单。可在顶部「功能指南与说明」中查看完整说明。
-              </span>
-            </div>
           </div>
         </Card>
       </div>
@@ -912,7 +913,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           <Card className="p-5 space-y-4">
             <h3 className="text-sm font-bold text-text flex items-center space-x-2">
               <Folder className="w-4 h-4 text-primary" />
-              <span>路径详细配置</span>
+              <HoverHint content="路径变更将在点击保存后生效并重新检测环境" focusable>
+                <span>路径详细配置</span>
+              </HoverHint>
             </h3>
 
             <div>
@@ -1007,11 +1010,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           </Card>
 
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs font-mono text-text-muted">
-              * 路径变更将在点击保存后生效并重新检测环境
-            </span>
-
+          <div className="flex items-center justify-end pt-1">
             <Button
               type="submit"
               variant={saved ? 'secondary' : 'primary'}
@@ -1036,7 +1035,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <Wrench className="w-4 h-4" />
               </div>
               <h3 className="text-sm font-bold text-text">
-                3DMigoto / XXMI 运行环境健康度诊断
+                <HoverHint
+                  content="环境缺失？一键将配套运行库及 3DMigoto 自动部署至游戏目录"
+                  focusable
+                >
+                  3DMigoto / XXMI 运行环境健康度诊断
+                </HoverHint>
               </h3>
             </div>
 
@@ -1149,10 +1153,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
 
           {/* Auto Deploy Action */}
-          <div className="pt-2 border-t border-border flex items-center justify-between">
-            <span className="text-xs text-text-muted">
-              环境缺失？一键将配套运行库及 3DMigoto 自动部署至游戏目录
-            </span>
+          <div className="pt-2 border-t border-border flex items-center justify-end">
             <Button
               variant="secondary"
               size="sm"
@@ -1178,16 +1179,19 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <Cpu className="w-4 h-4" />
             </div>
             <h3 className="text-sm font-bold text-text">
-              Persist Bridge 状态记忆引擎
+              <HoverHint content="如遇参数混乱，可重置清空所有 Mod 的历史状态缓存" focusable>
+                Persist Bridge 状态记忆引擎
+              </HoverHint>
             </h3>
           </div>
 
           <div className="space-y-4 pt-1">
             <div className="flex items-center justify-between p-3.5 rounded-control bg-surface-2 border border-border">
               <div>
-                <div className="text-xs font-bold text-text">启用 Persist 状态持久化记忆</div>
-                <div className="text-[11px] text-text-muted mt-0.5">
-                  开启后将自动为包含可变变量的 Mod 挂载持久化桥接，记忆您的自定义外观
+                <div className="text-xs font-bold text-text">
+                  <HoverHint content="开启后将自动为包含可变变量的 Mod 挂载持久化桥接，记忆您的自定义外观">
+                    启用 Persist 状态持久化记忆
+                  </HoverHint>
                 </div>
               </div>
               <Switch
@@ -1198,9 +1202,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div className="flex items-center justify-between p-3.5 rounded-control bg-surface-2 border border-border">
               <div>
-                <div className="text-xs font-bold text-text">最大缓存 Mod 状态记忆数量</div>
-                <div className="text-[11px] text-text-muted mt-0.5">
-                  设定同时保留记忆的已停用 Mod 数量上限 (默认 12 款)
+                <div className="text-xs font-bold text-text">
+                  <HoverHint content="设定同时保留记忆的已停用 Mod 数量上限 (默认 12 款)">
+                    最大缓存 Mod 状态记忆数量
+                  </HoverHint>
                 </div>
               </div>
               <Select
@@ -1218,10 +1223,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-xs text-text-muted">
-                如遇参数混乱，可重置清空所有 Mod 的历史状态缓存
-              </span>
+            <div className="flex items-center justify-end pt-1">
               <Button
                 variant="danger"
                 size="sm"
@@ -1313,7 +1315,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-xs font-bold text-text flex items-center space-x-2">
-                    <span>外部独立修复程序 ({activeGame?.name || '当前游戏'})</span>
+                    <HoverHint content="支持直接选取 .exe 文件、或选择包含修复工具的 zip / rar / 7z 压缩包及目录，程序将自动解包、校验并管理安装。">
+                      <span>外部独立修复程序 ({activeGame?.name || '当前游戏'})</span>
+                    </HoverHint>
                     {(fixStatus?.externalExePath || fixStatus?.exePath) ? (
                       <Badge variant="primary">已就绪</Badge>
                     ) : (
@@ -1345,9 +1349,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
               )}
 
-              <div className="text-[11px] text-text-muted">
-                支持直接选取 .exe 文件、或选择包含修复工具的 zip / rar / 7z 压缩包及目录，程序将自动解包、校验并管理安装。
-              </div>
             </div>
           </div>
         </Card>
@@ -1360,7 +1361,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
               <Info className="w-4 h-4" />
             </div>
-            <h3 className="text-sm font-bold text-text">关于 LZ Manager</h3>
+            <h3 className="text-sm font-bold text-text">
+              <HoverHint
+                content="面向 Windows 的 3DMigoto / XXMI Mod 管理器，支持绝区零、鸣潮、崩坏：星穹铁道、明日方舟：终末地与原神。"
+                focusable
+              >
+                关于 LZ Manager
+              </HoverHint>
+            </h3>
           </div>
 
           <div className="flex items-center justify-between p-2.5 rounded bg-surface-2 border border-border/60 text-xs">
@@ -1370,9 +1378,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </span>
           </div>
 
-          <p className="text-[11px] text-text-muted leading-relaxed">
-            面向 Windows 的 3DMigoto / XXMI Mod 管理器，支持绝区零、鸣潮、崩坏：星穹铁道、明日方舟：终末地与原神。
-          </p>
         </Card>
       </div>
 
