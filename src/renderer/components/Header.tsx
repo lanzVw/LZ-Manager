@@ -75,15 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { theme, toggleTheme, palette } = useTheme()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [showCloseModal, setShowCloseModal] = useState(false)
-  const [appVersion, setAppVersion] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    window.flairx
-      .getAppVersion()
-      .then((v) => setAppVersion(v || ''))
-      .catch(() => {})
-  }, [])
 
   const handleCloseClick = () => {
     if (closePromptRemembered) {
@@ -131,11 +123,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="font-title font-extrabold text-sm tracking-wider text-text leading-none">
               LZ Manager
             </span>
-            {appVersion && (
-              <span className="text-[9px] font-mono text-text-muted leading-none mt-1 tracking-wider">
-                v{appVersion}
-              </span>
-            )}
           </div>
         </div>
 

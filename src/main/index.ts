@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, shell, dialog, nativeImage, net } from 'electron'
 import path from 'path'
 import fs from 'fs'
+// 为什么不用 app.getVersion()：直接运行 electron ./dist/main/index.cjs 时它返回 Electron 自身版本
+// （如 44.5.1），而不是应用版本。构建期从 package.json 内联版本号才能同时覆盖开发与打包。
+import packageJson from '../../package.json'
 
 // 强制为 Windows 任务栏注册专属 AppUserModelId，彻底解除与默认 electron.exe 图标的关联
 if (process.platform === 'win32' && app) {
@@ -1799,8 +1802,8 @@ function setupIpc() {
     return { success: ok }
   })
 
-  // 应用版本：打包后读取的是安装包内 package.json 的 version，避免渲染层硬编码
-  ipcMain.handle('app:getVersion', () => app.getVersion())
+  // 应用版本在构建期从 package.json 内联，开发与打包两种启动方式都能拿到同一个值
+  ipcMain.handle('app:getVersion', () => packageJson.version)
 
   // 外部链接跳转 (系统默认浏览器)
   ipcMain.handle('app:openExternal', async (_, url: string) => {

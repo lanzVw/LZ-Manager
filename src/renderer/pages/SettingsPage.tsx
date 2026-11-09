@@ -193,6 +193,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [launchMode, setLaunchMode] = useState<string>(activeGame?.launchMode || getDerivedLaunchMode(activeGame))
   const [launchArgs, setLaunchArgs] = useState(activeGame?.launchArgs || '')
   const [saved, setSaved] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    window.flairx
+      .getAppVersion()
+      .then((v) => setAppVersion(v || ''))
+      .catch(() => {})
+  }, [])
 
   // Persist Bridge 状态记忆设置
   const [persistBridgeEnabled, setPersistBridgeEnabled] = useState<boolean>(
@@ -1346,6 +1354,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
     )}
 
+        {/* 关于：固定在设置页尾部，切换任一 Tab 都能看到版本信息 */}
+        <Card className="p-5 space-y-3">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+              <Info className="w-4 h-4" />
+            </div>
+            <h3 className="text-sm font-bold text-text">关于 LZ Manager</h3>
+          </div>
+
+          <div className="flex items-center justify-between p-2.5 rounded bg-surface-2 border border-border/60 text-xs">
+            <span className="text-text-muted">应用版本</span>
+            <span className="font-mono font-bold text-text select-all">
+              {appVersion ? `v${appVersion}` : '读取中...'}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-text-muted leading-relaxed">
+            面向 Windows 的 3DMigoto / XXMI Mod 管理器，支持绝区零、鸣潮、崩坏：星穹铁道、明日方舟：终末地与原神。
+          </p>
+        </Card>
       </div>
 
       <Modal
