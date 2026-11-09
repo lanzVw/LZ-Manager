@@ -1799,6 +1799,9 @@ function setupIpc() {
     return { success: ok }
   })
 
+  // 应用版本：打包后读取的是安装包内 package.json 的 version，避免渲染层硬编码
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+
   // 外部链接跳转 (系统默认浏览器)
   ipcMain.handle('app:openExternal', async (_, url: string) => {
     if (url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
