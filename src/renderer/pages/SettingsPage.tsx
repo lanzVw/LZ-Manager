@@ -76,12 +76,13 @@ interface SettingsPageProps {
 // 启动模式派生默认值：与显示兜底逻辑保持同一份三元，保证「显示值 = 保存值」
 const getDerivedLaunchMode = (game: any) => (game?.id === 'zzz' ? 'ZZMI' : 'VANILLA')
 
-export type SettingsTab = 'appearance' | 'games_paths' | 'environment'
+export type SettingsTab = 'appearance' | 'games_paths' | 'environment' | 'about'
 
 const SETTINGS_TABS: SegmentedControlItem<SettingsTab>[] = [
   { id: 'appearance', label: '外观与交互', icon: <Palette className="w-3.5 h-3.5" /> },
   { id: 'games_paths', label: '游戏与路径', icon: <Folder className="w-3.5 h-3.5" /> },
-  { id: 'environment', label: '环境与修复', icon: <Wrench className="w-3.5 h-3.5" /> }
+  { id: 'environment', label: '环境与修复', icon: <Wrench className="w-3.5 h-3.5" /> },
+  { id: 'about', label: '关于', icon: <Info className="w-3.5 h-3.5" /> }
 ]
 
 interface GuideItem {
@@ -92,7 +93,6 @@ interface GuideItem {
 const TAB_METADATA: Record<
   SettingsTab,
   {
-    kicker: string
     title: string
     description: string
     icon: React.ReactNode
@@ -100,7 +100,6 @@ const TAB_METADATA: Record<
   }
 > = {
   appearance: {
-    kicker: 'APPEARANCE & INTERACTION',
     title: '界面外观与窗口交互',
     description:
       '定制客户端视觉调色板与窗口生命周期行为。支持一键快速切换浅色与黑夜模式，自定义关闭行为以保持游戏内热键秒级响应。',
@@ -125,7 +124,6 @@ const TAB_METADATA: Record<
     ]
   },
   games_paths: {
-    kicker: 'WORKSPACE & PATHS',
     title: '游戏库与目录映射',
     description:
       '配置当前目标游戏的本体程序位置、Mods 存放目录及 3DMigoto 专属启动注入模式；管理主界面顶栏展示的游戏列表。',
@@ -150,7 +148,6 @@ const TAB_METADATA: Record<
     ]
   },
   environment: {
-    kicker: 'DIAGNOSTICS & HEALING',
     title: '3DMigoto 环境与修复引擎',
     description:
       'DirectX 运行库注入健康度诊断、Mod 数值持久化状态记忆桥，以及应对游戏版本更新的 Hash 修复规则引擎。',
@@ -173,6 +170,13 @@ const TAB_METADATA: Record<
         desc: '支持挂接第三方修复工具 exe 或压缩包，LZ Manager 会自动校验安装并在必要时协助执行修复。'
       }
     ]
+  },
+  about: {
+    title: '关于 LZ Manager',
+    description:
+      '面向 Windows 的 3DMigoto / XXMI Mod 管理器，支持绝区零、鸣潮、崩坏：星穹铁道、明日方舟：终末地与原神。',
+    icon: <Info className="w-24 h-24 stroke-[1.2]" />,
+    guides: []
   }
 }
 
@@ -492,32 +496,28 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
 
           <div className="relative z-10 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono font-bold tracking-widest text-primary uppercase px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                {activeMeta.kicker}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setShowGuide(!showGuide)}
-                className="inline-flex items-center space-x-1.5 text-xs font-medium text-text-muted hover:text-text px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-2/80 border border-border/60 transition cursor-pointer select-none active:scale-95"
-              >
-                <BookOpen className="w-3.5 h-3.5 align-neg-125 text-primary" />
-                <span>{showGuide ? '收起功能指南' : '功能指南与说明'}</span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                    showGuide ? 'rotate-180 text-primary' : ''
-                  }`}
-                />
-              </button>
-            </div>
-
-            <div>
-              <h3 className="text-base font-bold text-text tracking-tight text-balance-native">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="min-w-0 text-base font-bold text-text tracking-tight text-balance-native">
                 <HoverHint content={activeMeta.description} focusable>
                   {activeMeta.title}
                 </HoverHint>
               </h3>
+
+              {activeMeta.guides.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowGuide(!showGuide)}
+                  className="shrink-0 inline-flex items-center space-x-1.5 text-xs font-medium text-text-muted hover:text-text px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-2/80 border border-border/60 transition cursor-pointer select-none active:scale-95"
+                >
+                  <BookOpen className="w-3.5 h-3.5 align-neg-125 text-primary" />
+                  <span>{showGuide ? '收起功能指南' : '功能指南与说明'}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                      showGuide ? 'rotate-180 text-primary' : ''
+                    }`}
+                  />
+                </button>
+              )}
             </div>
 
             {/* 可展开详细说明抽屉 */}
@@ -612,9 +612,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <HoverHint content="经典清爽科技风格；浅色呈现瓷白钴蓝，深色模式自动适配「深青 · 墨夜」">
                     <span className="text-xs font-bold text-text">经典主题</span>
                   </HoverHint>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full font-medium bg-[#1F4FC4]/10 text-[#1F4FC4] dark:bg-[#5B8CFF]/15 dark:text-[#5B8CFF]">
-                    经典科技蓝
-                  </span>
                 </div>
                 {palette === 'default' ? (
                   <div className="flex items-center space-x-1 text-primary text-[11px] font-semibold">
@@ -685,9 +682,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <HoverHint content="Claude 官方纸质暖调风格；浅色呈现暖纸陶土，深色模式自动适配「黑曜 · 陶土」">
                     <span className="text-xs font-bold text-text">CDS 主题</span>
                   </HoverHint>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full font-medium bg-[#d97757]/15 text-[#d97757]">
-                    Claude 陶土
-                  </span>
                 </div>
                 {palette === 'clay' ? (
                   <div className="flex items-center space-x-1 text-primary text-[11px] font-semibold">
@@ -720,38 +714,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
 
           <div className="space-y-4 pt-1">
-            <label className="block text-xs font-semibold text-text">
-              点击窗口右上角关闭按钮 (✕) 时：
-            </label>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {/* 选项 1: 最小化到系统托盘 (默认推荐) */}
               <button
                 type="button"
                 onClick={() => handleCloseActionChange('minimize_to_tray')}
-                className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-center justify-between gap-3 text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   closeAction === 'minimize_to_tray'
                     ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
                     : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
                 }`}
               >
-                <div className="flex items-start space-x-3">
+                <div className="flex items-center space-x-3 min-w-0">
                   <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-primary flex items-center justify-center shrink-0 shadow-2xs">
                     <ArrowDownToLine className="w-5 h-5 align-neg-125" />
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-text flex items-center space-x-2">
-                      <HoverHint content="主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗">
-                        <span>最小化到系统托盘</span>
-                      </HoverHint>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
-                        默认推荐
-                      </span>
-                    </div>
+                  <div className="min-w-0 text-xs font-bold text-text flex items-center gap-2 flex-wrap">
+                    <HoverHint content="主窗口收纳至屏幕右下角托盘常驻，随时按 Ctrl+F 唤起游戏悬浮窗">
+                      <span>最小化到系统托盘</span>
+                    </HoverHint>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
+                      默认推荐
+                    </span>
                   </div>
                 </div>
                 <div
-                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                     closeAction === 'minimize_to_tray' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
                   }`}
                 >
@@ -765,26 +753,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <button
                 type="button"
                 onClick={() => handleCloseActionChange('quit')}
-                className={`p-4 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-start justify-between text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-[120ms] ease-[cubic-bezier(.16,1,.3,1)] flex items-center justify-between gap-3 text-left active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   closeAction === 'quit'
                     ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.035] shadow-cds-sm'
                     : 'border-border/70 bg-surface hover:border-primary/40 hover:bg-surface-2/40'
                 }`}
               >
-                <div className="flex items-start space-x-3">
+                <div className="flex items-center space-x-3 min-w-0">
                   <div className="w-10 h-10 rounded-xl bg-surface-2 border border-border/80 text-text-muted flex items-center justify-center shrink-0 shadow-2xs">
                     <LogOut className="w-5 h-5 align-neg-125" />
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-text">
-                      <HoverHint content="关闭所有窗口并终止后台进程，立即完全释放系统与显存占用">
-                        彻底退出程序
-                      </HoverHint>
-                    </div>
+                  <div className="min-w-0 text-xs font-bold text-text">
+                    <HoverHint content="关闭所有窗口并终止后台进程，立即完全释放系统与显存占用">
+                      彻底退出程序
+                    </HoverHint>
                   </div>
                 </div>
                 <div
-                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                     closeAction === 'quit' ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
                   }`}
                 >
@@ -1355,30 +1341,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
     )}
 
-        {/* 关于：固定在设置页尾部，切换任一 Tab 都能看到版本信息 */}
-        <Card className="p-5 space-y-3">
-          <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
-              <Info className="w-4 h-4" />
-            </div>
-            <h3 className="text-sm font-bold text-text">
-              <HoverHint
-                content="面向 Windows 的 3DMigoto / XXMI Mod 管理器，支持绝区零、鸣潮、崩坏：星穹铁道、明日方舟：终末地与原神。"
-                focusable
-              >
-                关于 LZ Manager
-              </HoverHint>
-            </h3>
-          </div>
+        {/* ========== TAB 4: 关于 ========== */}
+        {settingsTab === 'about' && (
+          <div className="space-y-6">
+            <Card className="p-5 space-y-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+                  <Info className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-text">应用信息</h3>
+              </div>
 
-          <div className="flex items-center justify-between p-2.5 rounded bg-surface-2 border border-border/60 text-xs">
-            <span className="text-text-muted">应用版本</span>
-            <span className="font-mono font-bold text-text select-all">
-              {appVersion ? `v${appVersion}` : '读取中...'}
-            </span>
+              <div className="flex items-center justify-between p-2.5 rounded bg-surface-2 border border-border/60 text-xs">
+                <span className="text-text-muted">应用版本</span>
+                <span className="font-mono font-bold text-text select-all">
+                  {appVersion ? `v${appVersion}` : '读取中...'}
+                </span>
+              </div>
+            </Card>
           </div>
-
-        </Card>
+        )}
       </div>
 
       <Modal
