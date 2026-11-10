@@ -1944,6 +1944,19 @@ async function downloadFile({
     signal
   });
 
+  // 为什么：直连慢时用户无法判断是「分片没生效」还是「链路本身到顶」，把实际策略写进日志与进度
+  const chunkCount = plan.mode === "chunks" ? chunkCountForSize(plan.totalBytes) : 1;
+  console.log(
+    `[GameBananaService] 下载策略: ${plan.mode === "chunks" ? `${chunkCount} 路并行` : "单流"}，总大小 ${(plan.totalBytes / 1024 / 1024).toFixed(1)} MB`
+  );
+  const reportProgress = typeof onProgress === "function"
+    ? (p: any) => onProgress({
+        ...p,
+        mode: plan.mode === "chunks" ? "chunks" : "single",
+        parallel: chunkCount
+      })
+    : undefined;
+
   // 为什么：fetch 探测期间目标目录可能被删除（如临时目录清理机制），必须再次确保存在
   fs.mkdirSync(targetDir, { recursive: true });
 
@@ -1954,7 +1967,7 @@ async function downloadFile({
       safeFileName,
       partPath,
       totalBytes: plan.totalBytes,
-      onProgress,
+      onProgress: reportProgress,
       stallTimeoutMs,
       signal
     });
@@ -1965,7 +1978,7 @@ async function downloadFile({
       safeFileName,
       partPath,
       totalBytes: plan.totalBytes,
-      onProgress,
+      onProgress: reportProgress,
       stallTimeoutMs,
       signal
     });

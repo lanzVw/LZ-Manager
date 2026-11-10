@@ -200,7 +200,8 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     const unsub = window.flairx?.onInstallProgress?.((data: any) => {
       if (data.stage === 'downloading') {
         const speedMb = data.speed ? (data.speed / (1024 * 1024)).toFixed(1) : '0.0'
-        setProgressMsg(`正在下载... ${data.percent || 0}% (${speedMb} MB/s)`)
+        const route = data.mode === 'chunks' && data.parallel > 1 ? ` · ${data.parallel} 路并行` : ''
+        setProgressMsg(`正在下载... ${data.percent || 0}% (${speedMb} MB/s${route})`)
         setProgressPercent(data.percent || 0)
       } else if (data.stage === 'inspecting') {
         setProgressMsg('校验文件魔数与安全...')
