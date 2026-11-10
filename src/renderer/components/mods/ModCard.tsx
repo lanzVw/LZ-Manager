@@ -6,7 +6,6 @@ import {
   FolderInput,
   Image as ImageIcon,
   Layers,
-  Sparkles,
   XCircle,
   Zap
 } from 'lucide-react'
@@ -23,7 +22,6 @@ export interface ModCardProps {
   updateItem: any
   selectedChar: string
   sections: AppearanceSection[]
-  sectionsById: Map<string, AppearanceSection>
   onSelect: (modFullPath: string) => void
   onToggle: (charName: string, modName: string, currentState: boolean) => void
   onMoveSection: (mod: any, nextSectionId: string) => void
@@ -38,7 +36,6 @@ const ModCardBase: React.FC<ModCardProps> = ({
   updateItem,
   selectedChar,
   sections,
-  sectionsById,
   onSelect,
   onToggle,
   onMoveSection,
@@ -110,16 +107,6 @@ const ModCardBase: React.FC<ModCardProps> = ({
               <span>基底 Mod</span>
             </div>
           )}
-          {mod.enabled ? (
-            <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-600 text-white font-semibold text-[10px] shadow-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-              <span>已装备</span>
-            </div>
-          ) : !isBroken ? (
-            <div className="px-2 py-0.5 rounded-full bg-surface/90 backdrop-blur-xs border border-border text-text-muted text-[10px] font-medium shadow-2xs">
-              待命
-            </div>
-          ) : null}
         </div>
 
         {/* 冲突提示 (右上角) */}
@@ -144,25 +131,6 @@ const ModCardBase: React.FC<ModCardProps> = ({
             >
               <ArrowUpCircle className="w-3 h-3" />
               <span>可更新</span>
-            </span>
-          </div>
-        )}
-
-        {/* INI 标签 (右上角，无冲突且无更新时显示) */}
-        {mod.hasIni && !conflict && !hasUpdate && (
-          <div className="absolute top-2 right-2 z-10">
-            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-semibold bg-surface/90 text-text-muted border border-border shadow-2xs">
-              INI
-            </span>
-          </div>
-        )}
-
-        {/* 自定义分区角标 (左下角) */}
-        {mod.appearanceSectionId && mod.appearanceSectionId !== 'base' && (
-          <div className="absolute bottom-2 left-2 z-10 pointer-events-none">
-            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-semibold bg-slate-900/80 text-white backdrop-blur-xs border border-white/20 shadow-xs flex items-center space-x-1">
-              <Sparkles className="w-2.5 h-2.5 text-amber-300" />
-              <span>{sectionsById.get(mod.appearanceSectionId)?.name || '自定义'}</span>
             </span>
           </div>
         )}

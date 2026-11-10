@@ -327,15 +327,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     return sections.filter((s) => s.sectionId !== 'base' && s.kind !== 'skin' && !s.official)
   }, [sections])
 
-  // sectionId -> 分区对象 查找表 (渲染前建一次 Map，避免模组卡片逐个 find)
-  const sectionsById = useMemo(() => {
-    const map = new Map<string, AppearanceSection>()
-    for (const s of sections) {
-      map.set(s.sectionId, s)
-    }
-    return map
-  }, [sections])
-
   const totalCharMods = useMemo(() => {
     if (selectedChar === 'all') return 0
     return (modsData[selectedChar] || []).length
@@ -1510,7 +1501,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                   updateItem={updatesMap[mod.fullPath]}
                   selectedChar={selectedChar}
                   sections={sections}
-                  sectionsById={sectionsById}
                   onSelect={handleCardSelect}
                   onToggle={handleToggle}
                   onMoveSection={handleMoveModSection}
