@@ -57,7 +57,7 @@ import {
 
 interface GameBananaPageProps {
   activeGame: any
-  onInstallSuccess?: () => void
+  onInstallSuccess?: (installedPath?: string) => void
   initialModId?: number | null
   initialSearchTerm?: string
   initialSearchScope?: SearchScope
@@ -564,7 +564,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
             setInstallingFileId(null)
             setProgressMsg('')
             setCancelling(false)
-            if (onInstallSuccess) onInstallSuccess()
+            if (onInstallSuccess) onInstallSuccess(res.installedPath)
           }, 1500)
         } else if (res?.cancelled) {
           toast.info('已取消安装', '未对 Mod 目录做任何改动')

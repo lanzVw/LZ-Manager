@@ -23,6 +23,8 @@ import { CharacterConflictReport, ModConflictSummary, AppearanceSection, ToggleM
 import { useTheme } from '../contexts/ThemeContext'
 import { extractDominantColor, DEFAULT_PRIMARY_RGB, DEFAULT_DARK_PRIMARY_RGB } from '../utils/colorExtractor'
 import { toFileUrl } from '../utils/fileUrl'
+import { resolveUpdateFilter } from '../utils/modUpdateFilter'
+import type { ModsUpdatesMap } from '../utils/modUpdateFilter'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Input } from '../components/ui/Input'
@@ -74,6 +76,9 @@ interface ModsPageProps {
   activeGame?: any
   viewState: ModsViewState
   onViewStateChange: (patch: Partial<ModsViewState>) => void
+  // 更新检查结果与视图状态同样提升到 App：本组件被卸载后结果不能丢，否则「可更新」筛选会变空
+  updatesMap: ModsUpdatesMap
+  onUpdatesMapChange: React.Dispatch<React.SetStateAction<ModsUpdatesMap>>
 }
 
 // 侧边栏紧凑型角色缩略头像组件 (56px 针对性优化)
@@ -143,7 +148,9 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   onNavigateTab,
   activeGame,
   viewState,
-  onViewStateChange
+  onViewStateChange,
+  updatesMap,
+  onUpdatesMapChange: setUpdatesMap
 }) => {
   const { theme } = useTheme()
   // 视图状态由 App 托管：进入详情页时本组件被卸载，只有外部保存才能在返回时还原
@@ -208,7 +215,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [conflictsMap, setConflictsMap] = useState<Record<string, CharacterConflictReport>>({})
-  const [updatesMap, setUpdatesMap] = useState<Record<string, any>>({})
   const [checkingUpdates, setCheckingUpdates] = useState<boolean>(false)
   const toast = useToast()
   const [characterAccentRgb, setCharacterAccentRgb] = useState<string>(
@@ -539,6 +545,32 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     return list
   }, [characters, searchChar, charFilter, charSort])
 
+  // 可更新模组统计：只统计当前数据里仍存在的 Mod，避免已删除/改名的条目继续占计数
+  const updatesCount = useMemo(() => {
+    const paths = new Set<string>()
+    if (selectedChar === 'all') {
+      for (const mods of Object.values(modsData)) {
+        for (const m of mods || []) paths.add(m.fullPath)
+      }
+    } else {
+      for (const m of modsData[selectedChar] || []) paths.add(m.fullPath)
+    }
+    let count = 0
+    for (const [fullPath, info] of Object.entries(updatesMap)) {
+      if (info?.hasUpdate && paths.has(fullPath)) count++
+    }
+    return count
+  }, [updatesMap, modsData, selectedChar])
+
+  // 更新检查结果只存在内存中，而筛选标记会被 App 快照跨页面保留到重新挂载之后。
+  // 结果缺失时筛选必须自动失效，否则列表会永久为空且按钮随计数归零一起消失。
+  const effectiveUpdateFilterOnly = resolveUpdateFilter(updateFilterOnly, updatesCount)
+  useEffect(() => {
+    if (updateFilterOnly && !effectiveUpdateFilterOnly) {
+      setUpdateFilterOnly(false)
+    }
+  }, [updateFilterOnly, effectiveUpdateFilterOnly, setUpdateFilterOnly])
+
   // 模组列表筛选与排序
   const displayedMods = useMemo(() => {
     let list: any[] = []
@@ -568,7 +600,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       list = list.filter((m) => Boolean(m.modBroken))
     }
 
-    if (updateFilterOnly) {
+    if (effectiveUpdateFilterOnly) {
       list = list.filter((m) => Boolean(updatesMap[m.fullPath]?.hasUpdate))
     }
 
@@ -607,7 +639,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     }
 
     return list
-  }, [modsData, selectedChar, searchMod, conflictFilterOnly, brokenFilterOnly, updateFilterOnly, updatesMap, conflictsMap, selectedSectionId, modSort])
+  }, [modsData, selectedChar, searchMod, conflictFilterOnly, brokenFilterOnly, effectiveUpdateFilterOnly, updatesMap, conflictsMap, selectedSectionId, modSort])
 
   // 失效模组统计
   const brokenModsCount = useMemo(() => {
@@ -636,22 +668,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
     }
     return count
   }, [modsData, selectedChar])
-
-  // 可更新模组统计
-  const updatesCount = useMemo(() => {
-    let count = 0
-    for (const [fullPath, info] of Object.entries(updatesMap)) {
-      if (info?.hasUpdate) {
-        if (selectedChar === 'all') {
-          count++
-        } else {
-          const charMods = modsData[selectedChar] || []
-          if (charMods.some((m) => m.fullPath === fullPath)) count++
-        }
-      }
-    }
-    return count
-  }, [updatesMap, modsData, selectedChar])
 
   // 批量检查 GameBanana 更新
   const handleCheckAllUpdates = async () => {
@@ -1120,8 +1136,8 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               </button>
             )}
 
-            {/* 可更新模组过滤按钮 */}
-            {updatesCount > 0 && (
+            {/* 可更新模组过滤按钮：筛选开启时无条件渲染，避免计数与结果短暂不同步时按钮消失、无法关闭 */}
+            {(updateFilterOnly || updatesCount > 0) && (
               <button
                 type="button"
                 onClick={() => setUpdateFilterOnly(!updateFilterOnly)}

@@ -39,7 +39,7 @@ export interface GameBananaDetailDrawerProps {
   modName?: string
   activeGame?: any
   defaultCharacterName?: string
-  onInstallSuccess?: () => void
+  onInstallSuccess?: (installedPath?: string) => void
   onNavigateToMarketAuthor?: (authorName: string) => void
 }
 
@@ -362,7 +362,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
             setInstallingFileId(null)
             setProgressMsg('')
             setCancelling(false)
-            onInstallSuccess?.()
+            onInstallSuccess?.(res.installedPath)
           }, 1200)
         } else if (res?.cancelled) {
           toast.info('已取消安装', '未对 Mod 目录做任何改动')

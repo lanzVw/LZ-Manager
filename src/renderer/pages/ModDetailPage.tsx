@@ -70,7 +70,7 @@ interface ModDetailPageProps {
   onToggleActive: (charName: string, modName: string, enabled: boolean) => Promise<ToggleModResult>
   onNavigateToMarket?: (modId?: number, searchKeyword?: string, searchScope?: 'all' | 'author') => void
   onDeleteSuccess?: () => void
-  onInstallSuccess?: () => void
+  onInstallSuccess?: (installedPath?: string) => void
   /** 重命名成功后目录路径已变，交给上层更新导航目标 */
   onRenamed?: (newPath: string) => void | Promise<void>
 }
@@ -2545,9 +2545,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
         modName={details?.name}
         activeGame={activeGame}
         defaultCharacterName={details?.characterName}
-        onInstallSuccess={async () => {
+        onInstallSuccess={async (installedPath) => {
           await loadDetails()
-          onInstallSuccess?.()
+          onInstallSuccess?.(installedPath)
         }}
         onNavigateToMarketAuthor={(authorName) => {
           setIsMarketDrawerOpen(false)

@@ -11,6 +11,8 @@ import { Modal } from './components/ui/Modal'
 import { Badge } from './components/ui/Badge'
 import { UploadCloud } from 'lucide-react'
 import { useToast } from './components/ui/Toast'
+import { omitUpdateEntry } from './utils/modUpdateFilter'
+import type { ModsUpdatesMap } from './utils/modUpdateFilter'
 import type { BaseModDependent, ToggleModResult } from '../core/types'
 
 export default function App() {
@@ -30,6 +32,11 @@ export default function App() {
   // 为什么提升到 App：进入 Mod 详情页时 ModsPage 会被卸载，局部 state 随之丢失，
   // 从「蕾米埃尔」分类点进详情再返回就会掉回「全部角色」。这里托管整份视图快照。
   const [modsView, setModsView] = useState<ModsViewState>(DEFAULT_MODS_VIEW)
+  // 更新检查结果同样提升到 App：进入详情页/切换 Tab 时 ModsPage 会卸载，
+  // 结果若留在组件内，返回后「可更新」筛选仍在而数据已空，列表会变成 0 项
+  const [modsUpdates, setModsUpdates] = useState<ModsUpdatesMap>({})
+  // game:changed 是异步回调，用当前值比较是否真的换了游戏
+  const activeGameId = activeGame?.id
   // 记录进入详情前的视图快照：详情页内部可能触发扫描/切换，返回时必须回到进入时那一刻的状态
   const modsViewBeforeDetailRef = useRef<ModsViewState | null>(null)
 
@@ -90,6 +97,17 @@ export default function App() {
     }
   }, [])
 
+  // 安装/更新成功后作废该 Mod 的更新检查结果；更新沿用原 fullPath，能对上结果 key
+  const handleModInstalled = useCallback(
+    (installedPath?: string) => {
+      if (installedPath) {
+        setModsUpdates((prev) => omitUpdateEntry(prev, installedPath))
+      }
+      return scanMods()
+    },
+    [scanMods]
+  )
+
   useEffect(() => {
     loadConfig()
   }, [loadConfig])
@@ -112,9 +130,15 @@ export default function App() {
   }, [activeGame, scanMods])
 
   // 监听前台游戏智能跟随切换事件，主界面实时同步更新游戏及配置
+  // 注意：修复器与 persist 恢复也会广播同一游戏的 game:changed，不能无条件清空筛选
   useEffect(() => {
     const unsub = window.flairx.onGameChanged?.(async (data: any) => {
       if (data && data.game) {
+        if (data.game.id !== activeGameId) {
+          setModsView(DEFAULT_MODS_VIEW)
+          setModsUpdates({})
+          modsViewBeforeDetailRef.current = null
+        }
         setSelectedModPath(null)
         setActiveGame(data.game)
         await loadConfig()
@@ -123,7 +147,7 @@ export default function App() {
     return () => {
       unsub?.()
     }
-  }, [loadConfig])
+  }, [activeGameId, loadConfig])
 
   // 监听来自系统托盘或主进程的页面导航跳转（如托盘菜单点击「系统设置...」）
   useEffect(() => {
@@ -218,8 +242,12 @@ export default function App() {
   // 切换游戏
   const handleSelectGame = async (gameId: string) => {
     setSelectedModPath(null)
-    // 换游戏后角色分类完全不同，沿用旧筛选会落到空列表
-    setModsView(DEFAULT_MODS_VIEW)
+    // 换游戏后角色分类完全不同，沿用旧筛选或旧更新检查结果都会落到空列表
+    if (gameId !== activeGameId) {
+      setModsView(DEFAULT_MODS_VIEW)
+      setModsUpdates({})
+      modsViewBeforeDetailRef.current = null
+    }
     await window.flairx.setActiveGame(gameId)
     await loadConfig()
   }
@@ -372,7 +400,7 @@ export default function App() {
               activeGame={activeGame}
               onBack={handleBackToMods}
               onDeleteSuccess={handleBackToMods}
-              onInstallSuccess={() => scanMods()}
+              onInstallSuccess={handleModInstalled}
               onRenamed={async (newPath: string) => {
                 // 目录已改名，旧路径失效：把导航指向新路径并留在详情页，
                 // 同时刷新列表数据，避免返回角色库时看到旧名字
@@ -399,13 +427,15 @@ export default function App() {
               activeGame={activeGame}
               viewState={modsView}
               onViewStateChange={handleModsViewChange}
+              updatesMap={modsUpdates}
+              onUpdatesMapChange={setModsUpdates}
             />
           ))}
 
         {activeTab === 'gamebanana' && (
           <GameBananaPage
             activeGame={activeGame}
-            onInstallSuccess={scanMods}
+            onInstallSuccess={handleModInstalled}
             initialModId={marketInitialModId}
             initialSearchTerm={marketInitialSearch}
             initialSearchScope={marketInitialScope}
