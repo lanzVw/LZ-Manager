@@ -1,6 +1,6 @@
 {
   "name": "lz-manager",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "LZ Manager - Modern Mod Manager for HoYoverse & Hypergryph Games",
   "main": "dist/main/index.cjs",
   "scripts": {
