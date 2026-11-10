@@ -78,6 +78,23 @@ npm start
 - `npm run dev` 会并发起 Vite dev server + 三个 watch 构建 + Electron，仅开发时使用；`dev:renderer` 单独起 5173 端口
 - `npm run dist`（electron-builder 打 NSIS 安装包，读 `electron-builder.yml`）已在本机验证通过：产物在 `release/<version>/`，安装包为 `LZ-Manager-Setup-<version>.exe`，另有免安装的 `win-unpacked/`。当前体积约 181 MB，主要来自随包 `resources/`（修复器与 `dxcompiler.dll`）。该配置的 `publish: null` 表示当前只做本地打包、不上传，也没有代码签名证书，安装时 Windows 会提示「未知发布者」
 
+## 版本号与发版
+
+版本号遵循 SemVer（`主.次.修订`），**唯一来源是 `package.json` 的 `version`**：渲染层经 IPC `app:getVersion` 读取，GameBanana 的 User-Agent 也从它派生。不要在代码、文案或 UI 里另写版本字符串——曾出现过顶栏显示 Electron 自身版本（`v44.5.1`）而非应用版本的事故。当前处于 `0.x` 阶段。
+
+每次发版前先判断进位位置，并在发版提交正文写明理由：
+
+| 位 | 触发条件 |
+|---|---|
+| 修订位 `0.1.x` | 只修 bug、修文案或样式瑕疵，不新增功能、不改交互 |
+| 次位 `0.x.0` | 新增功能、调整交互或界面、性能优化、依赖大版本升级 |
+| 主位 `x.0.0` | `1.0.0` 是首个稳定版；此后只有破坏性变更（配置 JSON 结构、`%APPDATA%\QAQManager` 目录布局、IPC 契约）才进位 |
+
+- `0.x` 阶段的次位允许包含不兼容改动，但必须在提交正文点明，方便回退时判断影响面
+- 一个发版周期内可以有多条功能提交，但**只在发版时改一次版本号**：不要每加一个功能就 bump，也不要攒着等下次一起改
+- 发版流程：`git status` 干净 → 四项检查（`npm test` / `typecheck` / `lint` / `build`）通过 → `npm version <版本> --no-git-tag-version`（同步 `package.json` 与 `package-lock.json`）→ 提交 `chore(release): 版本号改为 x.y.z`，正文列出本版包含的功能提交 → 需要安装包时再 `npm run dist`
+- 仓库无 remote、无 git tag，发版不打 tag；接入远端后再补 `v<version>` 标签
+
 ## 编码约定
 
 - 注释与 UI 文案用中文；注释只写"为什么"（历史坑、协议约束、平台限制），不写"做了什么"
