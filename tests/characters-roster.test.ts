@@ -42,7 +42,7 @@ describe('角色库：新增角色', () => {
   })
 
   it('每个角色的 gbCatId 唯一，不会两个角色抢同一个分类', () => {
-    for (const game of ['zzz', 'endfield']) {
+    for (const game of ['zzz', 'endfield', 'wuwa']) {
       const list = getCharactersForGame(game)
       const seen = new Map()
       for (const c of list) {
@@ -64,6 +64,61 @@ describe('角色库：新增角色', () => {
     expect(entry, '缺少角色 赛维里安·洛威尔').toBeTruthy()
     expect(entry.gbCatId).toBeNull()
     expect(entry.enName).toBe('Severian Lowell')
+  })
+})
+
+describe('角色库：鸣潮新角色与名称修正', () => {
+  it('3.5-3.8 期间新增角色已入库且带正确 gbCatId', () => {
+    const wuwa = getCharactersForGame('wuwa')
+    const expectById: Record<string, number> = {
+      brant: 35523,
+      buling: 41161,
+      denia: 44602,
+      hsin: 46598,
+      jingran: 46597,
+      lily: 51218,
+      lucy: 46187,
+      luuk: 43761,
+      qiuyuan: 40825,
+      rebecca: 46188,
+      sigrika: 44420,
+      suoming: 46593,
+      yangyang_xuanling: 46594
+    }
+    for (const [id, catId] of Object.entries(expectById)) {
+      const entry = wuwa.find((c) => c.id === id)
+      expect(entry, `缺少角色 ${id}`).toBeTruthy()
+      expect(entry.gbCatId, `${id} 的 gbCatId 不对`).toBe(catId)
+    }
+  })
+
+  it('旧译名已按国服官方名修正', () => {
+    const wuwa = getCharactersForGame('wuwa')
+    expect(wuwa.find((c) => c.id === 'ciaccona')?.name).toBe('夏空')
+    expect(wuwa.find((c) => c.id === 'roccia')?.name).toBe('洛可可')
+    expect(wuwa.find((c) => c.id === 'mornye')?.name).toBe('莫宁')
+    expect(wuwa.find((c) => c.id === 'qingxiao')?.name).toBe('清宵')
+  })
+
+  it('旧译名与英文名都能归一到官方名', () => {
+    const cases: Array<[string, string]> = [
+      ['恰空', '夏空'],
+      ['洛琪亚', '洛可可'],
+      ['青霄', '清宵'],
+      ['Qingxiao', '清宵'],
+      ['Brant', '布兰特'],
+      ['Buling', '卜灵'],
+      ['Hsin', '心'],
+      ['Jingran', '景燃'],
+      ['Luuk', '陆·赫斯'],
+      ['陆赫斯', '陆·赫斯'],
+      ['Suoming', '锁暝'],
+      ['Yangyang: Xuanling', '秧秧·玄翎'],
+      ['秧秧玄翎', '秧秧·玄翎']
+    ]
+    for (const [raw, expected] of cases) {
+      expect(normalizeCharacterName(raw, 'wuwa')).toBe(expected)
+    }
   })
 })
 

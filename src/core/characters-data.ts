@@ -1807,7 +1807,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "ciaccona",
-      "name": "恰空",
+      "name": "夏空",
       "enName": "Ciaccona",
       "gbCatId": 36990,
       "pinyin": "qk"
@@ -1821,7 +1821,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "qingxiao",
-      "name": "青霄",
+      "name": "清宵",
       "enName": "Qingxiao",
       "gbCatId": 46596,
       "pinyin": "qx"
@@ -1849,7 +1849,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "mornye",
-      "name": "莫尔奈",
+      "name": "莫宁",
       "enName": "Mornye",
       "gbCatId": 41930,
       "pinyin": "men"
@@ -1912,7 +1912,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "roccia",
-      "name": "洛琪亚",
+      "name": "洛可可",
       "enName": "Roccia",
       "gbCatId": 34733,
       "pinyin": "lqy"
@@ -1958,6 +1958,97 @@ const CHARACTERS_BY_GAME = {
       "enName": "Aalto",
       "gbCatId": 30257,
       "pinyin": "qs"
+    },
+    {
+      "id": "brant",
+      "name": "布兰特",
+      "enName": "Brant",
+      "gbCatId": 35523,
+      "pinyin": "blt"
+    },
+    {
+      "id": "buling",
+      "name": "卜灵",
+      "enName": "Buling",
+      "gbCatId": 41161,
+      "pinyin": "bl"
+    },
+    {
+      "id": "denia",
+      "name": "达妮娅",
+      "enName": "Denia",
+      "gbCatId": 44602,
+      "pinyin": "dny"
+    },
+    {
+      "id": "hsin",
+      "name": "心",
+      "enName": "Hsin",
+      "gbCatId": 46598,
+      "pinyin": "x"
+    },
+    {
+      "id": "jingran",
+      "name": "景燃",
+      "enName": "Jingran",
+      "gbCatId": 46597,
+      "pinyin": "jr"
+    },
+    {
+      "id": "lily",
+      "name": "莉莉",
+      "enName": "Lily",
+      "gbCatId": 51218,
+      "pinyin": "ll"
+    },
+    {
+      "id": "lucy",
+      "name": "露西",
+      "enName": "Lucy",
+      "gbCatId": 46187,
+      "pinyin": "lx"
+    },
+    {
+      "id": "luuk",
+      "name": "陆·赫斯",
+      "enName": "Luuk",
+      "gbCatId": 43761,
+      "pinyin": "lhs"
+    },
+    {
+      "id": "qiuyuan",
+      "name": "仇远",
+      "enName": "Qiuyuan",
+      "gbCatId": 40825,
+      "pinyin": "qy"
+    },
+    {
+      "id": "rebecca",
+      "name": "丽贝卡",
+      "enName": "Rebecca",
+      "gbCatId": 46188,
+      "pinyin": "lbk"
+    },
+    {
+      "id": "sigrika",
+      "name": "希格莉卡",
+      "enName": "Sigrika",
+      "gbCatId": 44420,
+      "pinyin": "xglk"
+    },
+    {
+      "id": "suoming",
+      "name": "锁暝",
+      "enName": "Suoming",
+      "gbCatId": 46593,
+      "pinyin": "sm"
+    },
+    {
+      "id": "yangyang_xuanling",
+      "name": "秧秧·玄翎",
+      "enName": "Yangyang: Xuanling",
+      "gbCatId": 46594,
+      "pinyin": "yyxl"
     }
   ],
   "21842": [
@@ -2367,7 +2458,37 @@ const CN_NAME_ALIASES = {
   "Starlight Billy": "星徽·比利",
   "Starlight": "星徽·比利",
   "祀": "祀",
-  "Si": "祀"
+  "Si": "祀",
+  // 鸣潮 3.6-3.8 新角色与旧译名兼容（旧版本误译会在磁盘上留下同名目录，必须继续归一）
+  "恰空": "夏空",
+  "Ciaccona": "夏空",
+  "洛琪亚": "洛可可",
+  "Roccia": "洛可可",
+  "莫尔奈": "莫宁",
+  "Mornye": "莫宁",
+  "青霄": "清宵",
+  "Qingxiao": "清宵",
+  "Brant": "布兰特",
+  "Buling": "卜灵",
+  "Denia": "达妮娅",
+  "达尼娅": "达妮娅",
+  "Hsin": "心",
+  "Jingran": "景燃",
+  "Lily": "莉莉",
+  "Lucy": "露西",
+  "Luuk": "陆·赫斯",
+  "陆赫斯": "陆·赫斯",
+  "Qiuyuan": "仇远",
+  "Qiu Yuan": "仇远",
+  "Rebecca": "丽贝卡",
+  "Sigrika": "希格莉卡",
+  "Suoming": "锁暝",
+  "鎖暝": "锁暝",
+  "Yangyang: Xuanling": "秧秧·玄翎",
+  "Yangyang Xuanling": "秧秧·玄翎",
+  "秧秧玄翎": "秧秧·玄翎",
+  "秧秧・玄翎": "秧秧·玄翎",
+  "玄翎": "秧秧·玄翎"
 };
 
 function resolveGameId(val) {

@@ -1049,7 +1049,13 @@ function setupIpc() {
     const g = configStore.getActiveGame()
     if (!g) return {}
     modEngine.setModFolderPath(g.modFolderPath)
-    const rawLocalResult = await modEngine.scanMods()
+    let rawLocalResult = await modEngine.scanMods()
+
+    // 旧译名目录先改名为官方名：归一化后的列表用官方名展示，若磁盘目录没跟着改，
+    // 后续按官方名启停/打开目录会找不到。改名失败（被占用）时保持原样，下次扫描重试。
+    if (modEngine.migrateLegacyCharacterDirs(g.id)) {
+      rawLocalResult = await modEngine.scanMods()
+    }
     const result: Record<string, any[]> = {}
 
     // 1. 扫描本地文件夹并统一归一化为国服官方标准名（消除因别名并存产生的重复条目）

@@ -181,6 +181,43 @@ export class ModEngine {
   }
 
   /**
+   * 把历史别名角色目录改名为官方标准名。
+   * 归一化只改展示名：磁盘上若仍叫旧译名，按官方名启停/打开角色目录都会找不到路径。
+   * 目标目录已存在或改名失败（目录被游戏占用）时跳过，留给下次扫描重试。
+   */
+  public migrateLegacyCharacterDirs(gameId?: string): boolean {
+    if (!this.modFolderPath || !fs.existsSync(this.modFolderPath)) return false
+    let entries: fs.Dirent[] = []
+    try {
+      entries = fs.readdirSync(this.modFolderPath, { withFileTypes: true })
+    } catch (_) {
+      return false
+    }
+
+    let migrated = false
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const rawName = entry.name
+      if (rawName.startsWith('.') || rawName === 'System Volume Information') continue
+
+      const canonicalName = normalizeCharacterName(rawName, gameId)
+      if (!canonicalName || canonicalName === rawName) continue
+
+      const srcPath = this.resolveInsideModRoot(path.join(this.modFolderPath, rawName))
+      const dstPath = this.resolveInsideModRoot(path.join(this.modFolderPath, canonicalName))
+      if (!srcPath || !dstPath || fs.existsSync(dstPath)) continue
+
+      try {
+        fs.renameSync(srcPath, dstPath)
+        migrated = true
+      } catch (err) {
+        console.warn(`[mod-engine] 角色目录改名失败: ${rawName} -> ${canonicalName}`, err)
+      }
+    }
+    return migrated
+  }
+
+  /**
    * 还原 Mod 目录下的 *.qaqm-persistbak 备份文件为初始 ini 版本
    */
   public restorePersistBakFiles(modDir: string): number {
