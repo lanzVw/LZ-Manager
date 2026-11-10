@@ -1116,6 +1116,9 @@ const DOWNLOAD_CHUNK_LARGE_THRESHOLD = 8 * 1024 * 1024; // >8MB 用 8 路
 const DOWNLOAD_CHUNK_MAX = 8;
 const DOWNLOAD_CHUNK_RETRIES = 3;                        // 单片最大重试次数（每次从已落盘偏移续传）
 const DOWNLOAD_CHUNK_MIN_SLICE_SIZE = 256 * 1024;       // 单片下限保护 256KB
+// 与 Chromium 单 host 的 HTTP/1.1 连接上限对齐：超出的请求不会失败，而是静默排在网络栈里，
+// 排队时间会被分片的 30s 建连超时算进去，慢链路上会被误判成「分片下载失败」
+const DOWNLOAD_CHUNK_CONCURRENCY = 6;
 
 interface ChunkRange {
   index: number;
@@ -1142,6 +1145,13 @@ function chunkCountForSize(totalBytes: number): number {
     count = Math.min(count, maxBySlice);
   }
   return Math.max(1, count);
+}
+
+/**
+ * 实际并发数：分片再多也不会超过连接上限，否则请求会在网络栈里排队
+ */
+function chunkConcurrencyForSize(totalBytes: number): number {
+  return Math.min(DOWNLOAD_CHUNK_CONCURRENCY, chunkCountForSize(totalBytes));
 }
 
 /**
@@ -1782,22 +1792,33 @@ async function downloadRangeParallel({
 
   // 为什么：分片错误时需立即通知所有兄弟分片停下，避免慢速分片在 catch 清理后继续落盘留下孤儿 .chunkNN
   const internalAbortController = new AbortController();
-  const chunkPromises = ranges.map((range) =>
-    downloadChunk({
-      downloadUrl,
-      chunkPath: getChunkPath(partPath, range.index),
-      range,
-      signal,
-      globalStallController,
-      internalSignal: internalAbortController.signal,
-      stallTimeoutMs,
-      onProgressUpdate: (index, bytes) => {
-        chunkBytesMap[index] = bytes;
-        reportProgress();
-      },
-      onActivity
-    })
-  );
+  // 为什么用工作池而不是一次性发出全部分片：超过连接上限的请求会在网络栈里排队，
+  // 排队期间既收不到数据也会被 30s 建连超时计时，慢链路上会误报失败。
+  // 池里的分片只有在真正拿到并发槽位后才发请求，排队发生在本地，不消耗任何超时预算。
+  const concurrency = chunkConcurrencyForSize(totalBytes);
+  let nextRangeIndex = 0;
+  const runChunkWorker = async (): Promise<void> => {
+    while (true) {
+      const index = nextRangeIndex++;
+      if (index >= ranges.length) return;
+      const range = ranges[index];
+      await downloadChunk({
+        downloadUrl,
+        chunkPath: getChunkPath(partPath, range.index),
+        range,
+        signal,
+        globalStallController,
+        internalSignal: internalAbortController.signal,
+        stallTimeoutMs,
+        onProgressUpdate: (idx, bytes) => {
+          chunkBytesMap[idx] = bytes;
+          reportProgress();
+        },
+        onActivity
+      });
+    }
+  };
+  const chunkPromises = Array.from({ length: concurrency }, () => runChunkWorker());
 
   try {
     await Promise.all(
@@ -1946,14 +1967,17 @@ async function downloadFile({
 
   // 为什么：直连慢时用户无法判断是「分片没生效」还是「链路本身到顶」，把实际策略写进日志与进度
   const chunkCount = plan.mode === "chunks" ? chunkCountForSize(plan.totalBytes) : 1;
+  const concurrency = plan.mode === "chunks" ? chunkConcurrencyForSize(plan.totalBytes) : 1;
   console.log(
-    `[GameBananaService] 下载策略: ${plan.mode === "chunks" ? `${chunkCount} 路并行` : "单流"}，总大小 ${(plan.totalBytes / 1024 / 1024).toFixed(1)} MB`
+    `[GameBananaService] 下载策略: ${
+      plan.mode === "chunks" ? `分片 ${chunkCount} 片 / 并发 ${concurrency} 路` : "单流"
+    }，总大小 ${(plan.totalBytes / 1024 / 1024).toFixed(1)} MB`
   );
   const reportProgress = typeof onProgress === "function"
     ? (p: any) => onProgress({
         ...p,
         mode: plan.mode === "chunks" ? "chunks" : "single",
-        parallel: chunkCount
+        parallel: concurrency
       })
     : undefined;
 

@@ -747,6 +747,71 @@ describe('断点续传与多分片并行下载', () => {
     expect(err.message).toMatch(/分片 2/)
     expect(err.message).toMatch(/403/)
   })
+
+  it('并发闸门：8 片文件同时在途的分片请求不超过连接上限，其余分片在本地排队', async () => {
+    const dir = path.join(tmpRoot, 'chunked-concurrency')
+    fs.mkdirSync(dir, { recursive: true })
+
+    // >8MB 会切成 8 片，用于验证请求不是一次性全部发出去
+    const totalSize = 10 * 1024 * 1024
+    const fullBuffer = Buffer.alloc(totalSize, 0x43)
+    fullBuffer[0] = 0x50
+    fullBuffer[1] = 0x4b
+    fullBuffer[2] = 0x03
+    fullBuffer[3] = 0x04
+
+    let inFlight = 0
+    let maxInFlight = 0
+    const chunkRanges: string[] = []
+
+    vi.stubGlobal('fetch', async (url: string, init?: any) => {
+      const range = init?.headers?.Range || ''
+      if (range === 'bytes=0-0') {
+        return new Response(fullBuffer.subarray(0, 1), {
+          status: 206,
+          headers: {
+            'content-range': `bytes 0-0/${totalSize}`,
+            'content-length': '1',
+            'content-type': 'application/zip'
+          }
+        })
+      }
+
+      const match = range.match(/bytes=(\d+)-(\d+)/)
+      if (!match) return new Response('bad request', { status: 400 })
+
+      chunkRanges.push(range)
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      // 制造足够长的在途窗口，确保后面的分片只能等槽位释放
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      inFlight -= 1
+
+      const start = parseInt(match[1], 10)
+      const end = parseInt(match[2], 10)
+      const data = fullBuffer.subarray(start, end + 1)
+      return new Response(data, {
+        status: 206,
+        headers: {
+          'content-range': `bytes ${start}-${end}/${totalSize}`,
+          'content-length': String(data.length),
+          'content-type': 'application/zip'
+        }
+      })
+    })
+
+    const res: any = await downloadFile({
+      downloadUrl: 'https://gamebanana.com/dl/concurrency',
+      targetDir: dir,
+      fileName: 'concurrency.zip'
+    })
+
+    expect(res.size).toBe(totalSize)
+    // 8 片都要下载，但同时最多 6 个请求在途
+    expect(chunkRanges.length).toBe(8)
+    expect(maxInFlight).toBe(6)
+    expect(fs.readFileSync(res.archivePath).equals(fullBuffer)).toBe(true)
+  })
 })
 
 
