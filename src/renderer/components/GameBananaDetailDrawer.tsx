@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   X,
   User,
@@ -31,6 +31,7 @@ import {
   isGameBananaFileInstalled
 } from '../utils/gamebanana-install'
 import { formatDate } from '../utils/gamebanana-format'
+import { buildCharacterLabelLookup, resolveCharacterLabel } from '../utils/gamebanana-character-label'
 
 export interface GameBananaDetailDrawerProps {
   isOpen: boolean
@@ -132,6 +133,28 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
   } | null>(null)
   const [characters, setCharacters] = useState<any[]>([])
   const [charPickerSearch, setCharPickerSearch] = useState<string>('')
+
+  // 所属类别要显示中文角色名，打开抽屉时预取角色字典（安装时的角色指认复用同一份）
+  useEffect(() => {
+    if (!isOpen || !activeGame?.id) return
+    let cancelled = false
+    window.flairx
+      .getGameBananaCharacters(activeGame.id)
+      .then((chars: any[]) => {
+        if (!cancelled) setCharacters(Array.isArray(chars) ? chars : [])
+      })
+      .catch((err) => {
+        console.error('加载角色列表失败:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, activeGame?.id])
+
+  const characterLabelLookup = useMemo(
+    () => buildCharacterLabelLookup(characters),
+    [characters]
+  )
 
   // 安装前预检命中本地同源 Mod 时的覆盖确认状态
   const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwriteInstall | null>(null)
@@ -598,9 +621,7 @@ export const GameBananaDetailDrawer: React.FC<GameBananaDetailDrawerProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-[10px] text-text-muted font-semibold">所属类别</div>
                     <div className="text-xs font-bold text-text truncate">
-                      {typeof detailMod.category === 'object'
-                        ? detailMod.category?.name
-                        : detailMod.category || '通用模组'}
+                      {resolveCharacterLabel(detailMod, characterLabelLookup, '通用模组')}
                     </div>
                     <a
                       href={detailMod.profileUrl || `https://gamebanana.com/mods/${detailMod.id}`}

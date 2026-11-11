@@ -42,6 +42,7 @@ import {
   isGameBananaFileInstalled
 } from '../utils/gamebanana-install'
 import { formatDate } from '../utils/gamebanana-format'
+import { buildCharacterLabelLookup, resolveCharacterLabel } from '../utils/gamebanana-character-label'
 import { parseAuthorQuery, resolveSearchQuery, stripAuthorPrefix } from '../utils/gamebanana-search'
 import type { SearchScope } from '../utils/gamebanana-search'
 import {
@@ -483,6 +484,11 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     () => characters.find((c) => c.id === selectedCharId)?.name || selectedCharId,
     [characters, selectedCharId]
   )
+  // 市场分类角标用中文角色名；角色字典未就绪时 lookup 为空，自动回退英文原文
+  const characterLabelLookup = useMemo(
+    () => buildCharacterLabelLookup(characters),
+    [characters]
+  )
   const activeAuthorName = useMemo(() => parseAuthorQuery(effectiveQuery), [effectiveQuery])
   const hasActiveFilters =
     selectedCharId !== 'all' || Boolean(activeAuthorName) || Boolean(effectiveQuery.trim())
@@ -911,6 +917,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                   mod={mod}
                   previewUrl={pickPreviewUrl(mod, 'card')}
                   previewUrl2x={pickPreviewUrl2x(mod)}
+                  categoryLabel={resolveCharacterLabel(mod, characterLabelLookup)}
                   onOpenDetail={openDetailDrawer}
                   onSearchByAuthor={handleSearchByAuthor}
                 />
@@ -1030,9 +1037,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-[10px] text-text-muted font-semibold">所属类别</div>
                     <div className="text-xs font-bold text-text truncate">
-                      {typeof detailMod.category === 'object'
-                        ? detailMod.category?.name
-                        : detailMod.category || '通用模组'}
+                      {resolveCharacterLabel(detailMod, characterLabelLookup, '通用模组')}
                     </div>
                     <a
                       href={detailMod.profileUrl || `https://gamebanana.com/mods/${detailMod.id}`}

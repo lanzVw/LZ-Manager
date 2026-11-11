@@ -6,6 +6,8 @@ interface GameBananaCardProps {
   previewUrl: string
   /** 2x 档（530）地址；为空时不输出 srcSet，浏览器沿用 1x */
   previewUrl2x?: string
+  /** 已换成本地角色名的分类角标文案；缺省时回退到 mod 自带的英文分类名 */
+  categoryLabel?: string
   onOpenDetail: (mod: any) => void
   onSearchByAuthor: (authorName: string, e?: React.MouseEvent) => void
 }
@@ -20,12 +22,14 @@ const GameBananaCardBase: React.FC<GameBananaCardProps> = ({
   mod,
   previewUrl,
   previewUrl2x,
+  categoryLabel,
   onOpenDetail,
   onSearchByAuthor
 }) => {
   const authorName = mod.submitter?.name || mod.author || '社区作者'
   const likes = mod.stats?.likes ?? mod.likesCount ?? 0
-  const categoryTitle = typeof mod.category === 'object' ? mod.category?.name : mod.category
+  const categoryTitle =
+    categoryLabel ?? (typeof mod.category === 'object' ? mod.category?.name : mod.category)
 
   return (
     <button
