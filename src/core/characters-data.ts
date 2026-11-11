@@ -2236,7 +2236,7 @@ const CHARACTERS_BY_GAME = {
     },
     {
       "id": "camille",
-      "name": "卡繆",
+      "name": "卡缪",
       "enName": "Camille",
       "gbCatId": 46924,
       "pinyin": "kme"
@@ -2289,6 +2289,20 @@ const CHARACTERS_BY_GAME = {
       "enName": "Si",
       "gbCatId": 50297,
       "pinyin": "s"
+    },
+    {
+      "id": "minghe",
+      "name": "明河",
+      "enName": "Argent Flow",
+      "gbCatId": null,
+      "pinyin": "mh"
+    },
+    {
+      "id": "purrchena",
+      "name": "噗切娜",
+      "enName": "Purrchena",
+      "gbCatId": null,
+      "pinyin": "pqn"
     }
   ]
 };
@@ -2355,8 +2369,11 @@ const CN_NAME_ALIASES = {
   "阿克库里": "秋栗",
   "阿尔黛莉亚": "艾尔黛拉",
   "边境哨卫": "骏卫",
-  "卡米尔": "卡繆",
-  "卡缪": "卡繆",
+  "卡米尔": "卡缪",
+  "卡繆": "卡缪",
+  "Argent Flow": "明河",
+  "ArgentFlow": "明河",
+  "Purrchena": "噗切娜",
   "捕手": "卡契尔",
   "艾丝黛拉": "埃特拉",
   "星 (女开拓者)": "女主",

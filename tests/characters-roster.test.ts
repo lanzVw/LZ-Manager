@@ -41,6 +41,30 @@ describe('角色库：新增角色', () => {
     }
   })
 
+  it('2026-11 新增干员已入库，暂无市场分类时 gbCatId 为 null', () => {
+    const ef = getCharactersForGame('endfield')
+    const expectMap: Array<[string, string]> = [
+      ['明河', 'Argent Flow'],
+      ['噗切娜', 'Purrchena']
+    ]
+    for (const [name, enName] of expectMap) {
+      const entry = ef.find((c) => c.name === name)
+      expect(entry, `缺少角色 ${name}`).toBeTruthy()
+      expect(entry.enName).toBe(enName)
+      // GameBanana 尚无对应分类，先留 null，市场会降级为按 enName 关键词搜索
+      expect(entry.gbCatId, `${name} 的 gbCatId 应为 null`).toBeNull()
+    }
+  })
+
+  it('卡繆按国服官网统一为卡缪，旧写法仍能归一', () => {
+    const ef = getCharactersForGame('endfield')
+    expect(ef.find((c) => c.id === 'camille')?.name).toBe('卡缪')
+    expect(normalizeCharacterName('卡繆', 'endfield')).toBe('卡缪')
+    expect(normalizeCharacterName('卡米尔', 'endfield')).toBe('卡缪')
+    expect(normalizeCharacterName('Argent Flow', 'endfield')).toBe('明河')
+    expect(normalizeCharacterName('Purrchena', 'endfield')).toBe('噗切娜')
+  })
+
   it('每个角色的 gbCatId 唯一，不会两个角色抢同一个分类', () => {
     for (const game of ['zzz', 'endfield', 'wuwa']) {
       const list = getCharactersForGame(game)

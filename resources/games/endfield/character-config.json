@@ -29,11 +29,13 @@
     "萤石",
     "庄方宜",
     "弭弗",
-    "卡繆",
+    "卡缪",
     "诀",
     "梨诺",
     "祀",
     "提弗洛斯",
+    "明河",
+    "噗切娜",
     "NPC",
     "大世界",
     "UI",
@@ -122,8 +124,20 @@
       "canonicalEnName": "MiFu"
     },
     "camille": {
-      "displayName": "卡繆",
+      "displayName": "卡缪",
       "canonicalEnName": "Camille"
+    },
+    "argent flow": {
+      "displayName": "明河",
+      "canonicalEnName": "ArgentFlow"
+    },
+    "argentflow": {
+      "displayName": "明河",
+      "canonicalEnName": "ArgentFlow"
+    },
+    "purrchena": {
+      "displayName": "噗切娜",
+      "canonicalEnName": "Purrchena"
     },
     "openworld": {
       "displayName": "大世界",
@@ -148,8 +162,8 @@
   },
   "characterNameMap": {
     "gameId": "endfield",
-    "updatedAt": "2026-07-18",
-    "scope": "Current official operator roster through 2026-07-18",
+    "updatedAt": "2026-11-11",
+    "scope": "Current official operator roster through 2026-11-11",
     "note": "jasmName fields reflect exact folder names used by JASM (G:\\mod\\eryou\\JASM\\Assets\\Games\\Endfield\\Images\\Characters)",
     "pairs": [
       {
@@ -322,9 +336,20 @@
         "zh": "提弗洛斯",
         "en": "Typhoeus",
         "jasmName": "Typhoeus"
+      },
+      {
+        "zh": "明河",
+        "en": "Argent Flow",
+        "jasmName": "ArgentFlow"
+      },
+      {
+        "zh": "噗切娜",
+        "en": "Purrchena",
+        "jasmName": "Purrchena"
       }
     ],
     "sources": [
+      "https://endfield.hypergryph.com/operator",
       "https://endfield.gryphline.com/en-us/operator",
       "https://endfield.gryphline.com/ja-jp/operator"
     ]
