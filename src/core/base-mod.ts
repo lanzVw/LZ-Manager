@@ -77,6 +77,8 @@ function* iterateIniEntries(content: string): Generator<IniEntry> {
 /** 解析 `namespace = ...`；未声明或为空返回 null */
 export function parseIniNamespace(content: string): string | null {
   for (const entry of iterateIniEntries(content)) {
+    // 3DMigoto 只在首个 section 之前解析 namespace；section 内的同名键只是普通配置
+    if (entry.section !== '') break
     if (entry.key !== 'namespace') continue
     const value = entry.value.replace(/[\\/]+$/, '').trim()
     if (value) return value

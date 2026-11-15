@@ -227,6 +227,10 @@ export interface EnvironmentStatus {
 export interface ModPersistVariable {
   name: string
   canonicalName: string
+  namespace: string
+  bridgeHash?: string
+  supported: boolean
+  supportError?: string
   defaultValue: string
   currentValue: string
   allowedValues?: string[]

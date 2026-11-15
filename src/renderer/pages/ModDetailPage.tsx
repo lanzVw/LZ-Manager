@@ -405,44 +405,60 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
       nextVal = currIdx >= 0 ? allowed[(currIdx + 1) % allowed.length] : allowed[0]
     }
 
-    setUpdatingVar(v.name)
-    // 乐观更新状态
+    const varKey = `${v.namespace || ''}\\${v.name}`
+    setUpdatingVar(varKey)
+    // 乐观更新状态（同时比对 name 与 namespace 确保同名变量安全性）
     setPersistInfo((prev) => {
       if (!prev) return prev
       return {
         ...prev,
         variables: prev.variables.map((item) =>
-          item.name === v.name ? { ...item, currentValue: nextVal! } : item
+          item.name === v.name && item.namespace === v.namespace ? { ...item, currentValue: nextVal! } : item
         )
       }
     })
 
     try {
-      const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal)
+      const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal, v.namespace)
       if (res && res.success) {
-        // 若该变量关联了快捷键，同时通过按键步进将 3DMigoto 内存变量同步拨到目标值
-        const matchedH = parsedHotkeys.find(
-          (item) =>
-            (item.variable && item.variable.toLowerCase() === v.canonicalName.toLowerCase()) ||
-            item.name.toLowerCase() === v.name.toLowerCase()
-        )
-        if (matchedH && matchedH.keys && matchedH.keys.length > 0 && matchedH.allowedValues && matchedH.allowedValues.length > 1) {
-          const currVal = matchedH.currentValue || v.currentValue || matchedH.allowedValues[0]
-          const currIdx = matchedH.allowedValues.indexOf(currVal)
-          const targetIdx = matchedH.allowedValues.indexOf(nextVal!)
-          if (currIdx >= 0 && targetIdx >= 0 && currIdx !== targetIdx) {
-            const steps = (targetIdx - currIdx + matchedH.allowedValues.length) % matchedH.allowedValues.length
-            for (let s = 0; s < steps; s++) {
-              await window.lz.triggerHotkey(matchedH.keys)
-              if (s < steps - 1) await new Promise((r) => setTimeout(r, 60))
-            }
-          }
-        }
-        showPersistToast(`已成功设定 $${v.name} = ${nextVal} (已热刷新)`)
+        const reloadReasonLabel = res.reloadReason === 'game_not_running'
+          ? '游戏未启动'
+          : res.reloadReason === 'echo_suppressed'
+          ? '操作过于频繁'
+          : res.reloadReason === 'no_game'
+          ? '未配置游戏'
+          : res.reloadReason === 'live_apply_unsupported'
+          ? '当前值不支持实时注入'
+          : res.reloadReason === 'live_apply_failed'
+          ? '参数注入文件生成失败'
+          : res.reloadReason === 'live_apply_persist_failed'
+          ? '参数持久化写入失败'
+          : (res.reloadReason || '请手动按 F10')
+        showPersistToast(res.liveApplied === false
+          ? `已保存 $${v.name} = ${nextVal}，游戏未刷新（${reloadReasonLabel}）`
+          : `已成功设定 $${v.name} = ${nextVal} (已热刷新)`)
       } else {
+        setPersistInfo((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            variables: prev.variables.map((item) =>
+              item.name === v.name && item.namespace === v.namespace ? { ...item, currentValue: v.currentValue } : item
+            )
+          }
+        })
         showPersistToast(`修改失败: ${res?.error || '未知错误'}`)
       }
     } catch (err: any) {
+      setPersistInfo((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          variables: prev.variables.map((item) =>
+            item.name === v.name && item.namespace === v.namespace ? { ...item, currentValue: v.currentValue } : item
+          )
+        }
+      })
       console.error('Failed to update mod variable:', err)
     } finally {
       setUpdatingVar(null)
@@ -456,10 +472,27 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     try {
       const res = await window.lz.resetModVariables(details.fullPath)
       if (res && res.success) {
-        showPersistToast('已重置此 Mod 的所有服装与开关数值为初始状态')
+        const reloadReasonLabel = res.reloadReason === 'game_not_running'
+          ? '游戏未启动'
+          : res.reloadReason === 'echo_suppressed'
+          ? '操作过于频繁'
+          : res.reloadReason === 'no_game'
+          ? '未配置游戏'
+          : res.reloadReason === 'live_apply_unsupported'
+          ? '当前值不支持实时注入'
+          : res.reloadReason === 'live_apply_failed'
+          ? '参数注入文件生成失败'
+          : res.reloadReason === 'live_apply_persist_failed'
+          ? '参数持久化写入失败'
+          : (res.reloadReason || '请手动按 F10')
+        showPersistToast(res.liveApplied === false
+          ? `已重置此 Mod 的所有数值，游戏未刷新（${reloadReasonLabel}）`
+          : '已重置此 Mod 的所有服装与开关数值为初始状态')
         // 重新拉取最新信息
         const data = await window.lz.getModDetails(modFullPath)
         if (data?.persistInfo) setPersistInfo(data.persistInfo)
+      } else {
+        showPersistToast(`重置失败: ${res?.error || '未知错误'}`)
       }
     } catch (err: any) {
       console.error('Failed to reset variables:', err)
@@ -662,13 +695,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
 
         // 如果同时存在持久化变量，同步落盘写回文件确保游戏重启后依然生效
         if (pv && details) {
-          await window.lz.updateModVariable(details.fullPath, pv.name, targetVal)
+          await window.lz.updateModVariable(details.fullPath, pv.name, targetVal, pv.namespace)
           setPersistInfo((prev) => {
             if (!prev) return prev
             return {
               ...prev,
               variables: prev.variables.map((v) =>
-                v.name === pv.name ? { ...v, currentValue: targetVal } : v
+                v.name === pv.name && v.namespace === pv.namespace ? { ...v, currentValue: targetVal } : v
               )
             }
           })
@@ -1968,11 +2001,12 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
                   const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
                   const isOn = v.currentValue === '1'
-                  const isUpdating = updatingVar === v.name
+                  const varKey = `${v.namespace || ''}\\${v.name}`
+                  const isUpdating = updatingVar === varKey || updatingVar === v.name
 
                   return (
                     <div
-                      key={v.name}
+                      key={varKey}
                       className="p-4 rounded-control bg-surface-2 border border-border hover:border-primary/40 transition-colors flex flex-col justify-between space-y-3.5"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2022,7 +2056,9 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                           调控档位:
                         </span>
 
-                        {isBinary ? (
+                        {!v.supported ? (
+                          <span className="text-[10px] text-amber-500">不可调节：{v.supportError || '无法解析 namespace'}</span>
+                        ) : isBinary ? (
                           <button
                             type="button"
                             onClick={() => handleUpdateVariable(v, isOn ? '0' : '1')}

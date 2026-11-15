@@ -757,8 +757,12 @@ export const OverlayApp: React.FC = () => {
     }
 
     try {
-      const res = await window.lz.updateModVariable(activeModDetails.fullPath, v.name, nextVal)
+      const res = await window.lz.updateModVariable(activeModDetails.fullPath, v.name, nextVal, v.namespace)
       if (res && res.success === false) {
+        setActiveModDetails((prev) => prev && prev.persistInfo ? {
+          ...prev,
+          persistInfo: { ...prev.persistInfo, variables: prev.persistInfo.variables.map((item) => item.name === v.name && item.namespace === v.namespace ? { ...item, currentValue: v.currentValue } : item) }
+        } : prev)
         showToast(`更新失败: ${res.error || '未知错误'}`)
         return
       }
@@ -769,7 +773,7 @@ export const OverlayApp: React.FC = () => {
           persistInfo: {
             ...prev.persistInfo,
             variables: prev.persistInfo.variables.map((item) =>
-              item.name === v.name ? { ...item, currentValue: nextVal! } : item
+              item.name === v.name && item.namespace === v.namespace ? { ...item, currentValue: nextVal! } : item
             )
           }
         }
@@ -785,8 +789,28 @@ export const OverlayApp: React.FC = () => {
         })
       )
 
-      showToast(`已更新 $${v.name} = ${nextVal}`)
+      const reloadReasonLabel = res?.reloadReason === 'game_not_running'
+        ? '游戏未启动'
+        : res?.reloadReason === 'echo_suppressed'
+        ? '操作过于频繁'
+        : res?.reloadReason === 'no_game'
+        ? '未配置游戏'
+        : res?.reloadReason === 'live_apply_unsupported'
+        ? '当前值不支持实时注入'
+        : res?.reloadReason === 'live_apply_failed'
+        ? '参数注入文件生成失败'
+        : res?.reloadReason === 'live_apply_persist_failed'
+        ? '参数持久化写入失败'
+        : (res?.reloadReason || '请手动按 F10')
+
+      showToast(res?.liveApplied === false
+        ? `已保存 $${v.name} = ${nextVal}，游戏未刷新（${reloadReasonLabel}）`
+        : `已更新 $${v.name} = ${nextVal}`)
     } catch {
+      setActiveModDetails((prev) => prev && prev.persistInfo ? {
+        ...prev,
+        persistInfo: { ...prev.persistInfo, variables: prev.persistInfo.variables.map((item) => item.name === v.name && item.namespace === v.namespace ? { ...item, currentValue: v.currentValue } : item) }
+      } : prev)
       showToast('更新参数失败')
     }
   }
@@ -821,7 +845,7 @@ export const OverlayApp: React.FC = () => {
 
         // 如果同时存在持久化变量，同步落盘写回文件确保游戏重启后依然生效
         if (pv && activeModDetails) {
-          await window.lz.updateModVariable(activeModDetails.fullPath, pv.name, targetVal)
+          await window.lz.updateModVariable(activeModDetails.fullPath, pv.name, targetVal, pv.namespace)
           setActiveModDetails((prev) => {
             if (!prev || !prev.persistInfo) return prev
             return {
@@ -829,7 +853,7 @@ export const OverlayApp: React.FC = () => {
               persistInfo: {
                 ...prev.persistInfo,
                 variables: prev.persistInfo.variables.map((item) =>
-                  item.name === pv.name ? { ...item, currentValue: targetVal } : item
+                  item.name === pv.name && item.namespace === pv.namespace ? { ...item, currentValue: targetVal } : item
                 )
               }
             }
@@ -1872,7 +1896,7 @@ export const OverlayApp: React.FC = () => {
 
                       return (
                         <div
-                          key={v.name}
+                          key={`${v.namespace || ''}\\${v.name}`}
                           className="p-2.5 rounded-xl bg-surface-2/50 border border-border/70 flex items-center justify-between text-xs shadow-2xs"
                         >
                           <div>
@@ -1889,7 +1913,9 @@ export const OverlayApp: React.FC = () => {
                             <span className="text-[10px] text-text-muted mt-0.5 block">当前值: {v.currentValue}</span>
                           </div>
 
-                          {isBinary ? (
+                          {!v.supported ? (
+                            <span className="text-[10px] text-amber-500">不可调节：{v.supportError || '无法解析 namespace'}</span>
+                          ) : isBinary ? (
                             <button
                               type="button"
                               onClick={() => handleUpdatePersistVar(v, isOn ? '0' : '1')}

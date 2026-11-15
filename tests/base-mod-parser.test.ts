@@ -16,7 +16,11 @@ describe('stripIniComments', () => {
 
 describe('parseIniNamespace', () => {
   it('解析普通声明', () => {
-    expect(parseIniNamespace('[Constants]\nnamespace = RabbitFX\n')).toBe('RabbitFX')
+    expect(parseIniNamespace('namespace = RabbitFX\n[Constants]\nfoo = 1\n')).toBe('RabbitFX')
+  })
+
+  it('忽略 section 内的同名键', () => {
+    expect(parseIniNamespace('[Constants]\nnamespace = RabbitFX\n')).toBeNull()
   })
 
   it('兼容 BOM、CRLF、缩进与行内注释', () => {

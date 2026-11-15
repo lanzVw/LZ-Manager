@@ -102,9 +102,9 @@ const flairxApi = {
   // Persist Bridge
   getModPersistInfo: (modFullPath: string): Promise<ModPersistInfo> =>
     ipcRenderer.invoke('persist:getInfo', modFullPath),
-  updateModVariable: (modFullPath: string, varName: string, value: string) =>
-    ipcRenderer.invoke('persist:updateVariable', modFullPath, varName, value),
-  resetModVariables: (modFullPath: string) =>
+  updateModVariable: (modFullPath: string, varName: string, value: string, targetNamespace?: string): Promise<{ success: boolean; error?: string; liveApplied?: boolean; reloadReason?: string }> =>
+    ipcRenderer.invoke('persist:updateVariable', modFullPath, varName, value, targetNamespace),
+  resetModVariables: (modFullPath: string): Promise<{ success: boolean; resetCount: number; error?: string; liveApplied?: boolean; reloadReason?: string }> =>
     ipcRenderer.invoke('persist:resetVariables', modFullPath),
   clearPersistCache: () => ipcRenderer.invoke('persist:clearCache'),
   resetModIni: (

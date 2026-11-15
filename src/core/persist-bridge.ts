@@ -3,10 +3,15 @@ import path from 'path'
 import crypto from 'crypto'
 import { translateTerm } from './mod-translator'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
+import { parseIniNamespace } from './base-mod'
 
 export interface ModPersistVariable {
   name: string
   canonicalName: string
+  namespace: string
+  bridgeHash?: string
+  supported: boolean
+  supportError?: string
   defaultValue: string
   currentValue: string
   allowedValues?: string[]
@@ -31,6 +36,33 @@ export interface PersistBridgeDescriptor {
   namespace: string
 }
 
+export interface PersistLiveApplyAssignment {
+  name: string
+  value: string
+}
+
+export interface PersistLiveApplyGroup {
+  namespace: string
+  assignments: PersistLiveApplyAssignment[]
+}
+
+export interface PersistLiveApply {
+  groups: PersistLiveApplyGroup[]
+}
+
+export interface PersistVariableUpdateResult {
+  success: boolean
+  error?: string
+  liveApply?: PersistLiveApply
+}
+
+export interface PersistResetResult {
+  success: boolean
+  resetCount: number
+  error?: string
+  liveApply?: PersistLiveApply
+}
+
 export class PersistBridgeManager {
   private configStorePath: string
 
@@ -46,7 +78,7 @@ export class PersistBridgeManager {
    */
   public normalizePersistRelativePath(val: string): string {
     return String(val || '')
-      .replace(/[\/]+/g, '\\')
+      .replace(/\/+/g, '\\')
       .split('\\')
       .filter(Boolean)
       .map((seg) => seg.replace(/^DISABLED_/i, ''))
@@ -97,7 +129,7 @@ export class PersistBridgeManager {
   /**
    * 确保游戏环境已注入 QAQ Includer 与 Persist Bridge
    */
-  public ensureEnvironment(envRoot: string): boolean {
+  public ensureEnvironment(envRoot: string, syncActiveMods = true): boolean {
     if (!envRoot || !fs.existsSync(envRoot)) return false
     try {
       const qaqmDir = path.join(envRoot, 'qaqm')
@@ -113,25 +145,36 @@ export class PersistBridgeManager {
         '',
         '[IncludePersistBridgeActive]',
         'include = qaqm_persist_active.ini',
+        '',
+        '[IncludePersistApply]',
+        'include = qaqm_persist_apply.ini',
         ''
       ].join('\n')
 
-      if (!fs.existsSync(includerPath)) {
-        fs.writeFileSync(includerPath, targetIncluder, 'utf8')
-      } else {
-        let content = fs.readFileSync(includerPath, 'utf8')
-        let changed = false
-        if (/include\s*=\s*qaqm\\qaqm_keypress\.ini/i.test(content)) {
-          content = content.replace(/include\s*=\s*qaqm\\qaqm_keypress\.ini/gi, 'include = qaqm_keypress.ini')
-          changed = true
+      let includerContent = fs.existsSync(includerPath)
+        ? fs.readFileSync(includerPath, 'utf8')
+        : ''
+      const originalIncluder = includerContent
+      includerContent = includerContent
+        .replace(/include\s*=\s*qaqm\\qaqm_keypress\.ini/gi, 'include = qaqm_keypress.ini')
+        .replace(/include\s*=\s*qaqm\\qaqm_persist_active\.ini/gi, 'include = qaqm_persist_active.ini')
+        .replace(/include\s*=\s*qaqm\\qaqm_persist_apply\.ini/gi, 'include = qaqm_persist_apply.ini')
+
+      const requiredIncludes = [
+        ['IncludeKeypress', 'qaqm_keypress.ini'],
+        ['IncludePersistBridgeActive', 'qaqm_persist_active.ini'],
+        ['IncludePersistApply', 'qaqm_persist_apply.ini']
+      ] as const
+      for (const [section, includeFile] of requiredIncludes) {
+        if (new RegExp(`include\\s*=\\s*${includeFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(includerContent)) {
+          continue
         }
-        if (/include\s*=\s*qaqm\\qaqm_persist_active\.ini/i.test(content)) {
-          content = content.replace(/include\s*=\s*qaqm\\qaqm_persist_active\.ini/gi, 'include = qaqm_persist_active.ini')
-          changed = true
-        }
-        if (changed) {
-          fs.writeFileSync(includerPath, content, 'utf8')
-        }
+        includerContent = includerContent.trimEnd()
+        includerContent += `${includerContent ? '\n\n' : ''}[${section}]\ninclude = ${includeFile}\n`
+      }
+
+      if (!fs.existsSync(includerPath) || includerContent !== originalIncluder) {
+        fs.writeFileSync(includerPath, includerContent || targetIncluder, 'utf8')
       }
 
       // qaqm_includer.ini 引用的 keypress 文件必须存在并写入 check_foreground_window = 0，
@@ -158,6 +201,15 @@ export class PersistBridgeManager {
         }
       }
 
+      const applyIndexPath = path.join(qaqmDir, 'qaqm_persist_apply.ini')
+      const applyDir = path.join(qaqmDir, 'qaqm_persist_apply')
+      if (!fs.existsSync(applyDir)) {
+        fs.mkdirSync(applyDir, { recursive: true })
+      }
+      if (!fs.existsSync(applyIndexPath)) {
+        fs.writeFileSync(applyIndexPath, '; QAQM persist apply index (generated)\n', 'utf8')
+      }
+
       // 检查 d3dx.ini 是否已包含 qaqm_includer.ini
       const d3dxPath = path.join(envRoot, 'd3dx.ini')
       if (fs.existsSync(d3dxPath)) {
@@ -176,7 +228,7 @@ export class PersistBridgeManager {
 
       // 自动自愈同步当前处于启用状态的 Mod 持久化桥接（对齐原版 QAQ rebuildActivePersistBridgeIncludes）
       const modsRoot = path.join(envRoot, 'Mods')
-      if (fs.existsSync(modsRoot)) {
+      if (syncActiveMods && fs.existsSync(modsRoot)) {
         this.syncAllActiveMods(envRoot, modsRoot)
       }
 
@@ -293,6 +345,20 @@ export class PersistBridgeManager {
     }
   }
 
+  private setD3dxUserConstant(
+    constantsMap: Map<string, { key: string; value: string }>,
+    qualifiedKey: string,
+    value: string
+  ) {
+    const canonical = qualifiedKey.replace(/^\\+/, '')
+    constantsMap.delete(canonical.replace(/^\$\\/, '$').toLowerCase())
+    constantsMap.set(canonical.toLowerCase(), { key: canonical, value })
+  }
+
+  private isSafeNamespace(namespace: string): boolean {
+    return !!namespace && !/[\r\n;#=[\]"'$]/.test(namespace)
+  }
+
   /**
    * 解析 Mod 内所有的可设定数值与按键定义
    */
@@ -305,7 +371,7 @@ export class PersistBridgeManager {
       variables: []
     }
 
-    if (!fs.existsSync(modFullPath)) return result
+    if (!envRoot || !modsRoot || !fs.existsSync(modFullPath)) return result
 
     // 递归找到所有 .ini 文件
     const findInis = (dir: string): string[] => {
@@ -330,21 +396,26 @@ export class PersistBridgeManager {
       : { constantsMap: new Map() }
 
     const seenVars = new Set<string>()
+    const bridgeStateCache = new Map<string, Map<string, { name: string; value: string }>>()
 
     for (const iniPath of iniFiles) {
       try {
-        const content = fs.readFileSync(iniPath, 'utf8')
+        const { content } = readTextAuto(iniPath)
         const lines = content.split(/\r?\n/)
         let desc = this.buildDescriptor(modsRoot, iniPath)
-        // 智能检测 INI 内是否已嵌入 QAQManager 生成的专属 Hash 与 Bridge 命名空间
-        const embeddedHashM = content.match(/qaqm_state_([a-f0-9]{12})\.ini/i) || content.match(/Bridge_([a-f0-9]{12})/i)
-        if (embeddedHashM) {
-          const eh = embeddedHashM[1].toLowerCase()
-          desc = {
-            hash: eh,
-            canonicalRelativePath: desc.canonicalRelativePath,
-            stateFileName: `qaqm_state_${eh}.ini`,
-            namespace: `QAQM\\Persist\\Bridge_${eh}`
+        const explicitNamespace = (parseIniNamespace(content) || '').replace(/[\\/]+/g, '\\').replace(/^\\+|\\+$/g, '')
+        const relativeIniPath = this.normalizePersistRelativePath(path.relative(modsRoot, iniPath))
+        // include_recursive = Mods 时，3DMigoto 的默认 namespace 是
+        // “Mods\<相对路径>\<文件名>.ini”，不是相对 Mods 目录的裸路径。
+        const actualNamespace = explicitNamespace || `Mods\\${relativeIniPath}`
+        const bridgeVariableNamespaces = new Map<string, string>()
+        const bridgeRefRe = /\$[\\/]*QAQM[\\/]+Persist[\\/]+Bridge_([a-f0-9]{12})[\\/]+([A-Za-z0-9_]+)/gi
+        let bridgeRefM: RegExpExecArray | null
+        while ((bridgeRefM = bridgeRefRe.exec(content))) {
+          const hash = bridgeRefM[1].toLowerCase()
+          bridgeVariableNamespaces.set(bridgeRefM[2].toLowerCase(), `QAQM\\Persist\\Bridge_${hash}`)
+          if (!bridgeStateCache.has(hash)) {
+            bridgeStateCache.set(hash, this.readBridgeStateDefaults(envRoot, hash))
           }
         }
 
@@ -367,7 +438,7 @@ export class PersistBridgeManager {
             if (keyM) currentKey = keyM[1].trim()
 
             // 匹配标准变量 $var = 0, 1 或桥接变量 $\QAQM\Persist\Bridge_...\var = 0, 1
-            const varCycleM = trimmed.match(/^\$(?:[a-zA-Z0-9_\\.]*\\)?([a-zA-Z0-9_]+)\s*=\s*([0-9a-zA-Z_,\s\-]+)$/)
+            const varCycleM = trimmed.match(/^\$(?:[a-zA-Z0-9_\\.]*\\)?([a-zA-Z0-9_]+)\s*=\s*([0-9a-zA-Z_,.\s+-]+)$/)
             if (varCycleM) {
               const vName = varCycleM[1].toLowerCase()
               const vals = varCycleM[2].split(',').map((s) => s.trim()).filter(Boolean)
@@ -376,63 +447,58 @@ export class PersistBridgeManager {
           }
         }
 
-        // 准备全局持久化声明行（若原 INI 已经过 QAQ 桥接转换，则备选读取 state 文件或备份文件）
+        // 只从原始文件和原始备份提取声明，旧版合成 namespace 状态不代表 Mod 实际变量
         let persistLines = [...lines]
-        const stateFilePath = path.join(envRoot, 'qaqm', 'cache', desc.stateFileName)
-        if (fs.existsSync(stateFilePath)) {
-          try {
-            const sLines = fs.readFileSync(stateFilePath, 'utf8').split(/\r?\n/)
-            persistLines.push(...sLines)
-          } catch (_) {}
-        }
         const bakFilePath = `${iniPath}.qaqm-persistbak`
         if (fs.existsSync(bakFilePath)) {
           try {
-            const bLines = fs.readFileSync(bakFilePath, 'utf8').split(/\r?\n/)
-            persistLines.push(...bLines)
+            const { content: bakContent } = readTextAuto(bakFilePath)
+            persistLines.push(...bakContent.split(/\r?\n/))
           } catch (_) {}
         }
 
-        // 提取 global persist 变量声明
+        // 提取 global persist / persist global 变量声明（不同 Mod 作者写法不一致）
         for (const line of persistLines) {
-          const persistM = line.match(/^\s*global\s+persist\s+\$([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/i)
+          const persistM = line.match(/^\s*(?:global\s+persist|persist\s+global)\s+\$([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/i)
           if (!persistM) continue
 
           const varName = persistM[1]
           const normName = varName.toLowerCase()
-          if (seenVars.has(normName)) continue
-          seenVars.add(normName)
+          const bridgeNamespace = bridgeVariableNamespaces.get(normName)
+          const bridgeHash = bridgeNamespace ? this.getBridgeHash(bridgeNamespace) : null
+          const variableNamespace = bridgeNamespace || actualNamespace
+          const qualifiedKey = `$\\${variableNamespace}\\${varName}`.toLowerCase()
+          const variableId = qualifiedKey
+          if (seenVars.has(variableId)) continue
+          seenVars.add(variableId)
 
           const defaultValue = persistM[2].split(/[;#]/)[0].trim()
-          
-          // 查询当前持久化值：优先匹配 Bridge 键，其次匹配常规键
-          const bridgeKey = `$\\${desc.namespace}\\${varName}`.toLowerCase()
           let currentValue = defaultValue
 
-          // 1. 优先从 d3dx_user.ini 读取
-          if (constantsMap.has(bridgeKey)) {
-            currentValue = constantsMap.get(bridgeKey)!.value
-          } else {
-            // 2. 尝试从 qaqm_state_<hash>.ini 读取
-            if (fs.existsSync(stateFilePath)) {
-              try {
-                const stateRaw = fs.readFileSync(stateFilePath, 'utf8')
-                for (const sLine of stateRaw.split(/\r?\n/)) {
-                  const sm = sLine.match(new RegExp(`^\\s*global\\s+persist\\s+\\$${varName}\\s*=\\s*(.*?)\\s*$`, 'i'))
-                  if (sm) {
-                    currentValue = sm[1].trim()
-                    break
-                  }
-                }
-              } catch (_) {}
-            }
+          // 持久化值优先读 d3dx_user；旧桥接 Mod 再从 QAQM state 文件补默认值
+          const keyWithoutLeadingSlash = `$${variableNamespace}\\${varName}`.toLowerCase()
+          if (constantsMap.has(qualifiedKey)) {
+            currentValue = constantsMap.get(qualifiedKey)!.value
+          } else if (constantsMap.has(keyWithoutLeadingSlash)) {
+            currentValue = constantsMap.get(keyWithoutLeadingSlash)!.value
+          } else if (bridgeHash) {
+            const stateVars = bridgeStateCache.get(bridgeHash)
+            const stateVar = stateVars?.get(normName)
+            if (stateVar) currentValue = stateVar.value
           }
 
           const swapInfo = keySwapMap[normName] || {}
+          const isSupported = this.isSafeNamespace(variableNamespace)
 
           result.variables.push({
             name: varName,
             canonicalName: normName,
+            namespace: variableNamespace,
+            bridgeHash: bridgeHash || undefined,
+            supported: isSupported,
+            supportError: isSupported
+              ? undefined
+              : (!variableNamespace ? '无法解析此变量所属的 3DMigoto namespace' : 'namespace 包含非法字符'),
             defaultValue,
             currentValue,
             allowedValues: swapInfo.allowedValues || ['0', '1'],
@@ -441,9 +507,45 @@ export class PersistBridgeManager {
           })
 
           if (!result.hash) {
-            result.hash = desc.hash
-            result.namespace = desc.namespace
-            result.stateFileName = desc.stateFileName
+            result.hash = bridgeHash || desc.hash
+            result.namespace = variableNamespace || desc.namespace
+            result.stateFileName = bridgeHash ? `qaqm_state_${bridgeHash}.ini` : desc.stateFileName
+          }
+        }
+
+        // 旧版桥接 Mod 即使缺少 .qaqm-persistbak，也应从 state 文件恢复可调控变量
+        const bridgeHashesInFile = new Set(
+          [...bridgeVariableNamespaces.values()]
+            .map((ns) => this.getBridgeHash(ns))
+            .filter((hash): hash is string => !!hash)
+        )
+        for (const [hash, stateVars] of bridgeStateCache) {
+          if (!bridgeHashesInFile.has(hash)) continue
+          for (const [normName, stateVar] of stateVars) {
+            const namespace = `QAQM\\Persist\\Bridge_${hash}`
+            const qualifiedKey = `$\\${namespace}\\${normName}`.toLowerCase()
+            if (seenVars.has(qualifiedKey)) continue
+            seenVars.add(qualifiedKey)
+            const swapInfo = keySwapMap[normName] || {}
+            const isSupported = this.isSafeNamespace(namespace)
+            result.variables.push({
+              name: stateVar.name,
+              canonicalName: normName,
+              namespace,
+              bridgeHash: hash,
+              supported: isSupported,
+              supportError: isSupported ? undefined : 'namespace 包含非法字符',
+              defaultValue: stateVar.value,
+              currentValue: constantsMap.get(qualifiedKey)?.value || stateVar.value,
+              allowedValues: swapInfo.allowedValues || ['0', '1'],
+              keybind: swapInfo.keybind,
+              iniFile: path.basename(iniPath)
+            })
+            if (!result.hash) {
+              result.hash = hash
+              result.namespace = namespace
+              result.stateFileName = `qaqm_state_${hash}.ini`
+            }
           }
         }
       } catch (err) {
@@ -475,6 +577,156 @@ export class PersistBridgeManager {
     return result
   }
 
+  private getBridgeHash(namespace: string): string | null {
+    const match = String(namespace || '').match(/(?:^|\\)QAQM\\Persist\\Bridge_([a-f0-9]{12})(?:\\|$)/i)
+    return match ? match[1].toLowerCase() : null
+  }
+
+  private readBridgeStateDefaults(
+    envRoot: string,
+    bridgeHash: string
+  ): Map<string, { name: string; value: string }> {
+    const values = new Map<string, { name: string; value: string }>()
+    const statePath = path.join(envRoot, 'qaqm', 'cache', `qaqm_state_${bridgeHash}.ini`)
+    if (!fs.existsSync(statePath)) return values
+
+    try {
+      const { content } = readTextAuto(statePath)
+      for (const line of content.split(/\r?\n/)) {
+        const match = line.match(/^\s*(?:global\s+persist|persist\s+global)\s+\$([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/i)
+        if (!match) continue
+        values.set(match[1].toLowerCase(), {
+          name: match[1],
+          value: match[2].split(/[;#]/)[0].trim()
+        })
+      }
+    } catch (_) {}
+    return values
+  }
+
+  private addIncludeToActiveFile(activeIniPath: string, stateFileName: string) {
+    let content = fs.existsSync(activeIniPath) ? fs.readFileSync(activeIniPath, 'utf8') : ''
+    const secName = `IncludePersistBridge_${stateFileName.replace(/\.ini$/i, '')}`
+    const targetInclude = `include = cache\\${stateFileName}`
+
+    const secRegex = new RegExp(`\\[${secName}\\][\\r\\n]+include\\s*=[^\\r\\n]*`, 'i')
+    if (secRegex.test(content)) {
+      const normalized = content.replace(secRegex, `[${secName}]\n${targetInclude}`)
+      if (normalized !== content) fs.writeFileSync(activeIniPath, normalized, 'utf8')
+      return
+    }
+
+    const block = `[${secName}]\n${targetInclude}\n`
+    content = content.trimEnd()
+    content += `${content ? '\n\n' : ''}${block}`
+    fs.writeFileSync(activeIniPath, content, 'utf8')
+  }
+
+  private writeBridgeStateFiles(envRoot: string, variables: ModPersistVariable[]) {
+    const groups = new Map<string, Map<string, ModPersistVariable>>()
+    for (const variable of variables) {
+      const bridgeHash = variable.bridgeHash || this.getBridgeHash(variable.namespace)
+      if (!bridgeHash || !variable.supported) continue
+      if (!groups.has(bridgeHash)) groups.set(bridgeHash, new Map())
+      groups.get(bridgeHash)!.set(variable.canonicalName, variable)
+    }
+
+    const cacheDir = path.join(envRoot, 'qaqm', 'cache')
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
+    const activeIniPath = path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini')
+
+    for (const [bridgeHash, group] of groups) {
+      const stateFileName = `qaqm_state_${bridgeHash}.ini`
+      const statePath = path.join(cacheDir, stateFileName)
+      const stateContent = [
+        `namespace = QAQM\\Persist\\Bridge_${bridgeHash}`,
+        '',
+        '[Constants]',
+        ...[...group.values()].map((variable) => `global persist $${variable.name} = ${variable.currentValue}`),
+        ''
+      ].join('\n')
+      const existing = fs.existsSync(statePath) ? fs.readFileSync(statePath, 'utf8') : ''
+      if (existing !== stateContent) fs.writeFileSync(statePath, stateContent, 'utf8')
+      this.addIncludeToActiveFile(activeIniPath, stateFileName)
+    }
+  }
+
+  private buildLiveApply(
+    entries: Array<{ namespace: string; name: string; value: string }>
+  ): PersistLiveApply | undefined {
+    const groups = new Map<string, Map<string, string>>()
+    for (const entry of entries) {
+      if (!this.isSafeNamespace(entry.namespace)) continue
+      if (!/^[A-Za-z0-9_]+$/.test(entry.name)) continue
+      if (!this.isSafeLiveValue(entry.value)) continue
+      if (!groups.has(entry.namespace)) groups.set(entry.namespace, new Map())
+      groups.get(entry.namespace)!.set(entry.name, entry.value.trim())
+    }
+    if (groups.size === 0) return undefined
+    return {
+      groups: [...groups.entries()].map(([namespace, assignments]) => ({
+        namespace,
+        assignments: [...assignments.entries()].map(([name, value]) => ({ name, value }))
+      }))
+    }
+  }
+
+  private isSafeLiveValue(value: string): boolean {
+    const number = '[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?'
+    return new RegExp(`^${number}(?:\\s*,\\s*${number})*$`).test(String(value || '').trim())
+  }
+
+  public writeLiveApply(
+    envRoot: string,
+    liveApply: PersistLiveApply | undefined
+  ): { success: boolean; error?: string } {
+    try {
+      if (!envRoot || !fs.existsSync(envRoot)) return { success: false, error: '游戏运行环境不存在' }
+      const qaqmDir = path.join(envRoot, 'qaqm')
+      const applyDir = path.join(qaqmDir, 'qaqm_persist_apply')
+      const indexPath = path.join(qaqmDir, 'qaqm_persist_apply.ini')
+      if (!fs.existsSync(applyDir)) fs.mkdirSync(applyDir, { recursive: true })
+
+      for (const name of fs.readdirSync(applyDir)) {
+        if (/^\d+\.ini$/i.test(name)) {
+          try { fs.unlinkSync(path.join(applyDir, name)) } catch (_) {}
+        }
+      }
+
+      const groups = liveApply?.groups || []
+      const indexLines = ['; QAQM persist apply index (generated)']
+      groups.forEach((group, index) => {
+        const fileName = `${index}.ini`
+        if (!this.isSafeNamespace(group.namespace)) {
+          throw new Error(`namespace 包含非法字符: ${group.namespace}`)
+        }
+        // F10 先 SavePersistentSettings 再 LoadConfigFile；
+        // post 会在 d3dx_user.ini 加载后执行，才能覆盖刚被旧内存值覆盖的持久化值。
+        const content = [
+          '; QAQM persist apply target (generated)',
+          `namespace = ${group.namespace}`,
+          '',
+          '[Constants]',
+          ...group.assignments.map((assignment) => `post $${assignment.name} = ${assignment.value}`),
+          ''
+        ].join('\n')
+        fs.writeFileSync(path.join(applyDir, fileName), content, 'utf8')
+        indexLines.push('', `[IncludeQAQMApply${index}]`, `include = qaqm_persist_apply\\${fileName}`)
+      })
+      fs.writeFileSync(indexPath, indexLines.join('\n') + '\n', 'utf8')
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  public clearLiveApply(envRoot: string) {
+    if (!envRoot) return
+    try {
+      this.writeLiveApply(envRoot, undefined)
+    } catch (_) {}
+  }
+
   /**
    * 在启用/停用 Mod 时自动同步并恢复 Persist 状态
    */
@@ -485,94 +737,29 @@ export class PersistBridgeManager {
     enabling: boolean
   ): boolean {
     if (!envRoot || !fs.existsSync(envRoot)) return false
-    const qaqmDir = path.join(envRoot, 'qaqm')
-    const cacheDir = path.join(qaqmDir, 'cache')
-    const activeIniPath = path.join(qaqmDir, 'qaqm_persist_active.ini')
-
-    if (!fs.existsSync(cacheDir)) {
-      try { fs.mkdirSync(cacheDir, { recursive: true }) } catch (_) {}
-    }
-
     const d3dxUserPath = path.join(envRoot, 'd3dx_user.ini')
     const { prefixLines, constantsMap, suffixLines } = fs.existsSync(d3dxUserPath)
       ? this.readD3dxUserConstants(d3dxUserPath)
       : { prefixLines: [], constantsMap: new Map(), suffixLines: [] }
 
     const info = this.getModPersistInfo(modFullPath, modsRoot, envRoot)
-    if (!info.hasPersist || !info.stateFileName) return false
-
-    const stateFilePath = path.join(cacheDir, info.stateFileName)
+    if (!info.hasPersist) return false
 
     if (enabling) {
       // 1. 将该 Mod 的持久化值写回 d3dx_user.ini
       for (const v of info.variables) {
-        const bridgeKey = `$\\${info.namespace}\\${v.name}`
-        constantsMap.set(bridgeKey.toLowerCase(), { key: bridgeKey, value: v.currentValue })
+        if (!v.supported) continue
+        const qualifiedKey = `$\\${v.namespace}\\${v.name}`
+        this.setD3dxUserConstant(constantsMap, qualifiedKey, v.currentValue)
       }
       this.writeD3dxUserConstants(d3dxUserPath, constantsMap, prefixLines, suffixLines)
-
-      // 2. 写入或更新 qaqm/cache/qaqm_state_<hash>.ini
-      const stateContent = [
-        `namespace = ${info.namespace}`,
-        '',
-        '[Constants]',
-        ...info.variables.map((v) => `global persist $${v.name} = ${v.currentValue}`),
-        ''
-      ].join('\n')
-      fs.writeFileSync(stateFilePath, stateContent, 'utf8')
-
-      // 3. 将 stateFile 激活包含到 qaqm_persist_active.ini
-      this.addIncludeToActiveFile(activeIniPath, info.stateFileName)
+      this.writeBridgeStateFiles(envRoot, info.variables)
       return true
     } else {
-      // 正在停用 Mod：从 d3dx_user.ini 截取最新状态并固化在 qaqm/cache 状态文件中
-      for (const v of info.variables) {
-        const bridgeKey = `$\\${info.namespace}\\${v.name}`.toLowerCase()
-        if (constantsMap.has(bridgeKey)) {
-          v.currentValue = constantsMap.get(bridgeKey)!.value
-        }
-      }
-
-      const stateContent = [
-        `namespace = ${info.namespace}`,
-        '',
-        '[Constants]',
-        ...info.variables.map((v) => `global persist $${v.name} = ${v.currentValue}`),
-        ''
-      ].join('\n')
-      fs.writeFileSync(stateFilePath, stateContent, 'utf8')
-
-      // 从 active.ini 中移除 include
-      // 对齐原版 QAQ 缓存池体系：停用时保持在 active.ini 缓存池内，防止 3DMigoto 热刷新丢弃 d3dx_user.ini 持久化变量；
-      // 最大缓存容量与淘汰统一由 pruneCache 控制
-      this.addIncludeToActiveFile(activeIniPath, info.stateFileName)
+      // 停用前把桥接变量当前值固化到 state 文件，重新启用时仍可加载
+      this.writeBridgeStateFiles(envRoot, info.variables)
       return true
     }
-  }
-
-  /**
-   * 将 stateFile 加入 qaqm_persist_active.ini
-   */
-  private addIncludeToActiveFile(activeIniPath: string, stateFileName: string) {
-    let content = fs.existsSync(activeIniPath) ? fs.readFileSync(activeIniPath, 'utf8') : ''
-    const secName = `IncludePersistBridge_${stateFileName.replace(/\.ini$/i, '')}`
-    const targetInclude = `include = cache\\${stateFileName}`
-
-    if (content.includes(`[${secName}]`)) {
-      // 确保包含路径为正确的 cache\，修复可能残留的历史 qaqm\cache\ 错误路径
-      const secRegex = new RegExp(`\\[${secName}\\][\\r\\n]+include\\s*=[^\\r\\n]*`, 'i')
-      if (secRegex.test(content)) {
-        const updated = content.replace(secRegex, `[${secName}]\n${targetInclude}`)
-        if (updated !== content) {
-          fs.writeFileSync(activeIniPath, updated, 'utf8')
-        }
-      }
-      return
-    }
-
-    const block = `[${secName}]\n${targetInclude}\n\n`
-    content = content.trim() + (content.trim() ? '\n\n' : '') + block
-    fs.writeFileSync(activeIniPath, content, 'utf8')
   }
 
   /**
@@ -641,11 +828,15 @@ export class PersistBridgeManager {
     modsRoot: string,
     modFullPath: string,
     variableName: string,
-    newValue: string
-  ): { success: boolean; error?: string } {
+    newValue: string,
+    targetNamespace?: string
+  ): PersistVariableUpdateResult {
     try {
+      if (!envRoot || !modsRoot || !modFullPath) {
+        return { success: false, error: '游戏运行环境或 Mod 路径无效' }
+      }
       const info = this.getModPersistInfo(modFullPath, modsRoot, envRoot)
-      if (!info.hasPersist || !info.stateFileName) {
+      if (!info.hasPersist) {
         return { success: false, error: '此 Mod 未检测到可持久化变量' }
       }
 
@@ -655,32 +846,36 @@ export class PersistBridgeManager {
         : { prefixLines: [], constantsMap: new Map(), suffixLines: [] }
 
       // 1. 更新 d3dx_user.ini
-      const bridgeKey = `$\\${info.namespace}\\${variableName}`
-      constantsMap.set(bridgeKey.toLowerCase(), { key: bridgeKey, value: newValue })
+      const cleanVarName = String(variableName || '').replace(/^\$/, '')
+      let matches = info.variables.filter((item) => item.name.toLowerCase() === cleanVarName.toLowerCase())
+      if (targetNamespace) {
+        const normNs = targetNamespace.replace(/[\\/]+/g, '\\').replace(/^\\+|\\+$/g, '').toLowerCase()
+        matches = matches.filter((item) => item.namespace.toLowerCase() === normNs)
+      }
+      if (matches.length === 0) return { success: false, error: '指定变量不属于此 Mod' }
+      if (matches.length > 1) return { success: false, error: '此 Mod 存在同名但不同 namespace 的变量，无法安全确定目标' }
+      const variable = matches[0]
+      if (!variable.supported) return { success: false, error: variable.supportError || '此变量的 namespace 无法安全解析' }
+      if (!/^[A-Za-z0-9_]+$/.test(cleanVarName) || !newValue.trim() || /[\r\n;#[\]=\\]/.test(newValue)) {
+        return { success: false, error: '变量名或设定值无效' }
+      }
+      const qualifiedKey = `$\\${variable.namespace}\\${variable.name}`
+      const nextValue = newValue.trim()
+      this.setD3dxUserConstant(constantsMap, qualifiedKey, nextValue)
       this.writeD3dxUserConstants(d3dxUserPath, constantsMap, prefixLines, suffixLines)
+      const updatedVariables = info.variables.map((item) =>
+        item.name === variable.name && item.namespace === variable.namespace
+          ? { ...item, currentValue: nextValue }
+          : item
+      )
+      this.writeBridgeStateFiles(envRoot, updatedVariables)
 
-      // 2. 更新 cache/qaqm_state_<hash>.ini
-      const stateFilePath = path.join(envRoot, 'qaqm', 'cache', info.stateFileName)
-      const updatedVars = info.variables.map((v) => {
-        if (v.name.toLowerCase() === variableName.toLowerCase()) {
-          return { ...v, currentValue: newValue }
-        }
-        return v
-      })
-
-      const stateContent = [
-        `namespace = ${info.namespace}`,
-        '',
-        '[Constants]',
-        ...updatedVars.map((v) => `global persist $${v.name} = ${v.currentValue}`),
-        ''
-      ].join('\n')
-      fs.writeFileSync(stateFilePath, stateContent, 'utf8')
-
-      // 确保激活包含到 qaqm_persist_active.ini
-      this.addIncludeToActiveFile(path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini'), info.stateFileName)
-
-      return { success: true }
+      return {
+        success: true,
+        liveApply: this.buildLiveApply([
+          { namespace: variable.namespace, name: variable.name, value: nextValue }
+        ])
+      }
     } catch (err: any) {
       return { success: false, error: err.message }
     }
@@ -693,8 +888,11 @@ export class PersistBridgeManager {
     envRoot: string,
     modsRoot: string,
     modFullPath: string
-  ): { success: boolean; resetCount: number; error?: string } {
+  ): PersistResetResult {
     try {
+      if (!envRoot || !modsRoot || !modFullPath) {
+        return { success: false, resetCount: 0, error: '游戏运行环境或 Mod 路径无效' }
+      }
       const info = this.getModPersistInfo(modFullPath, modsRoot, envRoot)
       if (!info.hasPersist) return { success: true, resetCount: 0 }
 
@@ -703,27 +901,26 @@ export class PersistBridgeManager {
         ? this.readD3dxUserConstants(d3dxUserPath)
         : { prefixLines: [], constantsMap: new Map(), suffixLines: [] }
 
-      for (const v of info.variables) {
-        const bridgeKey = `$\\${info.namespace}\\${v.name}`
-        constantsMap.set(bridgeKey.toLowerCase(), { key: bridgeKey, value: v.defaultValue })
+      const resetVariables = info.variables.map((v) =>
+        v.supported ? { ...v, currentValue: v.defaultValue } : v
+      )
+      for (const v of resetVariables) {
+        if (!v.supported) continue
+        const qualifiedKey = `$\\${v.namespace}\\${v.name}`
+        this.setD3dxUserConstant(constantsMap, qualifiedKey, v.defaultValue)
       }
       this.writeD3dxUserConstants(d3dxUserPath, constantsMap, prefixLines, suffixLines)
+      this.writeBridgeStateFiles(envRoot, resetVariables)
 
-      // 写回 state 文件
-      const stateFilePath = path.join(envRoot, 'qaqm', 'cache', info.stateFileName)
-      const stateContent = [
-        `namespace = ${info.namespace}`,
-        '',
-        '[Constants]',
-        ...info.variables.map((v) => `global persist $${v.name} = ${v.defaultValue}`),
-        ''
-      ].join('\n')
-      fs.writeFileSync(stateFilePath, stateContent, 'utf8')
-
-      // 确保激活包含到 qaqm_persist_active.ini
-      this.addIncludeToActiveFile(path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini'), info.stateFileName)
-
-      return { success: true, resetCount: info.variables.length }
+      return {
+        success: true,
+        resetCount: info.variables.filter((v) => v.supported).length,
+        liveApply: this.buildLiveApply(
+          resetVariables
+            .filter((v) => v.supported)
+            .map((v) => ({ namespace: v.namespace, name: v.name, value: v.defaultValue }))
+        )
+      }
     } catch (err: any) {
       return { success: false, resetCount: 0, error: err.message }
     }
@@ -734,7 +931,6 @@ export class PersistBridgeManager {
    */
   public syncAllActiveMods(envRoot: string, modsRoot: string) {
     if (!envRoot || !modsRoot || !fs.existsSync(modsRoot)) return
-    const activeIniPath = path.join(envRoot, 'qaqm', 'qaqm_persist_active.ini')
     const d3dxUserPath = path.join(envRoot, 'd3dx_user.ini')
     const { prefixLines, constantsMap, suffixLines } = fs.existsSync(d3dxUserPath)
       ? this.readD3dxUserConstants(d3dxUserPath)
@@ -748,12 +944,12 @@ export class PersistBridgeManager {
         for (const md of modDirs) {
           const modPath = path.join(charPath, md.name)
           const info = this.getModPersistInfo(modPath, modsRoot, envRoot)
-          if (info.hasPersist && info.stateFileName) {
-            this.addIncludeToActiveFile(activeIniPath, info.stateFileName)
+          if (info.hasPersist) {
+            this.writeBridgeStateFiles(envRoot, info.variables)
             for (const v of info.variables) {
-              const bridgeKey = `$\\${info.namespace}\\${v.name}`
-              if (!constantsMap.has(bridgeKey.toLowerCase())) {
-                constantsMap.set(bridgeKey.toLowerCase(), { key: bridgeKey, value: v.currentValue })
+              const qualifiedKey = `$\\${v.namespace}\\${v.name}`
+              if (v.supported && !constantsMap.has(qualifiedKey.toLowerCase())) {
+                this.setD3dxUserConstant(constantsMap, qualifiedKey, v.currentValue)
               }
             }
           }

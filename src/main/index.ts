@@ -19,6 +19,7 @@ import { searchMods, getModDetails, installMod, checkModUpdate, checkAllModsUpda
 import { translateModDetails } from '../core/translate-service'
 import { setHttpFetch } from '../core/http-client'
 import { PersistBridgeManager } from '../core/persist-bridge'
+import { applyPersistLiveValue } from '../core/persist-live-apply'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
 import {
   evaluateKeyDispatch,
@@ -325,6 +326,29 @@ const dispatchHotkey = (keys: string[], procName?: string) =>
     procName
   })
 
+const PERSIST_RELOAD_SETTLE_MS = 600
+const waitForPersistReload = () => new Promise<void>((resolve) => setTimeout(resolve, PERSIST_RELOAD_SETTLE_MS))
+
+let persistOperationTail: Promise<unknown> = Promise.resolve()
+function serializePersistOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const current = persistOperationTail.then(operation, operation)
+  persistOperationTail = current.then(
+    () => undefined,
+    () => undefined
+  )
+  return current
+}
+
+const persistLiveDeps = {
+  ensureEnvironment: (envRoot: string, syncActiveMods: boolean) =>
+    persistBridgeManager.ensureEnvironment(envRoot, syncActiveMods),
+  writeLiveApply: (envRoot: string, liveApply: Parameters<typeof persistBridgeManager.writeLiveApply>[1]) =>
+    persistBridgeManager.writeLiveApply(envRoot, liveApply),
+  clearLiveApply: (envRoot: string) => persistBridgeManager.clearLiveApply(envRoot),
+  dispatchReload: () => dispatchReloadF10({ applyEchoGuard: false }),
+  waitForReload: waitForPersistReload
+}
+
 /**
  * 统一切换激活游戏并同步所有底层服务与窗口
  */
@@ -610,29 +634,39 @@ function setupIpc() {
     return persistBridgeManager.getModPersistInfo(modFullPath, g.modFolderPath, envRoot)
   })
 
-  ipcMain.handle('persist:updateVariable', async (_, modFullPath: string, varName: string, value: string) => {
-    const g = configStore.getActiveGame()
-    if (!g) return { success: false, error: '未选择游戏' }
-    const envRoot = getEnvRootForGame(g)
-    const res = persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value)
-    if (res.success) {
-      // 触发 F10 热刷新让游戏内即时生效
-      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
-    }
-    return res
-  })
+  ipcMain.handle('persist:updateVariable', async (_, modFullPath: string, varName: string, value: string, targetNamespace?: string) =>
+    serializePersistOperation(async () => {
+      const g = configStore.getActiveGame()
+      if (!g) return { success: false, error: '未选择游戏' }
+      const envRoot = getEnvRootForGame(g)
+      const res = persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value, targetNamespace)
+      if (!res.success) return res
+      const live = await applyPersistLiveValue(
+        envRoot,
+        res.liveApply,
+        () => persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value, targetNamespace),
+        persistLiveDeps
+      )
+      return { ...res, ...live }
+    })
+  )
 
-  ipcMain.handle('persist:resetVariables', async (_, modFullPath: string) => {
-    const g = configStore.getActiveGame()
-    if (!g) return { success: false, resetCount: 0, error: '未选择游戏' }
-    const envRoot = getEnvRootForGame(g)
-    const res = persistBridgeManager.resetModVariables(envRoot, g.modFolderPath, modFullPath)
-    if (res.success) {
-      // 触发 F10 热刷新让游戏内即时生效
-      dispatchReloadF10({ applyEchoGuard: false }).catch(() => {})
-    }
-    return res
-  })
+  ipcMain.handle('persist:resetVariables', async (_, modFullPath: string) =>
+    serializePersistOperation(async () => {
+      const g = configStore.getActiveGame()
+      if (!g) return { success: false, resetCount: 0, error: '未选择游戏' }
+      const envRoot = getEnvRootForGame(g)
+      const res = persistBridgeManager.resetModVariables(envRoot, g.modFolderPath, modFullPath)
+      if (!res.success) return res
+      const live = await applyPersistLiveValue(
+        envRoot,
+        res.liveApply,
+        () => persistBridgeManager.resetModVariables(envRoot, g.modFolderPath, modFullPath),
+        persistLiveDeps
+      )
+      return { ...res, ...live }
+    })
+  )
 
   ipcMain.handle('persist:clearCache', () => {
     const g = configStore.getActiveGame()
