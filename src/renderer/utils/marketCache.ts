@@ -71,6 +71,7 @@ export function dedupeMarketRequest<T>(key: string, fetcher: () => Promise<T>): 
 export function buildSearchCacheKey(params: {
   gameId?: string | number
   characterGbCatId?: number | string | null
+  utilityMode?: boolean
   searchQuery?: string
   sort?: string
   page?: number
@@ -78,6 +79,7 @@ export function buildSearchCacheKey(params: {
 }): string {
   return JSON.stringify([
     params.gameId ?? '',
+    params.utilityMode ?? false,
     params.characterGbCatId ?? null,
     params.searchQuery ?? '',
     params.sort ?? 'default',

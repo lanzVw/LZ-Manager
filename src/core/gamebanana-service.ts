@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 import { getCharactersForGame, normalizeCharacterName } from "./characters-data";
 import { autoTranslateModConfig } from "./mod-translator";
 import { pickMainGameBananaFile, versionsMatch } from "./gamebanana-files";
+import { filterGameBananaUtilityMods, getGameBananaUtilityModIds } from "./gamebanana-utilities";
 import { getHttpFetch } from "./http-client";
 import type { GameBananaInstallResult, ModInstallTarget } from "./types";
 import packageJson from "../../package.json";
@@ -468,6 +469,7 @@ async function searchMods(rawParams: any = {}) {
   const characterName = p.characterName ?? null;
   const characterCnName = p.characterCnName ?? null;
   const characterGbCatId = p.characterGbCatId ?? null;
+  const utilityMode = p.utilityMode === true;
   const gbGameId = resolveGameBananaGameId(gameId);
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const perPageNum = Math.min(100, Math.max(1, parseInt(perPage, 10) || 20));
@@ -539,6 +541,25 @@ async function searchMods(rawParams: any = {}) {
     }
   }
 
+  const utilityModIds = utilityMode ? getGameBananaUtilityModIds(gbGameId) : [];
+  if (utilityMode && !rawQuery && !authorName) {
+    const pageIds = utilityModIds.slice((pageNum - 1) * perPageNum, pageNum * perPageNum);
+    const details = await Promise.all(pageIds.map(async (modId) => {
+      try {
+        return await getModDetails({ gameId: gbGameId, modId });
+      } catch (error) {
+        console.warn(`[GameBananaService] 工具 Mod ${modId} 加载失败:`, error.message);
+        return null;
+      }
+    }));
+    return {
+      total: utilityModIds.length,
+      page: pageNum,
+      perPage: perPageNum,
+      records: filterGameBananaUtilityMods(details.filter(Boolean), utilityModIds)
+    };
+  }
+
   const SORT_MAP = {
     newest: "Generic_Newest",
     downloads: "Generic_MostDownloaded",
@@ -554,12 +575,12 @@ async function searchMods(rawParams: any = {}) {
   // 3. Keyword Search via Util/Search/Results:
   // Triggered when user typed search keywords OR when character is selected without a dedicated gbCatId
   const hasUserKeywords = rawQuery.length > 0;
-  const isCharacterKeywordSearch = !hasUserKeywords && !activeCharGbCatId && Boolean(activeCharEnName);
+  const isCharacterKeywordSearch = !utilityMode && !hasUserKeywords && !activeCharGbCatId && Boolean(activeCharEnName);
 
   if (hasUserKeywords || isCharacterKeywordSearch) {
     // If character is selected, scope search by prefixing canonical character name
     let effectiveSearch = rawQuery;
-    if (activeCharEnName) {
+    if (!utilityMode && activeCharEnName) {
       if (hasUserKeywords) {
         effectiveSearch = `${activeCharEnName} ${rawQuery}`;
       } else {
@@ -598,7 +619,7 @@ async function searchMods(rawParams: any = {}) {
     }
 
     // Apply character category filtering/relevance check if gbCatId exists
-    if (activeCharGbCatId && activeCharEnName) {
+    if (!utilityMode && activeCharGbCatId && activeCharEnName) {
       const charLower = activeCharEnName.toLowerCase();
       records = records.filter((r) => {
         if (r.subCategory?.id === activeCharGbCatId) return true;
@@ -620,7 +641,8 @@ async function searchMods(rawParams: any = {}) {
       }
     }
 
-    const total = data._aMetadata?._nRecordCount || records.length;
+    if (utilityMode) records = filterGameBananaUtilityMods(records, utilityModIds);
+    const total = utilityMode ? records.length : (data._aMetadata?._nRecordCount || records.length);
 
     return {
       total,
@@ -656,8 +678,11 @@ async function searchMods(rawParams: any = {}) {
   const response = await fetchWithRetry(url, {}, 3, 15000);
   const data = await response.json();
 
-  const records = (data._aRecords || []).map(normalizeModRecord).filter(Boolean);
-  const total = data._aMetadata?._nTotalRecordCount || data._aMetadata?._nRecordCount || records.length;
+  let records = (data._aRecords || []).map(normalizeModRecord).filter(Boolean);
+  if (utilityMode) records = filterGameBananaUtilityMods(records, utilityModIds);
+  const total = utilityMode
+    ? records.length
+    : (data._aMetadata?._nTotalRecordCount || data._aMetadata?._nRecordCount || records.length);
 
   return {
     total,

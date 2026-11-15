@@ -5,6 +5,22 @@ import {
   resolveSearchQuery,
   stripAuthorPrefix
 } from '../src/renderer/utils/gamebanana-search'
+import { filterGameBananaUtilityMods, getGameBananaUtilityModIds } from '../src/core/gamebanana-utilities'
+
+describe('GameBanana utility registry', () => {
+  it('registers RabbitFX for Zenless Zone Zero and returns defensive copies', () => {
+    const ids = getGameBananaUtilityModIds(19567)
+    expect(ids).toEqual([531649])
+    ids.push(1)
+    expect(getGameBananaUtilityModIds('19567')).toEqual([531649])
+    expect(getGameBananaUtilityModIds(8552)).toEqual([])
+  })
+
+  it('filters to registered tools and removes duplicate records', () => {
+    const records = [{ id: 531649 }, { id: 42 }, { id: '531649' }]
+    expect(filterGameBananaUtilityMods(records, [531649])).toEqual([{ id: 531649 }])
+  })
+})
 
 describe('gamebanana-search.buildAuthorSearchQuery', () => {
   it('为作者名拼上 user: 前缀（后端据此走作者筛选）', () => {

@@ -129,6 +129,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
   const toast = useToast()
   const [characters, setCharacters] = useState<any[]>([])
   const [selectedCharId, setSelectedCharId] = useState<string>('all')
+  const [marketMode, setMarketMode] = useState<'characters' | 'utilities'>('characters')
 
   // 首次挂载就带上跳转参数，避免先请求一次全部列表再被筛选结果覆盖
   const initialScope: SearchScope = initialSearchScope === 'author' ? 'author' : 'all'
@@ -252,7 +253,8 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
       const activeChar = characters.find((c) => c.id === selectedCharId)
       const params = {
         gameId: activeGame.id,
-        characterGbCatId: activeChar?.gbCatId || null,
+        utilityMode: marketMode === 'utilities',
+        characterGbCatId: marketMode === 'characters' ? activeChar?.gbCatId || null : null,
         searchQuery: effectiveQuery || undefined,
         sort: sortOption,
         page: pageToLoad,
@@ -300,7 +302,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
         }
       }
     },
-    [activeGame, characters, selectedCharId, effectiveQuery, sortOption]
+    [activeGame, characters, selectedCharId, effectiveQuery, sortOption, marketMode]
   )
 
   useEffect(() => {
@@ -647,6 +649,11 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
     async (modInfo: any, targetFile: any) => {
       if (installingFileId !== null) return
 
+      if (marketMode === 'utilities') {
+        await startInstall(modInfo, targetFile, '通用')
+        return
+      }
+
       // 1. 尝试从 Mod 详情及分类智能推断归属角色
       let targetChar: string | null = null
       try {
@@ -671,7 +678,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
       // 4. 已精准识别到角色，先预检覆盖再开始流式下载并安装到对应角色目录
       await startInstall(modInfo, targetFile, targetChar)
     },
-    [installingFileId, activeGame, selectedCharId, characters, startInstall]
+    [installingFileId, activeGame, selectedCharId, characters, startInstall, marketMode]
   )
 
   // 文件行点击：已安装的版本跳过角色识别，直接交给 startInstall 弹重装确认；
@@ -682,11 +689,11 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
 
       if (isGameBananaFileInstalled(targetFile?.fileName, installedVersions) && installedTarget?.existing) {
         const selectedChar =
-          selectedCharId !== 'all'
+          marketMode === 'characters' && selectedCharId !== 'all'
             ? characters.find((c) => c.id === selectedCharId)?.name || ''
             : ''
         const fallbackChar =
-          characterNameFromInstallTarget(installedTarget.existing) || selectedChar || '通用'
+          (marketMode === 'utilities' ? '通用' : characterNameFromInstallTarget(installedTarget.existing) || selectedChar || '通用')
         await startInstall(modInfo, targetFile, fallbackChar)
         return
       }
@@ -699,6 +706,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
       installedTarget,
       selectedCharId,
       characters,
+      marketMode,
       startInstall,
       executeInstallFile
     ]
@@ -743,7 +751,12 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
           />
 
           <div className="flex items-center gap-1.5 ml-auto">
+            <div className="flex items-center gap-1 rounded-full bg-surface-2 p-1">
+              <Button variant={marketMode === 'characters' ? 'secondary' : 'ghost'} size="xs" onClick={() => setMarketMode('characters')}>角色</Button>
+              <Button variant={marketMode === 'utilities' ? 'secondary' : 'ghost'} size="xs" onClick={() => { setSelectedCharId('all'); setMarketMode('utilities') }}>工具</Button>
+            </div>
             {/* 角色类别选择器 */}
+            {marketMode === 'characters' && <>
             <Select
               value={selectedCharId}
               onChange={(val) => setSelectedCharId(val)}
@@ -765,6 +778,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
               className="w-52 font-semibold"
               popupClassName="w-64"
             />
+            </>}
 
             {/* 排序方式选择器 */}
             <Select
@@ -812,7 +826,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
             </Badge>
           )}
 
-          {selectedCharId !== 'all' && (
+          {marketMode === 'characters' && selectedCharId !== 'all' && (
             <Badge variant="default" className="h-6 pr-1 gap-1">
               <Layers className="w-3 h-3" />
               <span>角色：{activeCharName}</span>
@@ -917,7 +931,7 @@ export const GameBananaPage: React.FC<GameBananaPageProps> = ({
                   mod={mod}
                   previewUrl={pickPreviewUrl(mod, 'card')}
                   previewUrl2x={pickPreviewUrl2x(mod)}
-                  categoryLabel={resolveCharacterLabel(mod, characterLabelLookup)}
+                  categoryLabel={marketMode === 'utilities' ? '工具' : resolveCharacterLabel(mod, characterLabelLookup)}
                   onOpenDetail={openDetailDrawer}
                   onSearchByAuthor={handleSearchByAuthor}
                 />
