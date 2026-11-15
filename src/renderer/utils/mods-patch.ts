@@ -128,24 +128,24 @@ export const applyModRenames = <T extends ModItem>(
   return changed ? next : modsData
 }
 
-/** markedMods 以 fullPath 为 key；目录改名后必须把旧 key 迁到新 key 并同步 localStorage */
-export const remapMarkedMods = (
-  marked: Record<string, boolean>,
+/** 置顶表以 fullPath 为 key；目录改名后必须把旧 key 迁到新 key 并同步 localStorage */
+export const remapPinnedMods = (
+  pinned: Record<string, boolean>,
   renames: ModRename[]
 ): Record<string, boolean> => {
   const byOldPath = new Map<string, ModRename>()
   for (const rename of renames) byOldPath.set(normalizePath(rename.oldFullPath), rename)
 
   let next: Record<string, boolean> | null = null
-  for (const [key, value] of Object.entries(marked)) {
+  for (const [key, value] of Object.entries(pinned)) {
     const rename = byOldPath.get(normalizePath(key))
     if (!rename) continue
-    if (!next) next = { ...marked }
+    if (!next) next = { ...pinned }
     delete next[key]
     // 两个旧 key 撞到同一个新 key 时 true 优先
     next[rename.newFullPath] = value || next[rename.newFullPath] === true
   }
-  return next || marked
+  return next || pinned
 }
 
 /** 详情抽屉里的绝对路径同样要跟随目录改名，否则改持久化数值会写到死路径 */

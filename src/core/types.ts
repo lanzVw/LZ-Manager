@@ -224,6 +224,10 @@ export interface EnvironmentStatus {
   message: string
 }
 
+export type ModPersistValueKind = 'binary' | 'enum' | 'number'
+export type ModPersistValueSource = 'explicit' | 'conditions' | 'cycle' | 'fallback'
+export type PersistHotkeyApplyMode = 'hotkey' | 'reload'
+
 export interface ModPersistVariable {
   name: string
   canonicalName: string
@@ -234,6 +238,11 @@ export interface ModPersistVariable {
   defaultValue: string
   currentValue: string
   allowedValues?: string[]
+  inputKind?: ModPersistValueKind
+  min?: number
+  max?: number
+  step?: number
+  valueSource?: ModPersistValueSource
   keybind?: string
   iniFile: string
   alias?: string
@@ -246,6 +255,23 @@ export interface ModPersistInfo {
   namespace: string
   stateFileName: string
   variables: ModPersistVariable[]
+}
+
+export interface PersistHotkeyPrepareResult {
+  success: boolean
+  ready: boolean
+  reloaded: boolean
+  hotkeyCount: number
+  fallbackCount: number
+  error?: string
+}
+
+export interface PersistVariableUpdateResponse {
+  success: boolean
+  error?: string
+  liveApplied?: boolean
+  reloadReason?: string
+  applyMode?: PersistHotkeyApplyMode
 }
 
 /** 基底 Mod 的着色器缓存开关状态（文件位于 Mod 根目录 / DISABLED 子目录） */

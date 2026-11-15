@@ -94,7 +94,7 @@ export const PresetCard: React.FC<PresetCardProps> = ({
   ) : plan.match ? (
     <Badge variant="success">
       <CheckCircle2 className="w-3 h-3" />
-      <span>当前装配一致</span>
+      <span>当前配置一致</span>
     </Badge>
   ) : missingCount > 0 ? (
     <Badge variant="danger">
@@ -105,7 +105,7 @@ export const PresetCard: React.FC<PresetCardProps> = ({
     // Badge 没有 warning 变体，沿用项目内统一的 amber 警告配色
     <span className="inline-flex items-center gap-1 font-medium rounded-full tabular-nums-strict text-[10px] px-2 py-0.5 border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
       <AlertTriangle className="w-3 h-3" />
-      <span>已偏离当前装配</span>
+      <span>与当前配置不一致</span>
     </span>
   ) : null
 
@@ -135,7 +135,7 @@ export const PresetCard: React.FC<PresetCardProps> = ({
             <IconAction label="复制方案" disabled={busy} onClick={onDuplicate}>
               <Copy className="w-3.5 h-3.5" />
             </IconAction>
-            <IconAction label="用当前装配覆盖方案" disabled={busy} onClick={onOverwrite}>
+            <IconAction label="用当前配置覆盖方案" disabled={busy} onClick={onOverwrite}>
               <RefreshCw className="w-3.5 h-3.5" />
             </IconAction>
             <IconAction label="删除方案" danger disabled={busy} onClick={onDelete}>

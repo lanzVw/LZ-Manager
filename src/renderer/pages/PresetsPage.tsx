@@ -126,7 +126,7 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
           setEditorError(res.error || '创建方案失败')
           return
         }
-        toast.success('方案已创建', `「${res.preset?.name || name}」已保存当前装配快照`)
+        toast.success('方案已创建', `「${res.preset?.name || name}」已保存当前配置快照`)
         setEditorTarget(null)
       } else {
         const res = await window.flairx.updatePreset(editorTarget.id, { name, description })
@@ -211,7 +211,7 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
     try {
       const res = await window.flairx.overwritePresetFromCurrent(target.id)
       if (res.success) {
-        toast.success('方案已覆盖为当前装配', `「${res.preset?.name || target.name}」`)
+        toast.success('方案已覆盖为当前配置', `「${res.preset?.name || target.name}」`)
         setOverwriteTarget(null)
       } else {
         toast.error('覆盖方案失败', res.error || '请稍后重试')
@@ -271,10 +271,10 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
           <h2 className="text-lg font-bold text-text flex items-center space-x-2.5 tracking-wide">
             <Sliders className="w-5 h-5 text-primary" />
             <HoverHint
-              content="将当前全角色的 Mod 装配保存为方案快照，应用前可实时预检差异并选择还原方式"
+              content="将当前全角色的 Mod 启用状态保存为方案快照，应用前可实时预检差异并选择还原方式"
               focusable
             >
-              <span>MOD 阵容预设与一键切换</span>
+              <span>MOD 配置预设与一键切换</span>
             </HoverHint>
           </h2>
         </div>
@@ -286,7 +286,7 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
           disabled={busy}
           icon={<Plus className="w-4 h-4 text-primary" />}
         >
-          保存当前装配为新方案
+          保存当前配置为新方案
         </Button>
       </div>
 
@@ -362,7 +362,7 @@ export const PresetsPage: React.FC<PresetsPageProps> = ({
           setOverwriteTarget(null)
         }}
         onConfirm={handleConfirmOverwrite}
-        title="用当前装配覆盖方案"
+        title="用当前配置覆盖方案"
         variant="warning"
         confirmText="覆盖方案"
         cancelText="取消"

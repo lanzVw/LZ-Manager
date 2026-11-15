@@ -201,7 +201,7 @@ export const PresetDetailModal: React.FC<PresetDetailModalProps> = ({
         {mode === 'merge' && emptyPlan && (
           <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-[11px] leading-relaxed text-primary">
             <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>该方案未包含任何启用的 Mod，仅叠加模式不会改动当前装配。</span>
+            <span>该方案未包含任何启用的 Mod，仅叠加模式不会改动当前配置。</span>
           </div>
         )}
 

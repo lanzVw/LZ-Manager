@@ -20,6 +20,10 @@ import { translateModDetails } from '../core/translate-service'
 import { setHttpFetch } from '../core/http-client'
 import { PersistBridgeManager } from '../core/persist-bridge'
 import { applyPersistLiveValue } from '../core/persist-live-apply'
+import {
+  PersistHotkeyBridge,
+  tryApplyPreparedPersistHotkey
+} from '../core/persist-hotkey-bridge'
 import { autoTranslateModConfig, saveCustomVariableAlias } from '../core/mod-translator'
 import {
   evaluateKeyDispatch,
@@ -113,6 +117,7 @@ function getEnvRootForGame(game: any): string {
 const configStore = new ConfigStore()
 const activeGame = configStore.getActiveGame()
 const persistBridgeManager = new PersistBridgeManager()
+const persistHotkeyBridge = new PersistHotkeyBridge()
 const modEngine = new ModEngine(
   activeGame ? activeGame.modFolderPath : '',
   configStore.getConfig().enableOptionAExclusive ?? true
@@ -328,6 +333,9 @@ const dispatchHotkey = (keys: string[], procName?: string) =>
 
 const PERSIST_RELOAD_SETTLE_MS = 600
 const waitForPersistReload = () => new Promise<void>((resolve) => setTimeout(resolve, PERSIST_RELOAD_SETTLE_MS))
+const PERSIST_HOTKEY_RELEASE_MS = 120
+const waitForHotkeyRelease = () =>
+  new Promise<void>((resolve) => setTimeout(resolve, PERSIST_HOTKEY_RELEASE_MS))
 
 let persistOperationTail: Promise<unknown> = Promise.resolve()
 function serializePersistOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -360,6 +368,7 @@ function applyActiveGame(gameId: string, origin: 'manual' | 'auto-focus' = 'manu
 
   const prevId = cfg.activeGameId
   if (prevId !== gameId) {
+    persistHotkeyBridge.reset()
     configStore.setActiveGame(gameId)
     // 换游戏后候选进程名与 PID 记录都变了，旧缓存必须作废
     invalidateGameRunningCache()
@@ -631,23 +640,166 @@ function setupIpc() {
     const g = configStore.getActiveGame()
     if (!g) return { hasPersist: false, hash: '', namespace: '', stateFileName: '', variables: [] }
     const envRoot = getEnvRootForGame(g)
-    return persistBridgeManager.getModPersistInfo(modFullPath, g.modFolderPath, envRoot)
+    const safeModPath = modEngine.resolvePathInsideModRoot(modFullPath)
+    if (!safeModPath || !fs.existsSync(safeModPath)) {
+      return { hasPersist: false, hash: '', namespace: '', stateFileName: '', variables: [] }
+    }
+    return persistBridgeManager.getModPersistInfo(safeModPath, g.modFolderPath, envRoot)
   })
 
-  ipcMain.handle('persist:updateVariable', async (_, modFullPath: string, varName: string, value: string, targetNamespace?: string) =>
+  ipcMain.handle('persist:prepareOverlayHotkeys', async (_, modFullPath: string) =>
+    serializePersistOperation(async () => {
+      const g = configStore.getActiveGame()
+      if (!g) {
+        return {
+          success: false,
+          ready: false,
+          reloaded: false,
+          hotkeyCount: 0,
+          fallbackCount: 0,
+          error: '未选择游戏'
+        }
+      }
+      const envRoot = getEnvRootForGame(g)
+      if (!envRoot) {
+        return {
+          success: false,
+          ready: false,
+          reloaded: false,
+          hotkeyCount: 0,
+          fallbackCount: 0,
+          error: '游戏运行环境不存在'
+        }
+      }
+      if (!(configStore.getConfig().persistBridgeEnabled ?? true)) {
+        return {
+          success: false,
+          ready: false,
+          reloaded: false,
+          hotkeyCount: 0,
+          fallbackCount: 0,
+          error: '持久化功能未启用'
+        }
+      }
+
+      try {
+        const safeModPath = modEngine.resolvePathInsideModRoot(modFullPath)
+        if (!safeModPath || !fs.existsSync(safeModPath)) {
+          throw new Error('Mod 目录不存在或超出 Mods 根目录')
+        }
+        const info = persistBridgeManager.getModPersistInfo(safeModPath, g.modFolderPath, envRoot)
+        if (!info.hasPersist) {
+          return {
+            success: true,
+            ready: false,
+            reloaded: false,
+            hotkeyCount: 0,
+            fallbackCount: 0
+          }
+        }
+        if (!persistBridgeManager.ensureEnvironment(envRoot, false)) {
+          throw new Error('无法写入 3DMigoto 运行环境')
+        }
+
+        const prepared = persistHotkeyBridge.prepareFiles(envRoot, info)
+        if (prepared.hotkeyCount === 0) {
+          persistHotkeyBridge.activate(safeModPath, prepared)
+          return {
+            success: true,
+            ready: false,
+            reloaded: false,
+            hotkeyCount: 0,
+            fallbackCount: prepared.fallbackCount
+          }
+        }
+
+        const alreadyActive = persistHotkeyBridge.isActive(safeModPath, prepared.manifestHash)
+        let reloaded = false
+        if (prepared.changed || !alreadyActive) {
+          const reload = await dispatchReloadF10({ applyEchoGuard: false })
+          if (reload.success) {
+            await waitForPersistReload()
+            reloaded = true
+          } else if (reload.reason !== 'game_not_running') {
+            return {
+              success: false,
+              ready: false,
+              reloaded: false,
+              hotkeyCount: prepared.hotkeyCount,
+              fallbackCount: prepared.fallbackCount,
+              error:
+                reload.reason === 'no_game'
+                  ? '未配置游戏'
+                  : '隐藏热键注册失败，已回退 F10'
+            }
+          }
+          persistHotkeyBridge.activate(safeModPath, prepared)
+        }
+
+        return {
+          success: true,
+          ready: true,
+          reloaded,
+          hotkeyCount: prepared.hotkeyCount,
+          fallbackCount: prepared.fallbackCount
+        }
+      } catch (error: any) {
+        console.warn('[LZ Main] persist prepare overlay hotkeys failed:', error)
+        return {
+          success: false,
+          ready: false,
+          reloaded: false,
+          hotkeyCount: 0,
+          fallbackCount: 0,
+          error: error?.message || '隐藏热键准备失败'
+        }
+      }
+    })
+  )
+
+  ipcMain.handle('persist:updateVariable', async (
+    _,
+    modFullPath: string,
+    varName: string,
+    value: string,
+    targetNamespace?: string,
+    options?: { preferHotkeyBridge?: boolean }
+  ) =>
     serializePersistOperation(async () => {
       const g = configStore.getActiveGame()
       if (!g) return { success: false, error: '未选择游戏' }
       const envRoot = getEnvRootForGame(g)
-      const res = persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value, targetNamespace)
+      const safeModPath = modEngine.resolvePathInsideModRoot(modFullPath)
+      if (!safeModPath || !fs.existsSync(safeModPath)) {
+        return { success: false, error: 'Mod 目录不存在或超出 Mods 根目录' }
+      }
+      const res = persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, safeModPath, varName, value, targetNamespace)
       if (!res.success) return res
+
+      const hotkeyResult = await tryApplyPreparedPersistHotkey(
+        persistHotkeyBridge,
+        safeModPath,
+        targetNamespace,
+        varName,
+        value,
+        options?.preferHotkeyBridge === true &&
+          (configStore.getConfig().persistBridgeEnabled ?? true),
+        {
+          dispatchHotkey: (keys) => dispatchHotkey(keys),
+          waitForRelease: waitForHotkeyRelease
+        }
+      )
+      if (hotkeyResult.applied) {
+        return { ...res, liveApplied: true, applyMode: 'hotkey' }
+      }
+
       const live = await applyPersistLiveValue(
         envRoot,
         res.liveApply,
-        () => persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, modFullPath, varName, value, targetNamespace),
+        () => persistBridgeManager.updateModVariable(envRoot, g.modFolderPath, safeModPath, varName, value, targetNamespace),
         persistLiveDeps
       )
-      return { ...res, ...live }
+      return { ...res, ...live, applyMode: 'reload' }
     })
   )
 

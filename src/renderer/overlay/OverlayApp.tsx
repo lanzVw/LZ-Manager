@@ -3,8 +3,6 @@ import {
   RotateCw,
   X,
   Sliders,
-  CheckCircle2,
-  XCircle,
   Gamepad2,
   Layers,
   Zap,
@@ -23,8 +21,6 @@ import {
   SlidersHorizontal,
   Settings,
   Search,
-  Heart,
-  Edit3,
   Filter,
   Check,
   Minus,
@@ -41,19 +37,20 @@ import { HoverHint } from '../components/ui/HoverHint'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ScrollContainer } from '../components/ui/ScrollContainer'
 import { parseIniHotkeys, ParsedHotkey } from './iniParser'
-import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey, isNonKeyboardHotkey } from './hotkeyPresentation'
+import { getHotkeyDescription, getHotkeyTypeLabel, isModifierKey } from './hotkeyPresentation'
 import { ModDetailedInfo, ModPersistVariable, ToggleModResult } from '../../core/types'
 import { planPresetApply } from '../../core/preset-plan'
 import {
   applyModRenames,
   applyRenameToItem,
   buildToggleRenames,
-  remapMarkedMods,
+  remapPinnedMods,
   remapModDetailsPaths,
   samePath,
   setModEnabledByFullPath
 } from '../utils/mods-patch'
 import { MoveModModal } from '../components/MoveModModal'
+import { PersistValueControl } from '../components/PersistValueControl'
 
 export const OverlayApp: React.FC = () => {
   const { theme, toggleTheme, palette } = useTheme()
@@ -114,7 +111,7 @@ export const OverlayApp: React.FC = () => {
       return next
     })
   }
-  const [filterFavoritesOnly, setFilterFavoritesOnly] = useState<boolean>(false)
+  const [filterPinnedOnly, setFilterPinnedOnly] = useState<boolean>(false)
   const [filterOnlyWithMods, setFilterOnlyWithMods] = useState<boolean>(true)
   const [exclusiveMode, setExclusiveMode] = useState<boolean>(true)
 
@@ -125,12 +122,20 @@ export const OverlayApp: React.FC = () => {
   const [activeDetailMod, setActiveDetailMod] = useState<any | null>(null)
   const [activeModDetails, setActiveModDetails] = useState<ModDetailedInfo | null>(null)
   const [parsedHotkeys, setParsedHotkeys] = useState<ParsedHotkey[]>([])
-  const [loadingHotkeys, setLoadingHotkeys] = useState<boolean>(false)
+  const [preparingPersistHotkeys, setPreparingPersistHotkeys] = useState<boolean>(false)
   const [showMoveModal, setShowMoveModal] = useState<boolean>(false)
-  const [markedMods, setMarkedMods] = useState<Record<string, boolean>>(() => {
+  const [pinnedMods, setPinnedMods] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('lz-marked-mods')
-      return saved ? JSON.parse(saved) : {}
+      const saved = localStorage.getItem('lz-overlay-pinned-mods')
+      if (saved) return JSON.parse(saved)
+
+      // 旧版本用收藏实现排序，升级后迁移一次，避免已有条目丢失
+      const legacy = localStorage.getItem('lz-marked-mods')
+      if (!legacy) return {}
+      const migrated = JSON.parse(legacy)
+      localStorage.setItem('lz-overlay-pinned-mods', JSON.stringify(migrated))
+      localStorage.removeItem('lz-marked-mods')
+      return migrated
     } catch {
       return {}
     }
@@ -312,7 +317,7 @@ export const OverlayApp: React.FC = () => {
     }
   }, [loadData, refreshPresets])
 
-  // 智能三梯队角色排序：已装配(enabledCount > 0) -> 有Mod(total > 0) -> 空角色(total === 0)，同梯队按拼音A-Z排序
+  // 智能三梯队角色排序：已启用(enabledCount > 0) -> 已安装(total > 0) -> 空角色(total === 0)，同梯队按拼音 A-Z 排序
   const sortedCharacters = useMemo(() => {
     const list = [...characters]
     list.sort((a, b) => {
@@ -375,29 +380,28 @@ export const OverlayApp: React.FC = () => {
     if (!currentChar) return []
     let list = [...(modsData[currentChar] || [])]
 
-    // 1. 状态过滤 (全部 / 装配 / 停用)
+    // 1. 状态过滤 (全部 / 已启用 / 已停用)
     if (statusFilter === 'enabled') {
       list = list.filter((m) => m.enabled)
     } else if (statusFilter === 'disabled') {
       list = list.filter((m) => !m.enabled)
     }
 
-    // 2. 收藏过滤 (♥)
-    if (filterFavoritesOnly) {
-      list = list.filter((m) => markedMods[m.fullPath])
+    // 2. 置顶过滤
+    if (filterPinnedOnly) {
+      list = list.filter((m) => pinnedMods[m.fullPath])
     }
 
     // 3. 核心排序计算
     list.sort((a, b) => {
+      // 置顶优先于所有排序模式，点击置顶后立即出现在最前
+      const pinDiff = (pinnedMods[b.fullPath] ? 1 : 0) - (pinnedMods[a.fullPath] ? 1 : 0)
+      if (pinDiff !== 0) return pinDiff
+
       if (modSortMode === 'default') {
-        // 复合装配优先：已装配(enabled) > 收藏标记(marked) > 修改时间(mtime 降序) > 名称拼音
+        // 复合排序：已启用(enabled) > 修改时间(mtime 降序) > 名称拼音
         const enabledDiff = (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
         if (enabledDiff !== 0) return enabledDiff
-
-        const markA = markedMods[a.fullPath] ? 1 : 0
-        const markB = markedMods[b.fullPath] ? 1 : 0
-        const markDiff = markB - markA
-        if (markDiff !== 0) return markDiff
 
         const timeA = a.mtime || 0
         const timeB = b.mtime || 0
@@ -418,13 +422,24 @@ export const OverlayApp: React.FC = () => {
       return 0
     })
 
-    // 4. 升/降序翻转 (在排序好的基础上一键倒序)
+    // 4. 升/降序翻转；置顶项始终留在最前，只反转各自分组内部
     if (isReverseOrder) {
-      list.reverse()
+      const pinned: typeof list = []
+      const rest: typeof list = []
+      for (const item of list) {
+        if (pinnedMods[item.fullPath]) {
+          pinned.push(item)
+        } else {
+          rest.push(item)
+        }
+      }
+      pinned.reverse()
+      rest.reverse()
+      list = [...pinned, ...rest]
     }
 
     return list
-  }, [currentChar, modsData, statusFilter, filterFavoritesOnly, modSortMode, isReverseOrder, markedMods])
+  }, [currentChar, modsData, statusFilter, filterPinnedOnly, modSortMode, isReverseOrder, pinnedMods])
 
   // 整个悬浮窗窗口大小缩放调节 (A- / 100% / A+)
   const handleScaleChange = async (delta: number) => {
@@ -525,7 +540,7 @@ export const OverlayApp: React.FC = () => {
     try {
       const res = await window.lz.toggleMod(targetChar, mod.name, nextState)
       if (res && res.success) {
-        showToast(`${mod.name} ${nextState ? '已装配' : '已停用'}`)
+        showToast(`${mod.name} ${nextState ? '已启用' : '已停用'}`)
         await applyToggleResultPatch(mod, res, nextState)
       } else {
         showToast(`切换失败: ${res?.error || '未知错误'}`)
@@ -561,10 +576,10 @@ export const OverlayApp: React.FC = () => {
 
     const renames = buildToggleRenames(mod.fullPath, res, nextState)
     setModsData((prev) => applyModRenames(prev, renames))
-    setMarkedMods((prev) => {
-      const next = remapMarkedMods(prev, renames)
+    setPinnedMods((prev) => {
+      const next = remapPinnedMods(prev, renames)
       if (next !== prev) {
-        try { localStorage.setItem('lz-marked-mods', JSON.stringify(next)) } catch (_) {}
+        try { localStorage.setItem('lz-overlay-pinned-mods', JSON.stringify(next)) } catch (_) {}
       }
       return next
     })
@@ -609,7 +624,7 @@ export const OverlayApp: React.FC = () => {
 
   // 悬浮窗固定走严格还原，和主窗一键应用保持同一语义，避免两个入口行为分叉
   const handleApplyPreset = async (presetId: string) => {
-    showToast('正在部署预设方案...')
+    showToast('正在应用预设方案...')
     try {
       const res = await window.lz.applyPreset(presetId, { mode: 'replace' })
       if (res && res.success) {
@@ -654,11 +669,30 @@ export const OverlayApp: React.FC = () => {
     // 打开新详情时重置旧详情状态
     setActiveModDetails(null)
     setParsedHotkeys([])
-    setLoadingHotkeys(true)
+    setPreparingPersistHotkeys(false)
     try {
       const details = await window.lz.getModDetails(mod.fullPath)
       if (seq !== detailLoadSeqRef.current) return
       setActiveModDetails(details)
+
+      if (details?.persistInfo?.hasPersist) {
+        setPreparingPersistHotkeys(true)
+        try {
+          const prepared = await window.lz.prepareOverlayHotkeys(details.fullPath)
+          if (seq !== detailLoadSeqRef.current) return
+          if (!prepared.success) {
+            showToast(`即时调节准备失败，将使用 F10：${prepared.error || '未知错误'}`)
+          }
+        } catch (err) {
+          if (seq !== detailLoadSeqRef.current) return
+          console.warn('Failed to prepare overlay persist hotkeys:', err)
+          showToast('即时调节准备失败，将使用 F10')
+        } finally {
+          if (seq === detailLoadSeqRef.current) {
+            setPreparingPersistHotkeys(false)
+          }
+        }
+      }
 
       // 解析 INI 文件中的 KeyBind（支持扫描所有相关 INI 文件）
       if (details?.iniFiles && details.iniFiles.length > 0) {
@@ -738,10 +772,6 @@ export const OverlayApp: React.FC = () => {
       // 失败分支同样先比对序号：过期请求的错误不做任何处理
       if (seq !== detailLoadSeqRef.current) return
       console.error('Failed to load detail for overlay:', err)
-    } finally {
-      if (seq === detailLoadSeqRef.current) {
-        setLoadingHotkeys(false)
-      }
     }
   }
 
@@ -749,15 +779,22 @@ export const OverlayApp: React.FC = () => {
   const handleUpdatePersistVar = async (v: ModPersistVariable, targetVal?: string) => {
     if (!activeModDetails) return
     lastSelfDispatchTime.current = Date.now()
-    const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
+    const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : []
     let nextVal = targetVal
     if (nextVal === undefined) {
+      if (allowed.length === 0) return
       const currIdx = allowed.indexOf(v.currentValue)
       nextVal = currIdx >= 0 ? allowed[(currIdx + 1) % allowed.length] : allowed[0]
     }
 
     try {
-      const res = await window.lz.updateModVariable(activeModDetails.fullPath, v.name, nextVal, v.namespace)
+      const res = await window.lz.updateModVariable(
+        activeModDetails.fullPath,
+        v.name,
+        nextVal,
+        v.namespace,
+        { preferHotkeyBridge: true }
+      )
       if (res && res.success === false) {
         setActiveModDetails((prev) => prev && prev.persistInfo ? {
           ...prev,
@@ -803,9 +840,13 @@ export const OverlayApp: React.FC = () => {
         ? '参数持久化写入失败'
         : (res?.reloadReason || '请手动按 F10')
 
-      showToast(res?.liveApplied === false
-        ? `已保存 $${v.name} = ${nextVal}，游戏未刷新（${reloadReasonLabel}）`
-        : `已更新 $${v.name} = ${nextVal}`)
+      showToast(
+        res?.applyMode === 'hotkey'
+          ? `已即时更新 $${v.name} = ${nextVal}`
+          : res?.liveApplied === false
+            ? `已保存 $${v.name} = ${nextVal}，游戏未刷新（${reloadReasonLabel}）`
+            : `已更新 $${v.name} = ${nextVal}`
+      )
     } catch {
       setActiveModDetails((prev) => prev && prev.persistInfo ? {
         ...prev,
@@ -813,79 +854,6 @@ export const OverlayApp: React.FC = () => {
       } : prev)
       showToast('更新参数失败')
     }
-  }
-
-  // 直接选择快捷键的设定数值（免去盲目多次单步循环点击）
-  const handleSelectHotkeyVal = async (h: ParsedHotkey, targetVal: string) => {
-    lastSelfDispatchTime.current = Date.now()
-    const hVar = h.variable?.toLowerCase()
-    const pv = activeModDetails?.persistInfo?.variables?.find(
-      (v) => (hVar && v.canonicalName.toLowerCase() === hVar) || v.name.toLowerCase() === h.name.toLowerCase()
-    )
-
-    // 1. 如果匹配到可调度的快捷键组合，优先通过模拟按键步进将 3DMigoto 内存变量拨至目标值
-    const canUseKeys = h.keys && h.keys.length > 0 && !isNonKeyboardHotkey(h.keys)
-    if (canUseKeys && h.allowedValues && h.allowedValues.length > 1) {
-      const currVal = h.currentValue || pv?.currentValue || h.allowedValues[0]
-      const currIdx = h.allowedValues.indexOf(currVal)
-      const targetIdx = h.allowedValues.indexOf(targetVal)
-
-      if (currIdx >= 0 && targetIdx >= 0) {
-        const steps = (targetIdx - currIdx + h.allowedValues.length) % h.allowedValues.length
-        let sent = 0
-        if (steps > 0) {
-          showToast(`正在切换至设定值 ${targetVal}...`)
-          for (let s = 0; s < steps; s++) {
-            const res = await window.lz.triggerHotkey(h.keys)
-            if (res && res.success === false) break
-            sent++
-            if (s < steps - 1) await new Promise((r) => setTimeout(r, 60))
-          }
-        }
-
-        // 如果同时存在持久化变量，同步落盘写回文件确保游戏重启后依然生效
-        if (pv && activeModDetails) {
-          await window.lz.updateModVariable(activeModDetails.fullPath, pv.name, targetVal, pv.namespace)
-          setActiveModDetails((prev) => {
-            if (!prev || !prev.persistInfo) return prev
-            return {
-              ...prev,
-              persistInfo: {
-                ...prev.persistInfo,
-                variables: prev.persistInfo.variables.map((item) =>
-                  item.name === pv.name && item.namespace === pv.namespace ? { ...item, currentValue: targetVal } : item
-                )
-              }
-            }
-          })
-        }
-
-        const reachedIdx = (currIdx + sent) % h.allowedValues.length
-        const reachedVal = h.allowedValues[reachedIdx]
-        setParsedHotkeys((prev) =>
-          prev.map((item) => (item === h || item.name === h.name ? { ...item, currentValue: reachedVal } : item))
-        )
-        if (sent < steps) {
-          showToast('游戏未启动，档位切换未生效')
-        } else {
-          showToast(`已切换 [${h.name}] 至设定值: ${targetVal}`)
-        }
-        return
-      }
-    }
-
-    // 2. 若无对应按键而是纯持久化变量：走持久化写入 + F10 热刷新通道
-    if (pv) {
-      await handleUpdatePersistVar(pv, targetVal)
-      setParsedHotkeys((prev) =>
-        prev.map((item) => (item === h || item.name === h.name ? { ...item, currentValue: targetVal } : item))
-      )
-      showToast(`已直接设定 [${h.name}] = ${targetVal}`)
-      return
-    }
-
-    // 3. 兜底直接发送一次按键
-    await handleTriggerHotkey(h)
   }
 
   // 点击快捷键卡片向游戏窗口触发对应按键
@@ -916,14 +884,22 @@ export const OverlayApp: React.FC = () => {
     }
   }
 
-  // 标记/收藏此 Mod
-  const handleToggleMark = (modFullPath: string) => {
-    setMarkedMods((prev) => {
-      const next = { ...prev, [modFullPath]: !prev[modFullPath] }
-      localStorage.setItem('lz-marked-mods', JSON.stringify(next))
+  // 置顶此 Mod
+  const handleTogglePin = (modFullPath: string) => {
+    const willPin = !pinnedMods[modFullPath]
+    setPinnedMods((prev) => {
+      const next = { ...prev }
+      if (next[modFullPath]) {
+        delete next[modFullPath]
+      } else {
+        next[modFullPath] = true
+      }
+      try {
+        localStorage.setItem('lz-overlay-pinned-mods', JSON.stringify(next))
+      } catch (_) {}
       return next
     })
-    showToast(markedMods[modFullPath] ? '已取消标记' : '已加入标记')
+    showToast(willPin ? '已置顶' : '已取消置顶')
   }
 
 
@@ -1304,36 +1280,36 @@ export const OverlayApp: React.FC = () => {
             <ChevronRight className="w-3.5 h-3.5 align-neg-125" />
           </button>
 
-          {/* ♥ 收藏过滤按钮 */}
+          {/* 置顶过滤按钮 */}
           <button
             type="button"
             onClick={() => {
-              setFilterFavoritesOnly(!filterFavoritesOnly)
-              showToast(filterFavoritesOnly ? '已显示全部 Mod' : '仅查看已标记 Mod')
+              setFilterPinnedOnly(!filterPinnedOnly)
+              showToast(filterPinnedOnly ? '已显示全部 Mod' : '仅查看已置顶 Mod')
             }}
             className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
-              filterFavoritesOnly
-                ? 'bg-amber-500 text-white border-amber-500 shadow-cds-sm'
-                : 'bg-surface-2/80 text-text-muted hover:text-amber-500 border-border/80 hover:bg-surface'
+              filterPinnedOnly
+                ? 'bg-primary/20 text-primary border-primary/40 shadow-cds-sm font-bold'
+                : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
             }`}
-            title="只显示已标记 Mod"
+            title="只显示已置顶 Mod"
           >
-            <Heart className={`w-3.5 h-3.5 align-neg-125 ${filterFavoritesOnly ? 'fill-current' : ''}`} />
+            <Pin className={`w-3.5 h-3.5 align-neg-125 ${filterPinnedOnly ? 'fill-current' : ''}`} />
           </button>
 
-          {/* 🎯 只显示有 Mod 角色过滤 */}
+          {/* 🎯 只显示已安装 Mod 角色过滤 */}
           <button
             type="button"
             onClick={() => {
               setFilterOnlyWithMods(!filterOnlyWithMods)
-              showToast(filterOnlyWithMods ? '显示所有角色' : '仅显示有 Mod 角色')
+              showToast(filterOnlyWithMods ? '显示所有角色' : '仅显示已安装 Mod 的角色')
             }}
             className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
               filterOnlyWithMods
                 ? 'bg-primary/20 text-primary border-primary/40 font-bold'
                 : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
             }`}
-            title="只显示有 Mod 的角色"
+            title="只显示已安装 Mod 的角色"
           >
             <Filter className="w-3.5 h-3.5 align-neg-125" />
           </button>
@@ -1348,8 +1324,8 @@ export const OverlayApp: React.FC = () => {
               className="shrink-0"
               items={[
                 { id: 'all', label: '全部' },
-                { id: 'enabled', label: '已装配' },
-                { id: 'disabled', label: '待命' }
+                { id: 'enabled', label: '已启用' },
+                { id: 'disabled', label: '已停用' }
               ]}
               value={statusFilter}
               onChange={(v) => setStatusFilter(v as any)}
@@ -1361,7 +1337,7 @@ export const OverlayApp: React.FC = () => {
               onClick={cycleSortMode}
               className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-surface-2/80 hover:bg-surface text-[11px] font-medium text-text-muted hover:text-text border border-border/70 cursor-pointer transition shadow-2xs ml-0.5 shrink-0"
               title={`当前排序: ${
-                modSortMode === 'default' ? '默认 (装配优先)' : modSortMode === 'time' ? '最新修改优先' : '名称拼音排序'
+                modSortMode === 'default' ? '默认 (已启用优先)' : modSortMode === 'time' ? '最新修改优先' : '名称拼音排序'
               } (点击循环切换)`}
             >
               <ArrowUpDown className="w-3 h-3 text-primary align-neg-125" />
@@ -1456,11 +1432,11 @@ export const OverlayApp: React.FC = () => {
               <p className="text-xs">【{currentChar || '无'}】暂无符合条件的 Mod</p>
             </div>
           ) : viewMode === 'grid' ? (
-            /* 严格一排显示 3 个 (grid-cols-3) 4:3 封面 + 右下角悬浮笔标 + 底栏 Mod 名与 Switch */
+            /* 严格一排显示 3 个 (grid-cols-3) 4:3 封面 + 底栏 Mod 名与 Switch */
             <div className="grid grid-cols-3 gap-2.5">
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
-                const isMarked = !!markedMods[mod.fullPath]
+                const isPinned = !!pinnedMods[mod.fullPath]
 
                 return (
                   <div
@@ -1486,32 +1462,13 @@ export const OverlayApp: React.FC = () => {
                         <ImageIcon className="w-7 h-7 text-text-muted opacity-35" />
                       )}
 
-                      {/* 标记徽标 (左上角) */}
-                      {isMarked && (
-                        <div className="absolute top-1.5 left-1.5 p-1 rounded-full bg-amber-500 text-white shadow-xs">
-                          <Bookmark className="w-2.5 h-2.5 fill-current" />
+                      {/* 置顶徽标 (左上角) */}
+                      {isPinned && (
+                        <div className="absolute top-1.5 left-1.5 p-1 rounded-full bg-primary text-primary-fg shadow-xs">
+                          <Pin className="w-2.5 h-2.5 fill-current" />
                         </div>
                       )}
 
-                      {/* INI 标识 (右上角) */}
-                      {mod.hasIni && (
-                        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.2 rounded-md text-[9px] font-mono font-bold bg-black/60 text-white backdrop-blur-xs">
-                          INI
-                        </span>
-                      )}
-
-                      {/* 右下角圆形悬浮笔标 */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleOpenDetail(mod)
-                        }}
-                        className="absolute right-1.5 bottom-1.5 w-6 h-6 rounded-full bg-surface/90 hover:bg-primary text-text-muted hover:text-white border border-border/60 flex items-center justify-center shadow-md transition-all cursor-pointer opacity-80 group-hover:opacity-100 hover:scale-105"
-                        title="查看 Mod 详情与快捷键"
-                      >
-                        <Edit3 className="w-3 h-3 align-neg-125" />
-                      </button>
                     </div>
 
                     {/* 卡片底栏 (Mod 名字 + Switch) */}
@@ -1532,7 +1489,7 @@ export const OverlayApp: React.FC = () => {
                           handleToggleMod(mod)
                         }}
                         className={`qaq-switch scale-90 origin-right ${mod.enabled ? 'active' : ''}`}
-                        title={mod.enabled ? '点击禁用' : '点击装配'}
+                        title={mod.enabled ? '点击停用' : '点击启用'}
                       />
                     </div>
                   </div>
@@ -1544,7 +1501,7 @@ export const OverlayApp: React.FC = () => {
             <div className="space-y-2">
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
-                const isMarked = !!markedMods[mod.fullPath]
+                const isPinned = !!pinnedMods[mod.fullPath]
 
                 return (
                   <div
@@ -1571,7 +1528,7 @@ export const OverlayApp: React.FC = () => {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-1.5">
-                        {isMarked && <Bookmark className="w-3 h-3 text-amber-500 fill-current shrink-0 align-neg-125" />}
+                        {isPinned && <Pin className="w-3 h-3 text-primary fill-current shrink-0 align-neg-125" />}
                         <h4 className={`text-xs font-semibold truncate ${mod.enabled ? 'text-primary font-bold' : 'text-text'}`}>
                           {mod.name}
                         </h4>
@@ -1580,7 +1537,7 @@ export const OverlayApp: React.FC = () => {
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                           mod.enabled ? 'bg-primary/10 text-primary' : 'bg-surface-2 text-text-muted'
                         }`}>
-                          {mod.enabled ? '已激活' : '待命'}
+                          {mod.enabled ? '已启用' : '已停用'}
                         </span>
                         {mod.hasIni && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded bg-surface border border-border/70 text-primary font-mono font-semibold">
@@ -1701,7 +1658,7 @@ export const OverlayApp: React.FC = () => {
               </div>
             </div>
 
-            {/* Body: 预览大图 + 状态 + 标记此 Mod + 快捷键表格 + 部件调节 + 底部大按钮 */}
+            {/* Body: 预览大图 + 置顶此 Mod + 快捷键表格 + 部件调节 */}
             <ScrollContainer className="flex-1 min-h-0 p-3.5 space-y-3.5 overflow-y-auto">
               {/* 预览大图 */}
               <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-surface-2/60 border border-border/70 flex items-center justify-center shadow-2xs">
@@ -1716,30 +1673,19 @@ export const OverlayApp: React.FC = () => {
                 )}
               </div>
 
-              {/* 状态与角色 */}
-              <div className="text-xs text-text-muted flex items-center justify-between px-1">
-                <span className="flex items-center space-x-2">
-                  <span className={`w-2 h-2 rounded-full ${activeDetailMod.enabled ? 'bg-primary' : 'bg-text-muted/40'}`} />
-                  <span className="font-medium text-text">{activeDetailMod.enabled ? '已装备运行' : '待命中 (已停用)'}</span>
-                </span>
-                <span className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-surface-2 border border-border/60">
-                  {currentChar}
-                </span>
-              </div>
-
-              {/* 标记按钮 + 移动到其他角色 */}
+              {/* 置顶按钮 + 移动到其他角色 */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => handleToggleMark(activeDetailMod.fullPath)}
+                  onClick={() => handleTogglePin(activeDetailMod.fullPath)}
                   className={`py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs active:scale-95 ${
-                    markedMods[activeDetailMod.fullPath]
-                      ? 'bg-amber-500 text-white border-amber-500 shadow-cds-sm font-bold'
+                    pinnedMods[activeDetailMod.fullPath]
+                      ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-bold'
                       : 'bg-surface-2/70 hover:bg-surface text-text-muted hover:text-text border-border/80'
                   }`}
                 >
-                  <Bookmark className={`w-3.5 h-3.5 align-neg-125 ${markedMods[activeDetailMod.fullPath] ? 'fill-current' : ''}`} />
-                  <span>{markedMods[activeDetailMod.fullPath] ? '取消标记' : '标记此 Mod'}</span>
+                  <Pin className={`w-3.5 h-3.5 align-neg-125 ${pinnedMods[activeDetailMod.fullPath] ? 'fill-current' : ''}`} />
+                  <span>{pinnedMods[activeDetailMod.fullPath] ? '取消置顶' : '置顶'}</span>
                 </button>
 
                 <button
@@ -1754,21 +1700,12 @@ export const OverlayApp: React.FC = () => {
               </div>
 
               {/* ⌨️ 快捷键分区 */}
-              <div className="space-y-2 pt-1">
-                <div className="text-xs font-bold text-text flex items-center space-x-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-primary align-neg-125" />
-                  <span>快捷键与设定值</span>
-                </div>
-
-                {loadingHotkeys ? (
-                  <div className="p-3.5 rounded-xl bg-surface-2/60 border border-border/60 text-xs text-text-muted text-center">
-                    快捷键加载中...
+              {parsedHotkeys.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <div className="text-xs font-bold text-text flex items-center space-x-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-primary align-neg-125" />
+                    <span>快捷键</span>
                   </div>
-                ) : parsedHotkeys.length === 0 ? (
-                  <div className="p-3.5 rounded-xl bg-surface-2/60 border border-border/60 text-xs text-text-muted text-center">
-                    无专属按键 (可通过游戏原生快捷键控制)
-                  </div>
-                ) : (
                   <div className="space-y-2">
                     {parsedHotkeys.map((h, idx) => {
                       const isGamepad = h.keys.some((k) => k.includes('🎮'))
@@ -1832,53 +1769,12 @@ export const OverlayApp: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* 作者设置的直接数值选项行 (可直接点击选定值) */}
-                          {h.allowedValues && h.allowedValues.length > 0 && (
-                            <div
-                              className="mt-2 pt-2 border-t border-border/40 flex items-center justify-between"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <span className="text-[10px] text-text-muted shrink-0 mr-1.5 flex items-center space-x-1">
-                                <SlidersHorizontal className="w-3 h-3 text-primary align-neg-125" />
-                                <span>设定值:</span>
-                              </span>
-
-                              <div className="flex items-center space-x-1 overflow-x-auto scrollbar-none py-0.5">
-                                {h.allowedValues.map((val) => {
-                                  const isSelected = (h.currentValue ?? h.allowedValues?.[0]) === val
-                                  const label =
-                                    h.valueLabels?.[val] ||
-                                    (h.allowedValues!.length === 2 && val === '0'
-                                      ? '关'
-                                      : h.allowedValues!.length === 2 && val === '1'
-                                      ? '开'
-                                      : val)
-
-                                  return (
-                                    <button
-                                      key={val}
-                                      type="button"
-                                      onClick={() => handleSelectHotkeyVal(h, val)}
-                                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 border transition-all cursor-pointer shadow-2xs ${
-                                        isSelected
-                                          ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-extrabold'
-                                          : 'bg-surface hover:bg-surface-2 text-text-muted hover:text-text border-border/70'
-                                      }`}
-                                      title={`直接设定为: ${val}`}
-                                    >
-                                      {label}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )
                     })}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* 🎛️ Persist Bridge 服装/部件调控 (如果有) */}
               {activeModDetails?.persistInfo?.hasPersist && (
@@ -1886,14 +1782,13 @@ export const OverlayApp: React.FC = () => {
                   <div className="flex items-center space-x-1.5 text-xs font-bold text-text">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-primary align-neg-125" />
                     <span>服装与部件参数调节</span>
+                    {preparingPersistHotkeys && (
+                      <span className="text-[10px] font-normal text-text-muted">即时调节准备中…</span>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     {activeModDetails.persistInfo.variables.map((v) => {
-                      const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
-                      const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
-                      const isOn = v.currentValue === '1'
-
                       return (
                         <div
                           key={`${v.namespace || ''}\\${v.name}`}
@@ -1913,42 +1808,12 @@ export const OverlayApp: React.FC = () => {
                             <span className="text-[10px] text-text-muted mt-0.5 block">当前值: {v.currentValue}</span>
                           </div>
 
-                          {!v.supported ? (
-                            <span className="text-[10px] text-amber-500">不可调节：{v.supportError || '无法解析 namespace'}</span>
-                          ) : isBinary ? (
-                            <button
-                              type="button"
-                              onClick={() => handleUpdatePersistVar(v, isOn ? '0' : '1')}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border transition-all ${
-                                isOn
-                                  ? 'bg-primary text-primary-fg border-primary font-bold shadow-cds-sm'
-                                  : 'bg-surface text-text-muted border-border hover:bg-surface-2'
-                              }`}
-                            >
-                              {isOn ? '开启' : '关闭'}
-                            </button>
-                          ) : (
-                            <div className="flex items-center space-x-1">
-                              {allowed.map((val) => {
-                                const isCur = v.currentValue === val
-                                const label = v.valueLabels?.[val] || val
-                                return (
-                                  <button
-                                    key={val}
-                                    type="button"
-                                    onClick={() => handleUpdatePersistVar(v, val)}
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer border transition-all ${
-                                      isCur
-                                        ? 'bg-primary text-primary-fg border-primary shadow-2xs font-extrabold'
-                                        : 'bg-surface text-text hover:text-primary border-border hover:bg-surface-2'
-                                    }`}
-                                  >
-                                    {label}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )}
+                          <PersistValueControl
+                            variable={v}
+                            compact
+                            disabled={preparingPersistHotkeys}
+                            onChange={(value) => handleUpdatePersistVar(v, value)}
+                          />
                         </div>
                       )
                     })}
@@ -1956,28 +1821,6 @@ export const OverlayApp: React.FC = () => {
                 </div>
               )}
 
-              {/* 底部大按钮 */}
-              <button
-                type="button"
-                onClick={() => handleToggleMod(activeDetailMod)}
-                className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-cds-sm flex items-center justify-center space-x-2 active:scale-[0.98] ${
-                  activeDetailMod.enabled
-                    ? 'bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30'
-                    : 'bg-primary hover:brightness-105 text-primary-fg'
-                }`}
-              >
-                {activeDetailMod.enabled ? (
-                  <>
-                    <XCircle className="w-4 h-4 align-neg-125" />
-                    <span>停用此 Mod</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 align-neg-125" />
-                    <span>装配启用此 Mod</span>
-                  </>
-                )}
-              </button>
             </ScrollContainer>
           </div>
         )}

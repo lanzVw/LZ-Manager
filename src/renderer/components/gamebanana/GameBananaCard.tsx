@@ -16,7 +16,7 @@ interface GameBananaCardProps {
  * GameBanana 市场卡片
  * - 根元素由 div+onClick 改为 <button type="button">：Tab 可聚焦，Enter/Space 打开详情（键盘可达）
  * - 以 React.memo 包裹：兄弟卡片重渲染时避免整批卡片跟着刷新
- * - 安装入口只在详情抽屉里：卡片不再提供一键装载，避免误装到错误角色
+ * - 安装入口只在详情抽屉里：卡片不再提供一键安装，避免误装到错误角色
  */
 const GameBananaCardBase: React.FC<GameBananaCardProps> = ({
   mod,

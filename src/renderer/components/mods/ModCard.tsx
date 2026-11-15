@@ -180,7 +180,7 @@ const ModCardBase: React.FC<ModCardProps> = ({
           </div>
         )}
 
-        {/* 底部操作按钮：装备/卸下 + 移动到角色按钮 */}
+        {/* 底部操作按钮：启用/停用 + 移动到角色按钮 */}
         <div className="flex items-center space-x-1.5">
           <Button
             variant={mod.enabled ? 'danger' : 'secondary'}
@@ -199,7 +199,7 @@ const ModCardBase: React.FC<ModCardProps> = ({
               )
             }
           >
-            {mod.enabled ? '卸下模组' : '装备模组'}
+            {mod.enabled ? '停用模组' : '启用模组'}
           </Button>
 
           <button

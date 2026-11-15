@@ -72,7 +72,7 @@ export const GameBananaFileList: React.FC<GameBananaFileListProps> = ({
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-1.5 font-title text-xs font-extrabold uppercase tracking-wider text-text">
           <PackageCheck className="h-4 w-4 text-primary align-neg-125" />
-          <HoverHint content="选择对应版本进行解压装载">
+          <HoverHint content="选择对应版本进行解压安装">
             可安装文件清单 ({files?.length || 0})
           </HoverHint>
         </h3>

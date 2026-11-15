@@ -20,8 +20,6 @@ import {
   AlertTriangle,
   Sliders,
   RotateCcw,
-  ToggleLeft,
-  ToggleRight,
   Zap,
   Cpu,
   Globe,
@@ -62,6 +60,7 @@ import { HoverHint } from '../components/ui/HoverHint'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/Toast'
 import { GameBananaDetailDrawer } from '../components/GameBananaDetailDrawer'
+import { PersistValueControl } from '../components/PersistValueControl'
 
 interface ModDetailPageProps {
   modFullPath: string
@@ -398,9 +397,10 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
   // 切换/循环修改 Mod 变量数值
   const handleUpdateVariable = async (v: ModPersistVariable, targetVal?: string) => {
     if (!details) return
-    const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
+    const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : []
     let nextVal = targetVal
     if (nextVal === undefined) {
+      if (allowed.length === 0) return
       const currIdx = allowed.indexOf(v.currentValue)
       nextVal = currIdx >= 0 ? allowed[(currIdx + 1) % allowed.length] : allowed[0]
     }
@@ -419,7 +419,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     })
 
     try {
-      const res = await window.lz.updateModVariable(details.fullPath, v.name, nextVal, v.namespace)
+      const res = await window.lz.updateModVariable(
+        details.fullPath,
+        v.name,
+        nextVal,
+        v.namespace,
+        { preferHotkeyBridge: false }
+      )
       if (res && res.success) {
         const reloadReasonLabel = res.reloadReason === 'game_not_running'
           ? '游戏未启动'
@@ -670,66 +676,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     }
   }
 
-  // 点击直选按键档位
-  const handleSelectHotkeyVal = async (h: ParsedHotkey, targetVal: string) => {
-    const hVar = h.variable?.toLowerCase()
-    const pv = persistInfo?.variables?.find(
-      (v) => (hVar && (v.canonicalName || '').toLowerCase() === hVar) || (v.name || '').toLowerCase() === h.name.toLowerCase()
-    )
-
-    // 1. 如果匹配到可调度的快捷键组合，优先通过模拟按键步进将 3DMigoto 内存变量拨至目标值
-    const canUseKeys = h.keys && h.keys.length > 0 && !isNonKeyboardHotkey(h.keys)
-    const vals = h.allowedValues || []
-    if (canUseKeys && vals.length > 1) {
-      const currIdx = vals.indexOf(h.currentValue ?? pv?.currentValue ?? vals[0])
-      const targetIdx = vals.indexOf(targetVal)
-      if (currIdx !== -1 && targetIdx !== -1) {
-        const steps = (targetIdx - currIdx + vals.length) % vals.length
-        let sent = 0
-        for (let i = 0; i < steps; i++) {
-          const res = await window.lz.triggerHotkey(h.keys)
-          if (res && res.success === false) break
-          sent++
-          if (i < steps - 1) await new Promise((r) => setTimeout(r, 60))
-        }
-
-        // 如果同时存在持久化变量，同步落盘写回文件确保游戏重启后依然生效
-        if (pv && details) {
-          await window.lz.updateModVariable(details.fullPath, pv.name, targetVal, pv.namespace)
-          setPersistInfo((prev) => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              variables: prev.variables.map((v) =>
-                v.name === pv.name && v.namespace === pv.namespace ? { ...v, currentValue: targetVal } : v
-              )
-            }
-          })
-        }
-
-        const reachedVal = vals[(currIdx + sent) % vals.length]
-        setParsedHotkeys((prev) =>
-          prev.map((item) => (item.name === h.name ? { ...item, currentValue: reachedVal } : item))
-        )
-        if (sent < steps) {
-          toast.warning('档位未生效', '游戏未启动或未在前台，按键未送达')
-        } else {
-          toast.success('已切换档位', `${h.chineseName || h.name} 已选定为: ${targetVal}`)
-        }
-        return
-      }
-    }
-
-    // 2. 若纯 PersistBridge 变量无快捷键：直接走持久化通道写入并热刷新
-    if (pv) {
-      await handleUpdateVariable(pv, targetVal)
-      setParsedHotkeys((prev) =>
-        prev.map((item) => (item.name === h.name ? { ...item, currentValue: targetVal } : item))
-      )
-      return
-    }
-  }
-
   // 检测冲突（isCancelled 同样作为竞态守卫，避免过期响应回写）
   const checkConflicts = async (charName: string, modName: string, isCancelled?: () => boolean) => {
     try {
@@ -790,13 +736,13 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
     }
   }, [activeDetailTab, details])
 
-  // 切换装备状态
+  // 切换启用状态
   const handleToggle = async () => {
     if (!details) return
     setToggling(true)
     try {
       // onToggleActive 的第三个参数是「目标状态」，不是当前状态；
-      // 传反了会让「卸下模组」变成一次幂等的启用请求，基底 Mod 保护也不会触发
+      // 传反了会让「停用模组」变成一次幂等的启用请求，基底 Mod 保护也不会触发
       const res = await onToggleActive(details.characterName, details.name, !details.enabled)
       // 基底 Mod 停用会被二次确认拦截；只有真正成功才翻转本地状态
       if (res?.success) {
@@ -958,7 +904,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
           }
         } : prev))
         if (nextVal) {
-          toast.warning('模组已标记为失效', '若游戏内碎模或报错，建议将其卸装保持待命')
+          toast.warning('模组已标记为失效', '若游戏内碎模或报错，建议将其停用')
         } else {
           toast.success('已解除失效标记', '模组状态已恢复正常')
         }
@@ -1304,7 +1250,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                 )
               }
             >
-              {details.enabled ? '卸下模组' : '装备启用'}
+              {details.enabled ? '停用模组' : '启用模组'}
             </Button>
           </div>
         </div>
@@ -1387,7 +1333,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   )}
                 </div>
                 <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-                  该模组可能在当前游戏版本中存在碎模、黑脸或导致闪退，建议保持待命或等待作者发布修复版本。
+                  该模组可能在当前游戏版本中存在碎模、黑脸或导致闪退，建议保持停用或等待作者发布修复版本。
                 </p>
               </div>
             </div>
@@ -1399,7 +1345,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                   size="sm"
                   onClick={handleToggle}
                 >
-                  立即卸装待命
+                  立即停用
                 </Button>
               )}
               <Button
@@ -1998,9 +1944,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
               </div>
               <Card className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
                 {persistInfo.variables.map((v) => {
-                  const allowed = v.allowedValues && v.allowedValues.length > 0 ? v.allowedValues : ['0', '1']
-                  const isBinary = allowed.length === 2 && allowed.includes('0') && allowed.includes('1')
-                  const isOn = v.currentValue === '1'
                   const varKey = `${v.namespace || ''}\\${v.name}`
                   const isUpdating = updatingVar === varKey || updatingVar === v.name
 
@@ -2056,54 +1999,11 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                           调控档位:
                         </span>
 
-                        {!v.supported ? (
-                          <span className="text-[10px] text-amber-500">不可调节：{v.supportError || '无法解析 namespace'}</span>
-                        ) : isBinary ? (
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateVariable(v, isOn ? '0' : '1')}
-                            disabled={isUpdating}
-                            className={`flex items-center space-x-2 px-3 py-1.5 rounded-control text-xs font-semibold tracking-wide transition-colors cursor-pointer border ${
-                              isOn
-                                ? 'bg-primary text-primary-fg border-primary shadow-xs'
-                                : 'bg-surface text-text border-border hover:bg-surface-2'
-                            } ${isUpdating ? 'opacity-50 cursor-wait' : ''}`}
-                          >
-                            {isOn ? (
-                              <>
-                                <ToggleRight className="w-4 h-4" />
-                                <span>已开启 (1)</span>
-                              </>
-                            ) : (
-                              <>
-                                <ToggleLeft className="w-4 h-4 text-text-muted" />
-                                <span>已关闭 (0)</span>
-                              </>
-                            )}
-                          </button>
-                        ) : (
-                          <div className="flex items-center space-x-1 flex-wrap gap-1">
-                            {allowed.map((val) => {
-                              const isCur = v.currentValue === val
-                              const label = v.valueLabels?.[val]
-                              return (
-                                <button
-                                  key={val}
-                                  type="button"
-                                  onClick={() => handleUpdateVariable(v, val)}
-                                  disabled={isUpdating}
-                                  className={`px-2.5 py-1 rounded-control text-xs font-bold transition-colors cursor-pointer border ${
-                                    isCur
-                                      ? 'bg-primary text-primary-fg border-primary shadow-xs font-extrabold'
-                                      : 'bg-surface text-text hover:text-primary border-border hover:border-primary/40'
-                                  } ${isUpdating ? 'opacity-50' : ''}`}
-                                >
-                                  {label ? `${label} (${val})` : val}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        )}
+                        <PersistValueControl
+                          variable={v}
+                          disabled={isUpdating}
+                          onChange={(value) => handleUpdateVariable(v, value)}
+                        />
                       </div>
                     </div>
                   )
@@ -2117,7 +2017,7 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
             <div className="space-y-2.5">
               <div className="text-[11px] font-bold text-text-muted flex items-center space-x-1.5 uppercase tracking-wider">
                 <Keyboard className="w-3 h-3 text-primary" />
-                <span>模组快捷键与档位切换 (KEYBINDS & TOGGLES)</span>
+                <span>模组快捷键 (KEYBINDS)</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 auto-rows-fr gap-3.5">
                 {parsedHotkeys.map((h, idx) => {
@@ -2215,45 +2115,6 @@ export const ModDetailPage: React.FC<ModDetailPageProps> = ({
                             模拟按键
                           </Button>
                         </span>
-                      </div>
-
-                      {/* 档位 / 单次触发 */}
-                      <div className="mt-auto pt-2.5 border-t border-border">
-                        {h.allowedValues && h.allowedValues.length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className="text-[10px] font-semibold text-text-muted mr-1">档位</span>
-                            {h.allowedValues.map((val) => {
-                              const isSelected = (h.currentValue ?? h.allowedValues?.[0]) === val
-                              const label =
-                                h.valueLabels?.[val] ||
-                                (h.allowedValues!.length === 2 && val === '0'
-                                  ? '关'
-                                  : h.allowedValues!.length === 2 && val === '1'
-                                  ? '开'
-                                  : val)
-                              return (
-                                <button
-                                  key={val}
-                                  type="button"
-                                  onClick={() => handleSelectHotkeyVal(h, val)}
-                                  className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold transition-colors cursor-pointer border ${
-                                    isSelected
-                                      ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-bold'
-                                      : 'bg-surface text-text-muted hover:text-primary border-border hover:border-primary/40'
-                                  }`}
-                                  title={`直接切换设定值为: ${val}`}
-                                >
-                                  {label}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-[10.5px] text-text-muted inline-flex items-center gap-1">
-                            <Zap className="w-3 h-3 text-primary/60" />
-                            单次触发
-                          </span>
-                        )}
                       </div>
                     </div>
                   )

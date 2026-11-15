@@ -135,7 +135,7 @@ const TAB_METADATA: Record<
       },
       {
         title: 'Mod 存放目录 (Mods Folder)',
-        desc: '3DMigoto 扫描与装载 Mod 的文件夹。LZ Manager 会在此目录内创建角色子目录并管理启用状态。'
+        desc: '3DMigoto 扫描与加载 Mod 的文件夹。LZ Manager 会在此目录内创建角色子目录并管理启用状态。'
       },
       {
         title: 'XXMI 加载器 (Mod Loader)',
@@ -179,6 +179,68 @@ const TAB_METADATA: Record<
     guides: []
   }
 }
+
+type UpdateNoteKind = 'feature' | 'improvement' | 'fix'
+
+interface UpdateNote {
+  kind: UpdateNoteKind
+  items: string[]
+}
+
+const UPDATE_NOTES: UpdateNote[] = [
+  {
+    kind: 'feature',
+    items: [
+      'Mod 市场新增「工具」分类，工具类 Mod 可独立浏览，并安装到通用目录。',
+      '悬浮窗参数新增隐藏热键即时调节，开关与多档选项点击后立即生效。',
+      'Mod 详情新增「置顶」，置顶项在默认、时间和名称排序中优先显示。',
+      '参数多档选项改为滑动分段控件，可直接选择目标值。'
+    ]
+  },
+  {
+    kind: 'improvement',
+    items: [
+      '悬浮窗详情精简：移除冗余状态标记、INI 标记、编辑入口、空快捷键区块与启停按钮。',
+      '参数控件统一视觉：二进制使用应用开关，多值使用主题色滑动药丸。',
+      'Mod 操作文案统一为「启用 / 停用」「已安装 / 已启用」，预设统一为「配置」。',
+      '关于页新增分类更新内容展示，并移除重复的项目数量角标。'
+    ]
+  },
+  {
+    kind: 'fix',
+    items: [
+      '修复服装与部件参数写入错误 namespace，导致界面已修改但游戏内数值不变的问题。',
+      '修复热键即时调节与 F10 刷新链路的生效反馈，失败时会明确提示并回滚界面状态。',
+      '修复 Mod 目录启停改名后置顶状态丢失的问题。'
+    ]
+  }
+]
+
+const UPDATE_NOTE_META = {
+  feature: {
+    label: '新功能',
+    icon: Sparkles,
+    iconClass: 'bg-primary/10 text-primary border-primary/20',
+    dotClass: 'bg-primary'
+  },
+  improvement: {
+    label: '改进',
+    icon: Sliders,
+    iconClass: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+    dotClass: 'bg-cyan-500'
+  },
+  fix: {
+    label: '错误修复',
+    icon: CheckCircle2,
+    iconClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+    dotClass: 'bg-emerald-500'
+  }
+} satisfies Record<UpdateNoteKind, {
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  iconClass: string
+  dotClass: string
+}>
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   activeGame,
@@ -1357,6 +1419,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <span className="font-mono font-bold text-text select-all">
                   {appVersion ? `v${appVersion}` : '读取中...'}
                 </span>
+              </div>
+            </Card>
+
+            <Card className="p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center space-x-2.5">
+                  <div className="p-2 rounded-control bg-primary/10 text-primary border border-primary/20">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-text">
+                      <HoverHint content="最近完成的功能、体验与问题修复" focusable>
+                        更新内容
+                      </HoverHint>
+                    </h3>
+                  </div>
+                </div>
+                <Badge variant="primary" size="sm">2026-11-16</Badge>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                {UPDATE_NOTES.map((note) => {
+                  const meta = UPDATE_NOTE_META[note.kind]
+                  const Icon = meta.icon
+                  return (
+                    <section
+                      key={note.kind}
+                      className="rounded-xl border border-border/70 bg-surface-2/50 p-3.5 space-y-3"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span className={`w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 ${meta.iconClass}`}>
+                          <Icon className="w-3.5 h-3.5" />
+                        </span>
+                        <h4 className="text-xs font-bold text-text">{meta.label}</h4>
+                      </div>
+
+                      <ul className="space-y-2">
+                        {note.items.map((item) => (
+                          <li key={item} className="flex items-start gap-2 text-[11px] leading-relaxed text-text-muted">
+                            <span className={`mt-[6px] w-1 h-1 rounded-full shrink-0 ${meta.dotClass}`} />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )
+                })}
               </div>
             </Card>
           </div>

@@ -12,6 +12,8 @@ import type {
   ModInstallTarget,
   ModItem,
   ModPersistInfo,
+  PersistHotkeyPrepareResult,
+  PersistVariableUpdateResponse,
   Preset,
   PresetApplyMode,
   PresetApplyResult,
@@ -102,8 +104,16 @@ const flairxApi = {
   // Persist Bridge
   getModPersistInfo: (modFullPath: string): Promise<ModPersistInfo> =>
     ipcRenderer.invoke('persist:getInfo', modFullPath),
-  updateModVariable: (modFullPath: string, varName: string, value: string, targetNamespace?: string): Promise<{ success: boolean; error?: string; liveApplied?: boolean; reloadReason?: string }> =>
-    ipcRenderer.invoke('persist:updateVariable', modFullPath, varName, value, targetNamespace),
+  prepareOverlayHotkeys: (modFullPath: string): Promise<PersistHotkeyPrepareResult> =>
+    ipcRenderer.invoke('persist:prepareOverlayHotkeys', modFullPath),
+  updateModVariable: (
+    modFullPath: string,
+    varName: string,
+    value: string,
+    targetNamespace?: string,
+    options?: { preferHotkeyBridge?: boolean }
+  ): Promise<PersistVariableUpdateResponse> =>
+    ipcRenderer.invoke('persist:updateVariable', modFullPath, varName, value, targetNamespace, options),
   resetModVariables: (modFullPath: string): Promise<{ success: boolean; resetCount: number; error?: string; liveApplied?: boolean; reloadReason?: string }> =>
     ipcRenderer.invoke('persist:resetVariables', modFullPath),
   clearPersistCache: () => ipcRenderer.invoke('persist:clearCache'),

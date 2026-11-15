@@ -3,7 +3,7 @@ import {
   applyModRenames,
   applyRenameToItem,
   buildToggleRenames,
-  remapMarkedMods,
+  remapPinnedMods,
   remapModDetailsPaths,
   remapPathPrefix,
   samePath,
@@ -165,9 +165,9 @@ describe('applyModRenames', () => {
   })
 })
 
-describe('remapMarkedMods', () => {
+describe('remapPinnedMods', () => {
   it('旧 key 迁到新 key 并保留 false 值', () => {
-    const next = remapMarkedMods(
+    const next = remapPinnedMods(
       { [OLD_ROOT]: true, 'C:\\Mods\\Char\\Sibling': false, 'C:\\Keep': true },
       [
         { oldFullPath: OLD_ROOT, newFullPath: `${OLD_ROOT}\\DISABLED_Name`, enabled: false },
@@ -181,7 +181,7 @@ describe('remapMarkedMods', () => {
   })
 
   it('两个旧 key 撞到同一个新 key 时 true 优先', () => {
-    const next = remapMarkedMods(
+    const next = remapPinnedMods(
       { 'C:\\A': false, 'C:\\B': true },
       [
         { oldFullPath: 'C:\\A', newFullPath: 'C:\\New', enabled: false },
@@ -193,7 +193,7 @@ describe('remapMarkedMods', () => {
 
   it('没有 key 移动时返回原对象', () => {
     const marked = { 'C:\\Keep': true }
-    expect(remapMarkedMods(marked, [{ oldFullPath: 'C:\\Missing', newFullPath: 'C:\\New', enabled: false }])).toBe(marked)
+    expect(remapPinnedMods(marked, [{ oldFullPath: 'C:\\Missing', newFullPath: 'C:\\New', enabled: false }])).toBe(marked)
   })
 })
 

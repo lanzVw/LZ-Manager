@@ -157,7 +157,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             <Switch
               checked={enableImmediately}
               onChange={setEnableImmediately}
-              label="导入后立即装备该 Mod"
+              label="导入后立即启用该 Mod"
               description="单选互斥生效时自动停用同角色其他Mod"
             />
           </div>

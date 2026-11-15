@@ -145,6 +145,67 @@ describe('PersistBridgeManager namespace mapping', () => {
     expect(update.liveApply?.groups[0].assignments).toEqual([{ name: 'scale', value: '1.5' }])
   })
 
+  it('infers multi-position controls from equality checks and menu cycles', () => {
+    const f = fixture(
+      'main.ini',
+      [
+        'global persist $glasses = 1',
+        '',
+        '[Draw]',
+        'if $glasses == 0',
+        'if $glasses == 1',
+        '',
+        '[CommandListSetButtonCondition]',
+        'if $glasses < 2',
+        '$glasses = $glasses + 1',
+        'else',
+        '$glasses = 0',
+        ''
+      ].join('\n')
+    )
+    fs.writeFileSync(
+      path.join(f.root, 'd3dx_user.ini'),
+      '[Constants]\n$\\Mods\\Character\\Skin\\main.ini\\glasses = 2\n',
+      'utf8'
+    )
+
+    const manager = new PersistBridgeManager()
+    const info = manager.getModPersistInfo(f.mod, f.mods, f.root)
+
+    expect(info.variables[0]).toMatchObject({
+      name: 'glasses',
+      currentValue: '2',
+      inputKind: 'enum',
+      allowedValues: ['0', '1', '2']
+    })
+  })
+
+  it('uses a numeric input for computed float offsets', () => {
+    const f = fixture(
+      'main.ini',
+      [
+        'namespace = Offset',
+        '',
+        '[Constants]',
+        'global persist $final_x_off = -1',
+        '',
+        '[Present]',
+        '$final_x_off = 0.5 - $x_size / 2 + -0.01701',
+        ''
+      ].join('\n')
+    )
+
+    const manager = new PersistBridgeManager()
+    const info = manager.getModPersistInfo(f.mod, f.mods, f.root)
+
+    expect(info.variables[0]).toMatchObject({
+      name: 'final_x_off',
+      inputKind: 'number',
+      step: 0.01
+    })
+    expect(info.variables[0].allowedValues).toBeUndefined()
+  })
+
   it('never modifies or rewrites original Mod INI files', () => {
     const originalContent = 'namespace = Outfit\\Main\n\n[Constants]\nglobal persist $hair = 1\n'
     const f = fixture('main.ini', originalContent)

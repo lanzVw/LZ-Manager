@@ -128,7 +128,7 @@ const CompactCharacterAvatar: React.FC<{
         </div>
       )}
 
-      {/* 已装载模组微光角标 */}
+      {/* 已启用模组微光角标 */}
       {hasActive && (
         <span
           className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-surface shadow-xs"
@@ -520,20 +520,20 @@ export const ModsPage: React.FC<ModsPageProps> = ({
         return a.name.localeCompare(b.name, 'zh-Hans-CN')
       })
     } else {
-      // 默认排序: 已装备 (enabled > 0) -> 有mod待命 (total > 0) -> 未安装 (total === 0)
+      // 默认排序: 已启用 (enabled > 0) -> 已安装但未启用 (total > 0) -> 未安装 (total === 0)
       list.sort((a, b) => {
         const tierA = a.enabled > 0 ? 0 : a.total > 0 ? 1 : 2
         const tierB = b.enabled > 0 ? 0 : b.total > 0 ? 1 : 2
         if (tierA !== tierB) return tierA - tierB
 
         if (tierA === 0) {
-          // 已装备组内：优先按已装备数量倒序，再按总模组数倒序，再按名称
+          // 已启用组内：优先按已启用数量倒序，再按总模组数倒序，再按名称
           if (b.enabled !== a.enabled) return b.enabled - a.enabled
           if (b.total !== a.total) return b.total - a.total
           return a.name.localeCompare(b.name, 'zh-Hans-CN')
         }
         if (tierA === 1) {
-          // 有mod未装备组内：按总模组数倒序，再按名称
+          // 已安装但未启用组内：按总模组数倒序，再按名称
           if (b.total !== a.total) return b.total - a.total
           return a.name.localeCompare(b.name, 'zh-Hans-CN')
         }
@@ -747,7 +747,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
       for (const item of brokenToDisable) {
         await onToggleMod(item.charName, item.modName, false)
       }
-      toast.success(`已卸装 ${brokenToDisable.length} 个失效模组`, '已恢复待命状态，防止进游戏报错')
+      toast.success(`已停用 ${brokenToDisable.length} 个失效模组`, '已恢复为停用状态，防止进游戏报错')
     } catch (err: any) {
       toast.error('操作失败', err.message)
     }
@@ -864,7 +864,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                 }`}
                 title="仅显示已安装模组的角色"
               >
-                有Mod ({charactersWithModsCount})
+                已安装 ({charactersWithModsCount})
               </button>
               <button
                 type="button"
@@ -874,9 +874,9 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                     ? 'bg-primary/10 text-primary font-bold border border-primary/20 shadow-2xs'
                     : 'text-text-muted hover:text-text border border-transparent'
                 }`}
-                title="仅显示当前已装备模组的角色"
+                title="仅显示当前已启用模组的角色"
               >
-                已装载 ({charactersEquippedCount})
+                已启用 ({charactersEquippedCount})
               </button>
             </div>
 
@@ -889,7 +889,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                 else setCharSort('default')
               }}
               className="flex items-center space-x-1 px-2 py-1 rounded-control bg-surface-2 hover:bg-surface border border-border text-[10px] font-medium text-text-muted hover:text-text transition-colors cursor-pointer"
-              title="切换排序规则：默认(已装备优先) / 数量 / 名称"
+              title="切换排序规则：默认(已启用优先) / 数量 / 名称"
             >
               <ArrowUpDown className="w-3 h-3 text-primary" />
               <span>
@@ -932,7 +932,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                   ? 'bg-primary/15 text-primary border-primary/30 font-bold'
                   : 'bg-surface-2 text-text-muted border-border'
               }`}
-              title="已装载 / 总数"
+              title="已启用 / 总数"
             >
               <span className="font-bold">{totalEnabledInAll}</span>
               <span className="opacity-40">/</span>
@@ -941,7 +941,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
           </button>
 
           {sidebarMode === 'list' ? (
-            /* 1. 紧凑型图文列表 (展示 已装载/总数) */
+            /* 1. 紧凑型图文列表 (展示 已启用/总数) */
             <div className="space-y-1 pt-0.5">
               {filteredCharacters.map((c) => {
                 const isSelected = selectedChar === c.name
@@ -985,7 +985,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                           ? 'bg-surface-2 text-text-muted border-border'
                           : 'bg-surface-2/60 text-text-muted/60 border-border/50'
                       }`}
-                      title="已装载 / 总数"
+                      title="已启用 / 总数"
                     >
                       <span className={hasActive ? 'font-bold' : ''}>{c.enabled}</span>
                       <span className="opacity-40">/</span>
@@ -1027,7 +1027,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                       {/* 计数指示 */}
                       <div
                         className="absolute top-1 right-1 flex items-center space-x-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-slate-900/80 text-white backdrop-blur-xs font-bold"
-                        title="已装载 / 总数"
+                        title="已启用 / 总数"
                       >
                         <span className={hasActive ? 'text-amber-300' : ''}>{c.enabled}</span>
                         <span className="opacity-40">/</span>
@@ -1086,9 +1086,6 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               <h2 className="text-base font-title font-bold text-text tracking-wide">
                 {selectedChar === 'all' ? '全部角色模组' : selectedChar}
               </h2>
-              <Badge variant="accent" size="sm">
-                {displayedMods.length} 个项目
-              </Badge>
             </div>
 
             {/* 冲突过滤按钮 */}
@@ -1123,16 +1120,16 @@ export const ModsPage: React.FC<ModsPageProps> = ({
               </button>
             )}
 
-            {/* 一键卸装失效模组 */}
+            {/* 一键停用失效模组 */}
             {enabledBrokenModsCount > 0 && (
               <button
                 type="button"
                 onClick={handleDisableAllBroken}
                 className="flex items-center space-x-1.5 px-2.5 py-1 rounded-control text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                title="一键卸下所有已启用的失效模组，防止游戏报错或渲染异常"
+                title="一键停用所有已启用的失效模组，防止游戏报错或渲染异常"
               >
                 <XCircle className="w-3.5 h-3.5" />
-                <span>卸装失效 ({enabledBrokenModsCount})</span>
+                <span>停用失效 ({enabledBrokenModsCount})</span>
               </button>
             )}
 
@@ -1174,7 +1171,7 @@ export const ModsPage: React.FC<ModsPageProps> = ({
                 size="md"
                 prefixIcon={<ArrowUpDown className="w-3.5 h-3.5 text-primary" />}
                 options={[
-                  { value: 'status', label: '已装备优先' },
+                  { value: 'status', label: '已启用优先' },
                   ...(selectedChar === 'all' ? [{ value: 'character', label: '按所属角色' }] : []),
                   { value: 'time', label: '最新修改' },
                   { value: 'name', label: '名称 A-Z' },

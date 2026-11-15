@@ -4,6 +4,8 @@ import crypto from 'crypto'
 import { translateTerm } from './mod-translator'
 import { readTextAuto, writeTextWithEncoding } from './text-encoding'
 import { parseIniNamespace } from './base-mod'
+import { collectPersistValueHints, inferPersistValueOptions } from './persist-values'
+import type { ModPersistValueKind, ModPersistValueSource } from './types'
 
 export interface ModPersistVariable {
   name: string
@@ -15,6 +17,11 @@ export interface ModPersistVariable {
   defaultValue: string
   currentValue: string
   allowedValues?: string[]
+  inputKind?: ModPersistValueKind
+  min?: number
+  max?: number
+  step?: number
+  valueSource?: ModPersistValueSource
   keybind?: string
   iniFile: string
   alias?: string
@@ -148,6 +155,9 @@ export class PersistBridgeManager {
         '',
         '[IncludePersistApply]',
         'include = qaqm_persist_apply.ini',
+        '',
+        '[IncludeLiveKeys]',
+        'include = qaqm_live_keys.ini',
         ''
       ].join('\n')
 
@@ -159,11 +169,13 @@ export class PersistBridgeManager {
         .replace(/include\s*=\s*qaqm\\qaqm_keypress\.ini/gi, 'include = qaqm_keypress.ini')
         .replace(/include\s*=\s*qaqm\\qaqm_persist_active\.ini/gi, 'include = qaqm_persist_active.ini')
         .replace(/include\s*=\s*qaqm\\qaqm_persist_apply\.ini/gi, 'include = qaqm_persist_apply.ini')
+        .replace(/include\s*=\s*qaqm\\qaqm_live_keys\.ini/gi, 'include = qaqm_live_keys.ini')
 
       const requiredIncludes = [
         ['IncludeKeypress', 'qaqm_keypress.ini'],
         ['IncludePersistBridgeActive', 'qaqm_persist_active.ini'],
-        ['IncludePersistApply', 'qaqm_persist_apply.ini']
+        ['IncludePersistApply', 'qaqm_persist_apply.ini'],
+        ['IncludeLiveKeys', 'qaqm_live_keys.ini']
       ] as const
       for (const [section, includeFile] of requiredIncludes) {
         if (new RegExp(`include\\s*=\\s*${includeFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(includerContent)) {
@@ -208,6 +220,15 @@ export class PersistBridgeManager {
       }
       if (!fs.existsSync(applyIndexPath)) {
         fs.writeFileSync(applyIndexPath, '; QAQM persist apply index (generated)\n', 'utf8')
+      }
+
+      const liveKeysDir = path.join(qaqmDir, 'hotkeys')
+      const liveKeysIndexPath = path.join(qaqmDir, 'qaqm_live_keys.ini')
+      if (!fs.existsSync(liveKeysDir)) {
+        fs.mkdirSync(liveKeysDir, { recursive: true })
+      }
+      if (!fs.existsSync(liveKeysIndexPath)) {
+        fs.writeFileSync(liveKeysIndexPath, '; QAQM live hotkey index (generated)\n', 'utf8')
       }
 
       // 检查 d3dx.ini 是否已包含 qaqm_includer.ini
@@ -402,6 +423,7 @@ export class PersistBridgeManager {
       try {
         const { content } = readTextAuto(iniPath)
         const lines = content.split(/\r?\n/)
+        const valueHints = collectPersistValueHints(lines)
         let desc = this.buildDescriptor(modsRoot, iniPath)
         const explicitNamespace = (parseIniNamespace(content) || '').replace(/[\\/]+/g, '\\').replace(/^\\+|\\+$/g, '')
         const relativeIniPath = this.normalizePersistRelativePath(path.relative(modsRoot, iniPath))
@@ -489,6 +511,12 @@ export class PersistBridgeManager {
 
           const swapInfo = keySwapMap[normName] || {}
           const isSupported = this.isSafeNamespace(variableNamespace)
+          const inferred = inferPersistValueOptions(
+            swapInfo.allowedValues,
+            defaultValue,
+            currentValue,
+            valueHints.get(normName)
+          )
 
           result.variables.push({
             name: varName,
@@ -501,7 +529,12 @@ export class PersistBridgeManager {
               : (!variableNamespace ? '无法解析此变量所属的 3DMigoto namespace' : 'namespace 包含非法字符'),
             defaultValue,
             currentValue,
-            allowedValues: swapInfo.allowedValues || ['0', '1'],
+            allowedValues: inferred.allowedValues,
+            inputKind: inferred.kind,
+            min: inferred.min,
+            max: inferred.max,
+            step: inferred.step,
+            valueSource: inferred.source,
             keybind: swapInfo.keybind,
             iniFile: path.basename(iniPath)
           })
@@ -528,6 +561,12 @@ export class PersistBridgeManager {
             seenVars.add(qualifiedKey)
             const swapInfo = keySwapMap[normName] || {}
             const isSupported = this.isSafeNamespace(namespace)
+            const inferred = inferPersistValueOptions(
+              swapInfo.allowedValues,
+              stateVar.value,
+              constantsMap.get(qualifiedKey)?.value || stateVar.value,
+              valueHints.get(normName)
+            )
             result.variables.push({
               name: stateVar.name,
               canonicalName: normName,
@@ -537,7 +576,12 @@ export class PersistBridgeManager {
               supportError: isSupported ? undefined : 'namespace 包含非法字符',
               defaultValue: stateVar.value,
               currentValue: constantsMap.get(qualifiedKey)?.value || stateVar.value,
-              allowedValues: swapInfo.allowedValues || ['0', '1'],
+              allowedValues: inferred.allowedValues,
+              inputKind: inferred.kind,
+              min: inferred.min,
+              max: inferred.max,
+              step: inferred.step,
+              valueSource: inferred.source,
               keybind: swapInfo.keybind,
               iniFile: path.basename(iniPath)
             })
