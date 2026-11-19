@@ -51,6 +51,7 @@ import {
 } from '../utils/mods-patch'
 import { MoveModModal } from '../components/MoveModModal'
 import { PersistValueControl } from '../components/PersistValueControl'
+import { CharacterAvatar } from './CharacterAvatar'
 
 export const OverlayApp: React.FC = () => {
   const { theme, toggleTheme, palette } = useTheme()
@@ -60,6 +61,7 @@ export const OverlayApp: React.FC = () => {
   const [characters, setCharacters] = useState<string[]>([])
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [selectedCharName, setSelectedCharName] = useState<string | null>(null)
+  const [charScrollEdges, setCharScrollEdges] = useState({ left: false, right: false })
   const [focusedModIndex, setFocusedModIndex] = useState<number>(0)
   const [presets, setPresets] = useState<any[]>([])
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
@@ -158,7 +160,7 @@ export const OverlayApp: React.FC = () => {
   const toggleInFlightRef = useRef<Set<string>>(new Set())
   const [isDraggingStrip, setIsDraggingStrip] = useState<boolean>(false)
 
-  // 角色胶囊条鼠标滚轮横向滚动（将滚轮 deltaY 转换为横向 scrollLeft）
+  // 角色头像轨道滚轮横向滚动（将滚轮 deltaY 转换为横向 scrollLeft）
   const handleCharStripWheel = (e: React.WheelEvent) => {
     if (!charStripRef.current) return
     e.stopPropagation()
@@ -166,7 +168,7 @@ export const OverlayApp: React.FC = () => {
     charStripRef.current.scrollLeft += delta
   }
 
-  // 角色胶囊条鼠标按住抓取拖拽滑动 (Drag to scroll)
+  // 角色头像轨道鼠标按住抓取拖拽滑动 (Drag to scroll)
   const handleCharStripMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || !charStripRef.current) return
     isDraggingCharStrip.current = true
@@ -187,6 +189,23 @@ export const OverlayApp: React.FC = () => {
     isDraggingCharStrip.current = false
     setIsDraggingStrip(false)
   }
+
+  const updateCharScrollEdges = useCallback(() => {
+    const el = charStripRef.current
+    if (!el) {
+      setCharScrollEdges((prev) => (prev.left || prev.right ? { left: false, right: false } : prev))
+      return
+    }
+
+    const maxScroll = el.scrollWidth - el.clientWidth
+    const next = {
+      left: el.scrollLeft > 2,
+      right: el.scrollLeft < maxScroll - 2
+    }
+    setCharScrollEdges((prev) =>
+      prev.left === next.left && prev.right === next.right ? prev : next
+    )
+  }, [])
 
   const handleCharStripMouseLeave = () => {
     isDraggingCharStrip.current = false
@@ -359,7 +378,7 @@ export const OverlayApp: React.FC = () => {
     return idx >= 0 ? idx : 0
   }, [displayCharacters, currentChar])
 
-  // 当选中角色改变或列表重排时，只在横向胶囊容器内部平滑居中滚动当前角色胶囊，绝不触发 window / 页面级抖动
+  // 当选中角色改变或列表重排时，只在头像轨道内部平滑居中当前角色，绝不触发 window / 页面级抖动
   useEffect(() => {
     const container = charStripRef.current
     const btn = selectedCharBtnRef.current
@@ -375,6 +394,13 @@ export const OverlayApp: React.FC = () => {
       behavior: 'smooth'
     })
   }, [currentChar])
+
+  useEffect(() => {
+    updateCharScrollEdges()
+    const handleResize = () => updateCharScrollEdges()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [displayCharacters, updateCharScrollEdges])
 
   const currentMods = useMemo(() => {
     if (!currentChar) return []
@@ -1188,131 +1214,172 @@ export const OverlayApp: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. 角色胶囊滚动条 (CDS 跑道胶囊滑块) */}
+        {/* 2. 角色头像轨道 */}
         <div
           onWheel={handleCharStripWheel}
-          className="px-2.5 py-1.5 border-b border-border/50 flex items-center space-x-1 shrink-0 select-none"
+          className="px-2.5 py-1.5 border-b border-border/50 flex items-center gap-1.5 shrink-0 select-none"
           style={{
             backgroundColor: `color-mix(in srgb, var(--surface) ${Math.round(opacity * 50)}%, transparent)`
           }}
         >
-          {/* ☰ 角色全量浏览气泡按钮 */}
+          {/* 全部角色入口 */}
           <button
             type="button"
             onClick={() => setIsCharDrawerOpen(!isCharDrawerOpen)}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all duration-100 shrink-0 cursor-pointer shadow-2xs mr-0.5 active:scale-95 ${
-              isCharDrawerOpen
-                ? 'bg-primary text-primary-fg border-primary shadow-cds-sm'
-                : 'bg-surface-2/80 text-text-muted hover:text-text hover:bg-surface border-border/80'
-            }`}
+            aria-pressed={isCharDrawerOpen}
+            aria-label="全部角色"
+            className="group w-12 max-[420px]:w-10 shrink-0 flex flex-col items-center gap-1 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-[16px]"
             title="全部角色头像菜单"
           >
-            <Menu className="w-3.5 h-3.5 align-neg-125" />
+            <span
+              className={`w-10 h-10 max-[420px]:w-8 max-[420px]:h-8 p-[2px] rounded-[14px] max-[420px]:rounded-[11px] transition-colors duration-150 ${
+                isCharDrawerOpen ? 'bg-primary shadow-cds-sm' : 'bg-border/50 group-hover:bg-primary/40'
+              }`}
+            >
+              <span
+                className={`w-full h-full rounded-[12px] max-[420px]:rounded-[9px] bg-surface-2 flex items-center justify-center transition-colors ${
+                  isCharDrawerOpen ? 'text-primary' : 'text-text-muted group-hover:text-primary'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4 max-[420px]:w-3.5 max-[420px]:h-3.5 align-neg-125" />
+              </span>
+            </span>
+            <span
+              className={`text-[10px] max-[420px]:text-[9px] leading-none font-title ${
+                isCharDrawerOpen ? 'text-primary font-semibold' : 'text-text-muted group-hover:text-text'
+              }`}
+            >
+              全部
+            </span>
           </button>
 
-          {/* ◀ 左滚动微调按钮 */}
-          <button
-            type="button"
-            onClick={() => charStripRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
-            className="w-5 h-7 rounded-md hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-            title="向左滚动角色列表"
-          >
-            <ChevronLeft className="w-3.5 h-3.5 align-neg-125" />
-          </button>
-
-          {/* 角色横向滚动胶囊容器 */}
-          <div
-            ref={charStripRef}
-            onWheel={handleCharStripWheel}
-            onMouseDown={handleCharStripMouseDown}
-            onMouseMove={handleCharStripMouseMove}
-            onMouseUp={handleCharStripMouseUp}
-            onMouseLeave={handleCharStripMouseLeave}
-            className={`flex items-center space-x-1.5 flex-1 overflow-x-auto scrollbar-none relative py-0.5 ${
-              isDraggingStrip ? 'cursor-grabbing' : 'cursor-grab'
-            }`}
-          >
-            {displayCharacters.map((charName, idx) => {
-              const isSelected = idx === selectedCharIndex
-              const mods = modsData[charName] || []
-              const enabledCount = mods.filter((m) => m.enabled).length
-
-              return (
-                <button
-                  key={charName}
-                  ref={isSelected ? selectedCharBtnRef : undefined}
-                  type="button"
-                  onClick={() => {
-                    if (dragDistance.current > 6) return
-                    setSelectedCharName(charName)
-                    setFocusedModIndex(0)
-                  }}
-                  className={`px-3 py-1 rounded-full text-xs font-medium shrink-0 flex items-center space-x-1.5 transition-all duration-150 border cursor-pointer select-none ${
-                    isSelected
-                      ? 'bg-primary text-primary-fg border-primary shadow-cds-sm font-semibold'
-                      : 'bg-surface-2/70 text-text-muted hover:text-text hover:bg-surface border-border/60 shadow-2xs'
-                  }`}
-                >
-                  <span className="font-title tracking-wide truncate max-w-[80px] pointer-events-none">{charName}</span>
-                  <span
-                    className={`text-[10px] font-mono tabular-nums-strict px-1.5 py-0.2 rounded-full font-bold pointer-events-none ${
-                      isSelected
-                        ? 'bg-white/20 text-white'
-                        : enabledCount > 0
-                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                        : 'bg-surface/80 text-text-muted'
-                    }`}
+          {/* 横向头像轨道 */}
+          <div className="relative flex-1 min-w-0">
+            <div
+              ref={charStripRef}
+              onWheel={handleCharStripWheel}
+              onScroll={updateCharScrollEdges}
+              onMouseDown={handleCharStripMouseDown}
+              onMouseMove={handleCharStripMouseMove}
+              onMouseUp={handleCharStripMouseUp}
+              onMouseLeave={handleCharStripMouseLeave}
+              className={`flex items-start gap-1.5 overflow-x-auto scrollbar-none relative py-0.5 px-0.5 ${
+                isDraggingStrip ? 'cursor-grabbing' : 'cursor-grab'
+              }`}
+            >
+              {displayCharacters.length === 0 ? (
+                <div className="h-14 max-[420px]:h-11 flex items-center gap-2 px-1 text-[10px] text-text-muted">
+                  <span>暂无角色</span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterOnlyWithMods(false)}
+                    className="text-primary hover:underline cursor-pointer font-medium"
                   >
-                    {enabledCount}/{mods.length}
-                  </span>
-                </button>
-              )
-            })}
+                    显示全部
+                  </button>
+                </div>
+              ) : (
+                displayCharacters.map((charName, idx) => {
+                  const isSelected = idx === selectedCharIndex
+                  const mods = modsData[charName] || []
+                  const enabledCount = mods.filter((m) => m.enabled).length
+
+                  return (
+                    <button
+                      key={charName}
+                      ref={isSelected ? selectedCharBtnRef : undefined}
+                      type="button"
+                      onClick={() => {
+                        if (dragDistance.current > 6) return
+                        setSelectedCharName(charName)
+                        setFocusedModIndex(0)
+                      }}
+                      aria-pressed={isSelected}
+                      aria-label={`${charName}，已启用 ${enabledCount} / 共 ${mods.length} 个 Mod`}
+                      title={`${charName} · 已启用 ${enabledCount}/${mods.length}`}
+                      className={`group w-12 max-[420px]:w-10 shrink-0 flex flex-col items-center gap-1 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-[16px] ${
+                        mods.length === 0 ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <CharacterAvatar
+                        name={charName}
+                        src={characterAvatars[charName]}
+                        size="sm"
+                        selected={isSelected}
+                        enabledCount={enabledCount}
+                        totalCount={mods.length}
+                        eager={isSelected}
+                      />
+                      <span
+                        className={`w-full text-center truncate font-title text-[10px] max-[420px]:text-[9px] leading-none pointer-events-none ${
+                          isSelected ? 'text-primary font-semibold' : 'text-text-muted group-hover:text-text'
+                        }`}
+                      >
+                        {charName}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+
+            {charScrollEdges.left && (
+              <button
+                type="button"
+                onClick={() => charStripRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full border border-border/70 bg-surface/95 text-text-muted hover:text-primary shadow-cds-sm flex items-center justify-center cursor-pointer transition-colors"
+                title="向左滚动角色列表"
+              >
+                <ChevronLeft className="w-3.5 h-3.5 align-neg-125" />
+              </button>
+            )}
+
+            {charScrollEdges.right && (
+              <button
+                type="button"
+                onClick={() => charStripRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full border border-border/70 bg-surface/95 text-text-muted hover:text-primary shadow-cds-sm flex items-center justify-center cursor-pointer transition-colors"
+                title="向右滚动角色列表"
+              >
+                <ChevronRight className="w-3.5 h-3.5 align-neg-125" />
+              </button>
+            )}
           </div>
 
-          {/* ▶ 右滚动微调按钮 */}
-          <button
-            type="button"
-            onClick={() => charStripRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
-            className="w-5 h-7 rounded-md hover:bg-surface-2/80 text-text-muted hover:text-primary flex items-center justify-center shrink-0 cursor-pointer transition-colors mr-0.5"
-            title="向右滚动角色列表"
-          >
-            <ChevronRight className="w-3.5 h-3.5 align-neg-125" />
-          </button>
+          {/* 右侧工具按钮 */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setFilterPinnedOnly(!filterPinnedOnly)
+                showToast(filterPinnedOnly ? '已显示全部 Mod' : '仅查看已置顶 Mod')
+              }}
+              className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
+                filterPinnedOnly
+                  ? 'bg-primary/20 text-primary border-primary/40 shadow-cds-sm font-bold'
+                  : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
+              }`}
+              title="只显示已置顶 Mod"
+            >
+              <Pin className={`w-3.5 h-3.5 align-neg-125 ${filterPinnedOnly ? 'fill-current' : ''}`} />
+            </button>
 
-          {/* 置顶过滤按钮 */}
-          <button
-            type="button"
-            onClick={() => {
-              setFilterPinnedOnly(!filterPinnedOnly)
-              showToast(filterPinnedOnly ? '已显示全部 Mod' : '仅查看已置顶 Mod')
-            }}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
-              filterPinnedOnly
-                ? 'bg-primary/20 text-primary border-primary/40 shadow-cds-sm font-bold'
-                : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
-            }`}
-            title="只显示已置顶 Mod"
-          >
-            <Pin className={`w-3.5 h-3.5 align-neg-125 ${filterPinnedOnly ? 'fill-current' : ''}`} />
-          </button>
-
-          {/* 🎯 只显示已安装 Mod 角色过滤 */}
-          <button
-            type="button"
-            onClick={() => {
-              setFilterOnlyWithMods(!filterOnlyWithMods)
-              showToast(filterOnlyWithMods ? '显示所有角色' : '仅显示已安装 Mod 的角色')
-            }}
-            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
-              filterOnlyWithMods
-                ? 'bg-primary/20 text-primary border-primary/40 font-bold'
-                : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
-            }`}
-            title="只显示已安装 Mod 的角色"
-          >
-            <Filter className="w-3.5 h-3.5 align-neg-125" />
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterOnlyWithMods(!filterOnlyWithMods)
+                showToast(filterOnlyWithMods ? '显示所有角色' : '仅显示已安装 Mod 的角色')
+              }}
+              className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-all duration-100 cursor-pointer shadow-2xs active:scale-95 ${
+                filterOnlyWithMods
+                  ? 'bg-primary/20 text-primary border-primary/40 font-bold'
+                  : 'bg-surface-2/80 text-text-muted hover:text-primary border-border/80 hover:bg-surface'
+              }`}
+              title="只显示已安装 Mod 的角色"
+            >
+              <Filter className="w-3.5 h-3.5 align-neg-125" />
+            </button>
+          </div>
         </div>
 
         {/* 3. 过滤与实用工具条 (SegmentedControl + 排序 + 互斥 + 视图) */}
@@ -1879,27 +1946,27 @@ export const OverlayApp: React.FC = () => {
                         setIsCharDrawerOpen(false)
                         setFocusedModIndex(0)
                       }}
+                      aria-pressed={isSelected}
+                      aria-label={`${name}，已启用 ${enabledCount} / 共 ${mods.length} 个 Mod`}
+                      title={`${name} · 已启用 ${enabledCount}/${mods.length}`}
                       className={`flex flex-col items-center p-2.5 rounded-xl border transition-all duration-150 text-center cursor-pointer shadow-2xs ${
                         isSelected
-                          ? 'bg-primary/10 border-primary ring-2 ring-primary/25 shadow-cds-sm font-bold'
+                          ? 'bg-primary/10 border-primary shadow-cds-sm font-bold'
                           : 'bg-surface hover:bg-surface-2 border-border/70 hover:border-primary/40'
                       }`}
                     >
-                      <div className="w-12 h-12 rounded-full overflow-hidden border border-border/80 mb-1.5 relative bg-surface-2/80 flex items-center justify-center shadow-2xs">
-                        {avatar ? (
-                          <img src={`file://${avatar}`} alt="" className="w-full h-full object-cover object-top" />
-                        ) : (
-                          <span className="font-bold text-xs text-text-muted">{name.slice(0, 1)}</span>
-                        )}
-                        {enabledCount > 0 && (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-surface shadow-xs" />
-                        )}
-                      </div>
+                      <CharacterAvatar
+                        name={name}
+                        src={avatar}
+                        size="lg"
+                        selected={isSelected}
+                        enabledCount={enabledCount}
+                        totalCount={mods.length}
+                        eager={isSelected}
+                        className="mb-2"
+                      />
                       <span className="font-title text-xs font-bold text-text truncate max-w-full">
                         {name}
-                      </span>
-                      <span className="text-[10px] text-text-muted font-mono mt-0.5 tabular-nums-strict">
-                        {enabledCount}/{mods.length}
                       </span>
                     </button>
                   )
