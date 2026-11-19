@@ -94,6 +94,7 @@ npm start
 - 一个发版周期内可以有多条功能提交，但**只在发版时改一次版本号**：不要每加一个功能就 bump，也不要攒着等下次一起改
 - 发版流程：`git status` 干净 → 四项检查（`npm test` / `typecheck` / `lint` / `build`）通过 → `npm version <版本> --no-git-tag-version`（同步 `package.json` 与 `package-lock.json`）→ 提交 `chore(release): 版本号改为 x.y.z`，正文列出本版包含的功能提交 → 创建并推送 `v<version>` 标签 → `npm run dist` → 上传安装包到 GitHub Release → 删除本地 `release/` 产物
 - 当前远端为 `origin`（`https://github.com/lanzVw/LZ-Manager.git`），`master` 为唯一分支；`v<version>` 标签与 GitHub Release 已启用，安装包通过 GitHub API 上传，`electron-builder` 的 `publish` 仍为 `null`
+- 发版后的安装包冒烟、代码签名、CI 与自动更新等收尾项见 [`docs/发版收尾清单.md`](docs/发版收尾清单.md)
 
 ## 编码约定
 
