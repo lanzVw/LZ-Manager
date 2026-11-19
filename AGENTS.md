@@ -76,24 +76,24 @@ npm start
 ```
 
 - `npm run dev` 会并发起 Vite dev server + 三个 watch 构建 + Electron，仅开发时使用；`dev:renderer` 单独起 5173 端口
-- `npm run dist`（electron-builder 打 NSIS 安装包，读 `electron-builder.yml`）已在本机验证通过：产物在 `release/<version>/`，安装包为 `LZ-Manager-Setup-<version>.exe`，另有免安装的 `win-unpacked/`。当前体积约 181 MB，主要来自随包 `resources/`（修复器与 `dxcompiler.dll`）。该配置的 `publish: null` 表示当前只做本地打包、不上传，也没有代码签名证书，安装时 Windows 会提示「未知发布者」
+- `npm run dist`（electron-builder 打 NSIS 安装包，读 `electron-builder.yml`）已在本机验证通过：产物在 `release/<version>/`，安装包为 `LZ-Manager-Setup-<version>.exe`，另有免安装的 `win-unpacked/`。当前体积约 183 MB，主要来自随包 `resources/`（修复器与 `dxcompiler.dll`）。该配置的 `publish: null` 表示 electron-builder 不自动上传，GitHub Release 资产需单独上传；当前没有代码签名证书，安装时 Windows 会提示「未知发布者」
 
 ## 版本号与发版
 
-版本号遵循 SemVer（`主.次.修订`），**唯一来源是 `package.json` 的 `version`**：渲染层经 IPC `app:getVersion` 读取，GameBanana 的 User-Agent 也从它派生。不要在代码、文案或 UI 里另写版本字符串——曾出现过顶栏显示 Electron 自身版本（`v44.5.1`）而非应用版本的事故。当前处于 `0.x` 阶段。
+版本号遵循 SemVer（`主.次.修订`），**唯一来源是 `package.json` 的 `version`**：渲染层经 IPC `app:getVersion` 读取，GameBanana 的 User-Agent 也从它派生。不要在代码、文案或 UI 里另写版本字符串——曾出现过顶栏显示 Electron 自身版本（`v44.5.1`）而非应用版本的事故。当前处于 `1.x` 阶段。
 
 每次发版前先判断进位位置，并在发版提交正文写明理由：
 
 | 位 | 触发条件 |
 |---|---|
-| 修订位 `0.1.x` | 只修 bug、修文案或样式瑕疵，不新增功能、不改交互 |
-| 次位 `0.x.0` | 新增功能、调整交互或界面、性能优化、依赖大版本升级 |
+| 修订位 `1.x.y` | 只修 bug、修文案或样式瑕疵，不新增功能、不改交互 |
+| 次位 `1.x.0` | 新增功能、调整交互或界面、性能优化、依赖大版本升级 |
 | 主位 `x.0.0` | `1.0.0` 是首个稳定版；此后只有破坏性变更（配置 JSON 结构、`%APPDATA%\QAQManager` 目录布局、IPC 契约）才进位 |
 
-- `0.x` 阶段的次位允许包含不兼容改动，但必须在提交正文点明，方便回退时判断影响面
+- 进入 `1.x` 后，破坏性变更只允许在主位升级时发生；次位与修订位保持兼容
 - 一个发版周期内可以有多条功能提交，但**只在发版时改一次版本号**：不要每加一个功能就 bump，也不要攒着等下次一起改
-- 发版流程：`git status` 干净 → 四项检查（`npm test` / `typecheck` / `lint` / `build`）通过 → `npm version <版本> --no-git-tag-version`（同步 `package.json` 与 `package-lock.json`）→ 提交 `chore(release): 版本号改为 x.y.z`，正文列出本版包含的功能提交 → 需要安装包时再 `npm run dist`
-- 仓库无 remote、无 git tag，发版不打 tag；接入远端后再补 `v<version>` 标签
+- 发版流程：`git status` 干净 → 四项检查（`npm test` / `typecheck` / `lint` / `build`）通过 → `npm version <版本> --no-git-tag-version`（同步 `package.json` 与 `package-lock.json`）→ 提交 `chore(release): 版本号改为 x.y.z`，正文列出本版包含的功能提交 → 创建并推送 `v<version>` 标签 → `npm run dist` → 上传安装包到 GitHub Release → 删除本地 `release/` 产物
+- 当前远端为 `origin`（`https://github.com/lanzVw/LZ-Manager.git`），`master` 为唯一分支；`v<version>` 标签与 GitHub Release 已启用，安装包通过 GitHub API 上传，`electron-builder` 的 `publish` 仍为 `null`
 
 ## 编码约定
 
@@ -152,5 +152,5 @@ npm start
 - **一个功能一次提交**：每完成一个功能就立即提交，不要攒到最后一次性提交。攒着会让多个功能的改动在同一批文件里交织（同一文件的 hunk 分属不同功能、`types.ts` 里两批类型混在一起），事后无法拆成独立提交——强行拆会产出编译不过的中间提交，`git bisect` 与单独 checkout 都会失败。提交信息用 Conventional Commits + 中文描述，正文按功能分条说明改了什么
 - 不要修改 `dist/`（构建产物，已在 `.gitignore`）与 `resources/binaries/*.exe`（由同目录 `.cs` 源码编译产出）；不要提交密钥或 `.env.local`
 - 仓库当前无 CI 配置（无 `.github/workflows/`、无 `.gitlab-ci.yml`），所有检查都在本地手动执行
-- 仓库无 remote，`master` 为唯一分支，历史只在本地；动手前先 `git status` 确认，不要覆盖未提交的改动
+- `master` 为唯一分支，发布历史已同步到 `origin`；动手前先 `git status` 确认，不要覆盖未提交的改动
 - 项目说明统一维护在 `AGENTS.md`；`CLAUDE.md` 只有一行 `@AGENTS.md` 转发，**不要在 `CLAUDE.md` 正文写项目说明**——一旦它存在且不含该 import，Claude Code 会改为只读 `CLAUDE.md` 并静默忽略 `AGENTS.md`
