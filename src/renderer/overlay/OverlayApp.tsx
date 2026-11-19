@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
 import {
   RotateCw,
   X,
@@ -52,6 +52,71 @@ import {
 import { MoveModModal } from '../components/MoveModModal'
 import { PersistValueControl } from '../components/PersistValueControl'
 import { CharacterAvatar } from './CharacterAvatar'
+import {
+  computeCenteredScrollLeft,
+  normalizeWheelScrollDelta,
+  useAnimatedHorizontalScroll
+} from './useAnimatedHorizontalScroll'
+import {
+  filterOverlayCharacterNames,
+  OVERLAY_LAST_CHARACTER_STORAGE_KEY,
+  parseLastCharacterByGame,
+  pickUniqueEnabledOfficialCharacter,
+  withLastCharacterForGame
+} from './overlay-character-selection'
+import {
+  getModEnterDelayMs,
+  MOD_SWITCH_MOTION_CLEAR_MS,
+  resolveCharacterSwitchDirection,
+  type CharacterSwitchDirection
+} from './overlay-mod-motion'
+
+const compareCharactersForDisplay = (
+  a: string,
+  b: string,
+  modsByCharacter: Record<string, ReadonlyArray<{ enabled?: boolean }> | undefined>
+): number => {
+  const modsA = modsByCharacter[a] || []
+  const modsB = modsByCharacter[b] || []
+  const enabledA = modsA.filter((mod) => mod.enabled).length
+  const enabledB = modsB.filter((mod) => mod.enabled).length
+
+  const tierA = enabledA > 0 ? 0 : modsA.length > 0 ? 1 : 2
+  const tierB = enabledB > 0 ? 0 : modsB.length > 0 ? 1 : 2
+  if (tierA !== tierB) return tierA - tierB
+
+  return a.localeCompare(b, 'zh-Hans-CN')
+}
+
+const CHAR_STRIP_CENTER_DURATION_MS = 280
+const CHAR_STRIP_SNAP_DURATION_MS = 200
+const CHAR_STRIP_WHEEL_GESTURE_DELAY_MS = 180
+const CHAR_STRIP_EDGE_FADE_PX = 18
+
+type ModSwitchMotion = {
+  key: string
+  direction: CharacterSwitchDirection
+}
+
+const findClosestCharacterButton = (strip: HTMLElement): HTMLButtonElement | null => {
+  const stripRect = strip.getBoundingClientRect()
+  if (stripRect.width <= 0) return null
+  const centerX = stripRect.left + stripRect.width / 2
+  let closest: HTMLButtonElement | null = null
+  let closestDistance = Number.POSITIVE_INFINITY
+
+  for (const button of strip.querySelectorAll<HTMLButtonElement>('button[data-character-name]')) {
+    const rect = button.getBoundingClientRect()
+    if (rect.width <= 0) continue
+    const distance = Math.abs(rect.left + rect.width / 2 - centerX)
+    if (distance < closestDistance) {
+      closest = button
+      closestDistance = distance
+    }
+  }
+
+  return closest
+}
 
 export const OverlayApp: React.FC = () => {
   const { theme, toggleTheme, palette } = useTheme()
@@ -59,10 +124,12 @@ export const OverlayApp: React.FC = () => {
   const [activeGame, setActiveGame] = useState<any>(null)
   const [modsData, setModsData] = useState<Record<string, any[]>>({})
   const [characters, setCharacters] = useState<string[]>([])
+  const [officialCharacters, setOfficialCharacters] = useState<string[]>([])
   const [characterAvatars, setCharacterAvatars] = useState<Record<string, string>>({})
   const [selectedCharName, setSelectedCharName] = useState<string | null>(null)
   const [charScrollEdges, setCharScrollEdges] = useState({ left: false, right: false })
   const [focusedModIndex, setFocusedModIndex] = useState<number>(0)
+  const [modSwitchMotion, setModSwitchMotion] = useState<ModSwitchMotion | null>(null)
   const [presets, setPresets] = useState<any[]>([])
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
   const [reloading, setReloading] = useState<boolean>(false)
@@ -148,69 +215,90 @@ export const OverlayApp: React.FC = () => {
   const modListContainerRef = useRef<HTMLDivElement>(null)
   const charStripRef = useRef<HTMLDivElement>(null)
   const selectedCharBtnRef = useRef<HTMLButtonElement | null>(null)
+  const charSelectionPinnedRef = useRef<boolean>(true)
+  const charUserScrollActiveRef = useRef<boolean>(false)
+  const charWheelGestureLockedRef = useRef<boolean>(false)
+  const charWheelGestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentCharRef = useRef<string | null>(null)
+  const displayCharactersRef = useRef<string[]>([])
+  const scrollSelectionRef = useRef<string | null>(null)
   const isDraggingCharStrip = useRef<boolean>(false)
   const dragStartX = useRef<number>(0)
   const dragScrollLeft = useRef<number>(0)
   const dragDistance = useRef<number>(0)
   const loadSeqRef = useRef<number>(0)
+  const selectionEpochRef = useRef<number>(0)
+  const activeGameIdRef = useRef<string | null>(null)
+  const filterOnlyWithModsRef = useRef<boolean>(filterOnlyWithMods)
   const detailLoadSeqRef = useRef<number>(0)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSelfDispatchTime = useRef<number>(0)
   // 同一 Mod 连点会触发两次 rename，第二次的旧路径已经失效；用稳定 id 做单飞锁
   const toggleInFlightRef = useRef<Set<string>>(new Set())
   const [isDraggingStrip, setIsDraggingStrip] = useState<boolean>(false)
+  const {
+    scrollTo: scrollCharStripTo,
+    stop: stopCharStripScroll
+  } = useAnimatedHorizontalScroll(charStripRef)
 
-  // 角色头像轨道滚轮横向滚动（将滚轮 deltaY 转换为横向 scrollLeft）
-  const handleCharStripWheel = (e: React.WheelEvent) => {
-    if (!charStripRef.current) return
-    e.stopPropagation()
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-    charStripRef.current.scrollLeft += delta
-  }
+  useEffect(() => {
+    activeGameIdRef.current = activeGame?.id || null
+  }, [activeGame?.id])
 
-  // 角色头像轨道鼠标按住抓取拖拽滑动 (Drag to scroll)
-  const handleCharStripMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0 || !charStripRef.current) return
-    isDraggingCharStrip.current = true
-    setIsDraggingStrip(true)
-    dragStartX.current = e.clientX
-    dragScrollLeft.current = charStripRef.current.scrollLeft
-    dragDistance.current = 0
-  }
+  useEffect(() => {
+    filterOnlyWithModsRef.current = filterOnlyWithMods
+  }, [filterOnlyWithMods])
 
-  const handleCharStripMouseMove = (e: React.MouseEvent) => {
-    if (!isDraggingCharStrip.current || !charStripRef.current) return
-    const dx = e.clientX - dragStartX.current
-    dragDistance.current += Math.abs(dx)
-    charStripRef.current.scrollLeft = dragScrollLeft.current - dx
-  }
-
-  const handleCharStripMouseUp = () => {
-    isDraggingCharStrip.current = false
-    setIsDraggingStrip(false)
-  }
-
-  const updateCharScrollEdges = useCallback(() => {
-    const el = charStripRef.current
-    if (!el) {
-      setCharScrollEdges((prev) => (prev.left || prev.right ? { left: false, right: false } : prev))
-      return
+  const rememberCharacterForGame = useCallback((gameId: string | null | undefined, charName: string) => {
+    if (!gameId || !charName) return
+    try {
+      const map = parseLastCharacterByGame(
+        localStorage.getItem(OVERLAY_LAST_CHARACTER_STORAGE_KEY)
+      )
+      localStorage.setItem(
+        OVERLAY_LAST_CHARACTER_STORAGE_KEY,
+        JSON.stringify(withLastCharacterForGame(map, gameId, charName))
+      )
+    } catch (_) {
+      /* localStorage 不可用时不影响角色切换 */
     }
-
-    const maxScroll = el.scrollWidth - el.clientWidth
-    const next = {
-      left: el.scrollLeft > 2,
-      right: el.scrollLeft < maxScroll - 2
-    }
-    setCharScrollEdges((prev) =>
-      prev.left === next.left && prev.right === next.right ? prev : next
-    )
   }, [])
 
-  const handleCharStripMouseLeave = () => {
-    isDraggingCharStrip.current = false
-    setIsDraggingStrip(false)
-  }
+  const readLastCharacterForGame = useCallback((gameId: string | null | undefined): string | null => {
+    if (!gameId) return null
+    try {
+      return parseLastCharacterByGame(
+        localStorage.getItem(OVERLAY_LAST_CHARACTER_STORAGE_KEY)
+      )[gameId] || null
+    } catch (_) {
+      return null
+    }
+  }, [])
+
+  const selectCharacter = useCallback((charName: string | null, gameId?: string | null) => {
+    const previousCharacter = currentCharRef.current
+    if (!charName) {
+      setModSwitchMotion(null)
+    } else if (charName !== previousCharacter) {
+      const targetGameId = gameId ?? activeGameIdRef.current
+      setModSwitchMotion({
+        key: `${targetGameId || 'none'}:${charName}`,
+        direction: resolveCharacterSwitchDirection(
+          previousCharacter,
+          charName,
+          displayCharactersRef.current
+        )
+      })
+    }
+
+    // 手动点选会递增代次，异步加载中的自动选择据此让位给用户。
+    selectionEpochRef.current += 1
+    currentCharRef.current = charName
+    setSelectedCharName(charName)
+    if (charName) {
+      rememberCharacterForGame(gameId ?? activeGameIdRef.current, charName)
+    }
+  }, [rememberCharacterForGame])
 
   // 严格杜绝 window / document 级滚动，防止任何子元素导致悬浮窗整体布局外移
   useEffect(() => {
@@ -252,8 +340,9 @@ export const OverlayApp: React.FC = () => {
   }, [])
 
   // 1. 初始化及刷新数据加载（loadSeqRef 序号守卫：onGameChanged 与 onOverlayShown 并发触发时丢弃过期段）
-  const loadData = useCallback(async (forcedGameId?: string) => {
+  const loadData = useCallback(async (forcedGameId?: string, autoSelect = false) => {
     const seq = ++loadSeqRef.current
+    const selectionEpoch = selectionEpochRef.current
     try {
       const cfg = await window.lz.getConfig()
       if (seq !== loadSeqRef.current) return
@@ -268,11 +357,62 @@ export const OverlayApp: React.FC = () => {
         cfg.games?.[0]
       setActiveGame(current)
 
-      const mods = await window.lz.scanMods()
+      const gameKey = String(current?.id || '').toLowerCase()
+      const isZzz = gameKey === 'zzz' || gameKey === '19567'
+      // 名单与扫描并行，避免为了自动选择额外串行等待一次 IPC。
+      const rosterPromise: Promise<any[]> =
+        typeof window.lz.getGameBananaCharacters === 'function'
+          ? window.lz.getGameBananaCharacters(current.id)
+              .then((list) => (Array.isArray(list) ? list : []))
+              .catch((err) => {
+                console.warn('Failed to load official character roster:', err)
+                return []
+              })
+          : Promise.resolve([])
+
+      const [mods, roster] = await Promise.all([window.lz.scanMods(), rosterPromise])
       if (seq !== loadSeqRef.current) return
       setModsData(mods || {})
       const charList = Object.keys(mods || {})
       setCharacters(charList)
+      const officialNames = roster
+        .filter((c: any) => c && c.id !== 'all' && typeof c.name === 'string' && c.name.trim())
+        .map((c: any) => c.name as string)
+      setOfficialCharacters(officialNames)
+      const overlayCharacterNames = filterOverlayCharacterNames(charList, officialNames)
+
+      if (autoSelect && seq === loadSeqRef.current && selectionEpochRef.current === selectionEpoch) {
+        // 名单请求期间用户可能已经手动点选；此时自动选择必须让位。
+        if (selectionEpochRef.current === selectionEpoch) {
+          const uniqueChar = isZzz
+            ? pickUniqueEnabledOfficialCharacter(mods || {}, officialNames)
+            : null
+
+          const storedChar = readLastCharacterForGame(current?.id)
+          const storedMods = storedChar ? mods?.[storedChar] : undefined
+          const canRestoreStored =
+            Boolean(storedChar && overlayCharacterNames.includes(storedChar)) &&
+            Array.isArray(storedMods) &&
+            (!filterOnlyWithModsRef.current || storedMods.length > 0)
+
+          const firstVisibleChar =
+            [...overlayCharacterNames]
+              .filter(
+                (name) =>
+                  !filterOnlyWithModsRef.current || (mods?.[name] || []).length > 0
+              )
+              .sort((a, b) => compareCharactersForDisplay(a, b, mods || {}))[0] || null
+
+          const nextChar =
+            uniqueChar ||
+            (canRestoreStored ? storedChar : null) ||
+            firstVisibleChar
+          if (nextChar) {
+            selectCharacter(nextChar, current?.id)
+            setFocusedModIndex(0)
+          }
+        }
+      }
 
       const presetData = await window.lz.getPresets()
       if (seq !== loadSeqRef.current) return
@@ -286,7 +426,7 @@ export const OverlayApp: React.FC = () => {
     } catch (err) {
       console.error('Failed to load overlay data:', err)
     }
-  }, [])
+  }, [readLastCharacterForGame, selectCharacter])
 
   // 预设变更只影响方案列表与激活标识，走 loadData 会连带重扫头像与配置，代价过高
   const refreshPresets = useCallback(async () => {
@@ -300,22 +440,26 @@ export const OverlayApp: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    loadData()
+    loadData(undefined, true)
 
     const unsubGame = window.lz.onGameChanged?.(async (data: any) => {
       if (data && data.gameId) {
-        setSelectedCharName(null)
-        setFocusedModIndex(0)
-        setCharSearchQuery('')
-        setStatusFilter('all')
-        setActiveDetailMod(null)
-        setActiveModDetails(null)
-        await loadData(data.gameId)
+        const isGameSwitch = data.gameId !== activeGameIdRef.current
+        if (isGameSwitch) {
+          selectCharacter(null, data.gameId)
+          setFocusedModIndex(0)
+          setCharSearchQuery('')
+          setStatusFilter('all')
+          setActiveDetailMod(null)
+          setActiveModDetails(null)
+        }
+        // 修复、重置等操作也会广播 game:changed；同游戏刷新不能移动当前角色。
+        await loadData(data.gameId, isGameSwitch)
       }
     })
 
     const unsubShow = window.lz.onOverlayShown?.(async () => {
-      await loadData()
+      await loadData(undefined, true)
     })
 
     const unsubPresets = window.lz.onPresetsChanged?.(async () => {
@@ -334,31 +478,24 @@ export const OverlayApp: React.FC = () => {
       unsubShow?.()
       unsubPresets?.()
     }
-  }, [loadData, refreshPresets])
+  }, [loadData, refreshPresets, selectCharacter])
 
   // 智能三梯队角色排序：已启用(enabledCount > 0) -> 已安装(total > 0) -> 空角色(total === 0)，同梯队按拼音 A-Z 排序
   const sortedCharacters = useMemo(() => {
-    const list = [...characters]
-    list.sort((a, b) => {
-      const modsA = modsData[a] || []
-      const modsB = modsData[b] || []
-      const enabledA = modsA.filter((m) => m.enabled).length
-      const enabledB = modsB.filter((m) => m.enabled).length
-
-      const tierA = enabledA > 0 ? 0 : modsA.length > 0 ? 1 : 2
-      const tierB = enabledB > 0 ? 0 : modsB.length > 0 ? 1 : 2
-      if (tierA !== tierB) return tierA - tierB
-
-      return a.localeCompare(b, 'zh-Hans-CN')
-    })
+    const list = filterOverlayCharacterNames(characters, officialCharacters)
+    list.sort((a, b) => compareCharactersForDisplay(a, b, modsData))
     return list
-  }, [characters, modsData])
+  }, [characters, modsData, officialCharacters])
 
   // 显示的角色列表（结合 filterOnlyWithMods 过滤）
   const displayCharacters = useMemo(() => {
     if (!filterOnlyWithMods) return sortedCharacters
     return sortedCharacters.filter((c) => (modsData[c] || []).length > 0)
   }, [sortedCharacters, modsData, filterOnlyWithMods])
+
+  useEffect(() => {
+    displayCharactersRef.current = displayCharacters
+  }, [displayCharacters])
 
   // 当前选中的角色：以 selectedCharName 作为不可动摇的核心锚点，只要该角色还在列表中就绝不更换！
   const currentChar = useMemo(() => {
@@ -378,29 +515,249 @@ export const OverlayApp: React.FC = () => {
     return idx >= 0 ? idx : 0
   }, [displayCharacters, currentChar])
 
-  // 当选中角色改变或列表重排时，只在头像轨道内部平滑居中当前角色，绝不触发 window / 页面级抖动
   useEffect(() => {
-    const container = charStripRef.current
-    const btn = selectedCharBtnRef.current
-    if (!container || !btn || isDraggingCharStrip.current) return
-
-    const containerWidth = container.clientWidth
-    const btnLeft = btn.offsetLeft
-    const btnWidth = btn.offsetWidth
-    const targetLeft = btnLeft - containerWidth / 2 + btnWidth / 2
-
-    container.scrollTo({
-      left: Math.max(0, targetLeft),
-      behavior: 'smooth'
-    })
+    currentCharRef.current = currentChar
   }, [currentChar])
+
+  useLayoutEffect(() => {
+    const container = modListContainerRef.current
+    if (container) container.scrollTop = 0
+  }, [currentChar, activeGame?.id])
+
+  useEffect(() => {
+    if (!modSwitchMotion) return
+    const timer = setTimeout(() => setModSwitchMotion(null), MOD_SWITCH_MOTION_CLEAR_MS)
+    return () => clearTimeout(timer)
+  }, [modSwitchMotion])
+
+  const stepCharacterSelection = useCallback((direction: -1 | 1) => {
+    const nextIndex = selectedCharIndex + direction
+    const nextChar = displayCharacters[nextIndex]
+    if (!nextChar) return
+
+    stopCharStripScroll()
+    charUserScrollActiveRef.current = false
+    charSelectionPinnedRef.current = true
+    selectCharacter(nextChar)
+    setFocusedModIndex(0)
+  }, [displayCharacters, selectedCharIndex, selectCharacter, stopCharStripScroll])
+
+  const updateCharScrollEdges = useCallback(() => {
+    const el = charStripRef.current
+    if (!el) {
+      setCharScrollEdges((prev) => (prev.left || prev.right ? { left: false, right: false } : prev))
+      return
+    }
+
+    const maxScroll = el.scrollWidth - el.clientWidth
+    const next = {
+      left: el.scrollLeft > 2,
+      right: el.scrollLeft < maxScroll - 2
+    }
+    setCharScrollEdges((prev) =>
+      prev.left === next.left && prev.right === next.right ? prev : next
+    )
+  }, [])
+
+  const scrollCharacterButtonToCenter = useCallback((
+    button: HTMLButtonElement | null,
+    durationMs = CHAR_STRIP_CENTER_DURATION_MS
+  ) => {
+    const container = charStripRef.current
+    if (!container || !button || !button.isConnected) return
+
+    const target = computeCenteredScrollLeft(
+      container.clientWidth,
+      button.offsetLeft,
+      button.offsetWidth,
+      container.scrollWidth - container.clientWidth
+    )
+    scrollCharStripTo(target, durationMs)
+  }, [scrollCharStripTo])
+
+  const finishCharStripScroll = useCallback(() => {
+    const strip = charStripRef.current
+    const closest = strip ? findClosestCharacterButton(strip) : null
+    const charName = closest?.dataset.characterName || null
+
+    charUserScrollActiveRef.current = false
+    charSelectionPinnedRef.current = true
+    if (!closest || !charName) return
+
+    scrollSelectionRef.current = charName
+    if (closest.getAttribute('aria-pressed') !== 'true') {
+      selectCharacter(charName)
+      return
+    }
+
+    scrollCharacterButtonToCenter(closest, CHAR_STRIP_SNAP_DURATION_MS)
+  }, [scrollCharacterButtonToCenter, selectCharacter])
+
+  const beginCharStripScroll = useCallback(() => {
+    if (!charUserScrollActiveRef.current) {
+      stopCharStripScroll()
+      scrollSelectionRef.current = currentCharRef.current
+      charUserScrollActiveRef.current = true
+      charSelectionPinnedRef.current = false
+    }
+  }, [stopCharStripScroll])
+
+  const syncCenteredCharacterFromScroll = useCallback(() => {
+    const strip = charStripRef.current
+    const closest = strip ? findClosestCharacterButton(strip) : null
+    const charName = closest?.dataset.characterName || null
+    if (!closest || !charName || charName === scrollSelectionRef.current) return
+
+    scrollSelectionRef.current = charName
+    if (closest.getAttribute('aria-pressed') !== 'true') {
+      selectCharacter(charName)
+    }
+  }, [selectCharacter])
+
+  const releaseCharWheelGesture = useCallback(() => {
+    if (charWheelGestureTimerRef.current !== null) {
+      clearTimeout(charWheelGestureTimerRef.current)
+    }
+    charWheelGestureTimerRef.current = setTimeout(() => {
+      charWheelGestureTimerRef.current = null
+      charWheelGestureLockedRef.current = false
+    }, CHAR_STRIP_WHEEL_GESTURE_DELAY_MS)
+  }, [])
+
+  const applyCharStripWheel = useCallback((deltaX: number, deltaY: number, deltaMode: number) => {
+    const strip = charStripRef.current
+    if (!strip || isDraggingCharStrip.current) return
+    const delta = normalizeWheelScrollDelta(deltaX, deltaY, deltaMode, strip.clientWidth)
+    if (delta === 0) return
+
+    if (charWheelGestureLockedRef.current) {
+      releaseCharWheelGesture()
+      return
+    }
+
+    charWheelGestureLockedRef.current = true
+    releaseCharWheelGesture()
+    stepCharacterSelection(delta > 0 ? 1 : -1)
+  }, [releaseCharWheelGesture, stepCharacterSelection])
+
+  const handleCharStripWheel = (e: React.WheelEvent) => {
+    e.stopPropagation()
+    applyCharStripWheel(e.deltaX, e.deltaY, e.deltaMode)
+  }
+
+  // React 的 wheel 监听是被动的，无法阻止浏览器原生横滚；原生监听避免动画与默认滚动叠加。
+  useEffect(() => {
+    const strip = charStripRef.current
+    if (!strip) return
+
+    const handleNativeWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      applyCharStripWheel(event.deltaX, event.deltaY, event.deltaMode)
+    }
+
+    strip.addEventListener('wheel', handleNativeWheel, { passive: false })
+    return () => strip.removeEventListener('wheel', handleNativeWheel)
+  }, [applyCharStripWheel])
+
+  const handleCharStripMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 || !charStripRef.current) return
+    stopCharStripScroll()
+    charUserScrollActiveRef.current = false
+    charSelectionPinnedRef.current = true
+    isDraggingCharStrip.current = true
+    setIsDraggingStrip(true)
+    dragStartX.current = e.clientX
+    dragScrollLeft.current = charStripRef.current.scrollLeft
+    dragDistance.current = 0
+  }
+
+  const handleCharStripMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingCharStrip.current || !charStripRef.current) return
+    const dx = e.clientX - dragStartX.current
+    dragDistance.current += Math.abs(dx)
+    if (Math.abs(dx) > 3 && !charUserScrollActiveRef.current) {
+      beginCharStripScroll()
+    }
+    charStripRef.current.scrollLeft = dragScrollLeft.current - dx
+  }
+
+  const handleCharStripMouseUp = () => {
+    if (!isDraggingCharStrip.current) return
+    isDraggingCharStrip.current = false
+    setIsDraggingStrip(false)
+    if (charUserScrollActiveRef.current) finishCharStripScroll()
+  }
+
+  const handleCharStripMouseLeave = () => {
+    if (!isDraggingCharStrip.current) return
+    isDraggingCharStrip.current = false
+    setIsDraggingStrip(false)
+    if (charUserScrollActiveRef.current) finishCharStripScroll()
+  }
+
+  const handleCharStripScroll = useCallback(() => {
+    updateCharScrollEdges()
+    if (charUserScrollActiveRef.current) syncCenteredCharacterFromScroll()
+  }, [syncCenteredCharacterFromScroll, updateCharScrollEdges])
+
+  const charStripMaskImage = useMemo(() => {
+    const leftFade = charScrollEdges.left ? CHAR_STRIP_EDGE_FADE_PX : 0
+    const rightFade = charScrollEdges.right ? CHAR_STRIP_EDGE_FADE_PX : 0
+    return `linear-gradient(to right, transparent 0, black ${leftFade}px, black calc(100% - ${rightFade}px), transparent 100%)`
+  }, [charScrollEdges.left, charScrollEdges.right])
+
+  const centerSelectedCharacter = useCallback((durationMs = CHAR_STRIP_CENTER_DURATION_MS) => {
+    scrollCharacterButtonToCenter(selectedCharBtnRef.current, durationMs)
+  }, [scrollCharacterButtonToCenter])
+
+  // 选中项变化时在轨道内部居中；滚动选角期间由滚动轴自行接管
+  useEffect(() => {
+    if (charUserScrollActiveRef.current) return
+    charSelectionPinnedRef.current = true
+    const frame = requestAnimationFrame(() => {
+      if (
+        charSelectionPinnedRef.current &&
+        !charUserScrollActiveRef.current &&
+        !isDraggingCharStrip.current
+      ) {
+        centerSelectedCharacter()
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [centerSelectedCharacter, currentChar, displayCharacters])
 
   useEffect(() => {
     updateCharScrollEdges()
-    const handleResize = () => updateCharScrollEdges()
+  }, [displayCharacters, updateCharScrollEdges])
+
+  useEffect(() => {
+    const strip = charStripRef.current
+    if (!strip) return
+
+    const handleResize = () => {
+      updateCharScrollEdges()
+      if (charSelectionPinnedRef.current) centerSelectedCharacter(CHAR_STRIP_SNAP_DURATION_MS)
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(handleResize)
+      observer.observe(strip)
+      return () => observer.disconnect()
+    }
+
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [displayCharacters, updateCharScrollEdges])
+  }, [centerSelectedCharacter, updateCharScrollEdges])
+
+  useEffect(() => {
+    return () => {
+      if (charWheelGestureTimerRef.current !== null) {
+        clearTimeout(charWheelGestureTimerRef.current)
+        charWheelGestureTimerRef.current = null
+      }
+    }
+  }, [])
 
   const currentMods = useMemo(() => {
     if (!currentChar) return []
@@ -466,6 +823,18 @@ export const OverlayApp: React.FC = () => {
 
     return list
   }, [currentChar, modsData, statusFilter, filterPinnedOnly, modSortMode, isReverseOrder, pinnedMods])
+
+  const modContentKey = `${activeGame?.id || 'none'}:${currentChar || 'empty'}`
+  const activeModSwitchMotion =
+    modSwitchMotion?.key === modContentKey ? modSwitchMotion : null
+  const modEnterDirectionClass = activeModSwitchMotion
+    ? activeModSwitchMotion.direction > 0
+      ? 'overlay-mod-enter-next'
+      : activeModSwitchMotion.direction < 0
+        ? 'overlay-mod-enter-prev'
+        : 'overlay-mod-enter-neutral'
+    : ''
+  const modEnterItemClass = activeModSwitchMotion ? 'overlay-mod-enter-item' : ''
 
   // 整个悬浮窗窗口大小缩放调节 (A- / 100% / A+)
   const handleScaleChange = async (delta: number) => {
@@ -977,13 +1346,13 @@ export const OverlayApp: React.FC = () => {
       } else if (e.key === 'ArrowLeft') {
         const prevIdx = selectedCharIndex > 0 ? selectedCharIndex - 1 : displayCharacters.length - 1
         if (displayCharacters[prevIdx]) {
-          setSelectedCharName(displayCharacters[prevIdx])
+          selectCharacter(displayCharacters[prevIdx])
         }
         setFocusedModIndex(0)
       } else if (e.key === 'ArrowRight') {
         const nextIdx = selectedCharIndex < displayCharacters.length - 1 ? selectedCharIndex + 1 : 0
         if (displayCharacters[nextIdx]) {
-          setSelectedCharName(displayCharacters[nextIdx])
+          selectCharacter(displayCharacters[nextIdx])
         }
         setFocusedModIndex(0)
       } else if (e.key === 'Enter') {
@@ -1002,7 +1371,7 @@ export const OverlayApp: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentMods, focusedModIndex, displayCharacters, selectedCharIndex, activeDetailMod, isCharDrawerOpen, isSettingsOpen])
+  }, [currentMods, focusedModIndex, displayCharacters, selectedCharIndex, activeDetailMod, isCharDrawerOpen, isSettingsOpen, selectCharacter])
 
   // 手柄 Gamepad API 轮询
   useEffect(() => {
@@ -1040,14 +1409,14 @@ export const OverlayApp: React.FC = () => {
           } else if (dpadLeft) {
             const prevIdx = selectedCharIndex > 0 ? selectedCharIndex - 1 : displayCharacters.length - 1
             if (displayCharacters[prevIdx]) {
-              setSelectedCharName(displayCharacters[prevIdx])
+              selectCharacter(displayCharacters[prevIdx])
             }
             setFocusedModIndex(0)
             lastGamepadInputTime.current = now
           } else if (dpadRight) {
             const nextIdx = selectedCharIndex < displayCharacters.length - 1 ? selectedCharIndex + 1 : 0
             if (displayCharacters[nextIdx]) {
-              setSelectedCharName(displayCharacters[nextIdx])
+              selectCharacter(displayCharacters[nextIdx])
             }
             setFocusedModIndex(0)
             lastGamepadInputTime.current = now
@@ -1083,7 +1452,7 @@ export const OverlayApp: React.FC = () => {
       window.removeEventListener('gamepadconnected', onConnect)
       window.removeEventListener('gamepaddisconnected', onDisconnect)
     }
-  }, [currentMods, focusedModIndex, displayCharacters, selectedCharIndex, activeDetailMod, isCharDrawerOpen, isSettingsOpen])
+  }, [currentMods, focusedModIndex, displayCharacters, selectedCharIndex, activeDetailMod, isCharDrawerOpen, isSettingsOpen, selectCharacter])
 
   return (
     <div
@@ -1257,15 +1626,18 @@ export const OverlayApp: React.FC = () => {
           <div className="relative flex-1 min-w-0">
             <div
               ref={charStripRef}
-              onWheel={handleCharStripWheel}
-              onScroll={updateCharScrollEdges}
+              onScroll={handleCharStripScroll}
               onMouseDown={handleCharStripMouseDown}
               onMouseMove={handleCharStripMouseMove}
               onMouseUp={handleCharStripMouseUp}
               onMouseLeave={handleCharStripMouseLeave}
-              className={`flex items-start gap-1.5 overflow-x-auto scrollbar-none relative py-0.5 px-0.5 ${
+              className={`flex items-start gap-1.5 overflow-x-auto scrollbar-none relative py-1 ${
                 isDraggingStrip ? 'cursor-grabbing' : 'cursor-grab'
               }`}
+              style={{
+                WebkitMaskImage: charStripMaskImage,
+                maskImage: charStripMaskImage
+              }}
             >
               {displayCharacters.length === 0 ? (
                 <div className="h-14 max-[420px]:h-11 flex items-center gap-2 px-1 text-[10px] text-text-muted">
@@ -1279,71 +1651,95 @@ export const OverlayApp: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                displayCharacters.map((charName, idx) => {
-                  const isSelected = idx === selectedCharIndex
-                  const mods = modsData[charName] || []
-                  const enabledCount = mods.filter((m) => m.enabled).length
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 w-[calc(50%_-_30px)] max-[420px]:w-[calc(50%_-_26px)]"
+                  />
+                  {displayCharacters.map((charName, idx) => {
+                    const isSelected = idx === selectedCharIndex
+                    const mods = modsData[charName] || []
+                    const enabledCount = mods.filter((m) => m.enabled).length
 
-                  return (
-                    <button
-                      key={charName}
-                      ref={isSelected ? selectedCharBtnRef : undefined}
-                      type="button"
-                      onClick={() => {
-                        if (dragDistance.current > 6) return
-                        setSelectedCharName(charName)
-                        setFocusedModIndex(0)
-                      }}
-                      aria-pressed={isSelected}
-                      aria-label={`${charName}，已启用 ${enabledCount} / 共 ${mods.length} 个 Mod`}
-                      title={`${charName} · 已启用 ${enabledCount}/${mods.length}`}
-                      className={`group w-12 max-[420px]:w-10 shrink-0 flex flex-col items-center gap-1 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-[16px] ${
-                        mods.length === 0 ? 'opacity-60' : ''
-                      }`}
-                    >
-                      <CharacterAvatar
-                        name={charName}
-                        src={characterAvatars[charName]}
-                        size="sm"
-                        selected={isSelected}
-                        enabledCount={enabledCount}
-                        totalCount={mods.length}
-                        eager={isSelected}
-                      />
-                      <span
-                        className={`w-full text-center truncate font-title text-[10px] max-[420px]:text-[9px] leading-none pointer-events-none ${
-                          isSelected ? 'text-primary font-semibold' : 'text-text-muted group-hover:text-text'
+                    return (
+                      <button
+                        key={charName}
+                        ref={isSelected ? selectedCharBtnRef : undefined}
+                        data-character-name={charName}
+                        type="button"
+                        onClick={() => {
+                          if (dragDistance.current > 6) return
+                          selectCharacter(charName)
+                          setFocusedModIndex(0)
+                        }}
+                        aria-pressed={isSelected}
+                        aria-label={`${charName}，已启用 ${enabledCount} / 共 ${mods.length} 个 Mod`}
+                        title={`${charName} · 已启用 ${enabledCount}/${mods.length}`}
+                        className={`group w-12 max-[420px]:w-10 shrink-0 flex flex-col items-center gap-1 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-[16px] ${
+                          mods.length === 0 ? 'opacity-60' : ''
                         }`}
                       >
-                        {charName}
-                      </span>
-                    </button>
-                  )
-                })
+                        <CharacterAvatar
+                          name={charName}
+                          src={characterAvatars[charName]}
+                          size="sm"
+                          selected={isSelected}
+                          enabledCount={enabledCount}
+                          totalCount={mods.length}
+                          eager={isSelected}
+                          emphasizeSelected
+                        />
+                        <span
+                          className={`w-full text-center truncate font-title text-[10px] max-[420px]:text-[9px] leading-none pointer-events-none ${
+                            isSelected ? 'text-primary font-semibold' : 'text-text-muted group-hover:text-text'
+                          }`}
+                        >
+                          {charName}
+                        </span>
+                      </button>
+                    )
+                  })}
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 w-[calc(50%_-_30px)] max-[420px]:w-[calc(50%_-_26px)]"
+                  />
+                </>
               )}
             </div>
 
-            {charScrollEdges.left && (
-              <button
-                type="button"
-                onClick={() => charStripRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full border border-border/70 bg-surface/95 text-text-muted hover:text-primary shadow-cds-sm flex items-center justify-center cursor-pointer transition-colors"
-                title="向左滚动角色列表"
-              >
-                <ChevronLeft className="w-3.5 h-3.5 align-neg-125" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => stepCharacterSelection(-1)}
+              disabled={!charScrollEdges.left}
+              aria-hidden={!charScrollEdges.left}
+              aria-label="向左滚动角色列表"
+              tabIndex={charScrollEdges.left ? 0 : -1}
+              className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full border border-border/70 bg-surface/95 text-text-muted hover:text-primary shadow-cds-sm flex items-center justify-center cursor-pointer transition-all duration-200 ease-out motion-reduce:transition-none ${
+                charScrollEdges.left
+                  ? 'opacity-100 scale-100'
+                  : 'pointer-events-none opacity-0 scale-90'
+              }`}
+              title="向左滚动角色列表"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 align-neg-125" />
+            </button>
 
-            {charScrollEdges.right && (
-              <button
-                type="button"
-                onClick={() => charStripRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full border border-border/70 bg-surface/95 text-text-muted hover:text-primary shadow-cds-sm flex items-center justify-center cursor-pointer transition-colors"
-                title="向右滚动角色列表"
-              >
-                <ChevronRight className="w-3.5 h-3.5 align-neg-125" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => stepCharacterSelection(1)}
+              disabled={!charScrollEdges.right}
+              aria-hidden={!charScrollEdges.right}
+              aria-label="向右滚动角色列表"
+              tabIndex={charScrollEdges.right ? 0 : -1}
+              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full border border-border/70 bg-surface/95 text-text-muted hover:text-primary shadow-cds-sm flex items-center justify-center cursor-pointer transition-all duration-200 ease-out motion-reduce:transition-none ${
+                charScrollEdges.right
+                  ? 'opacity-100 scale-100'
+                  : 'pointer-events-none opacity-0 scale-90'
+              }`}
+              title="向右滚动角色列表"
+            >
+              <ChevronRight className="w-3.5 h-3.5 align-neg-125" />
+            </button>
           </div>
 
           {/* 右侧工具按钮 */}
@@ -1491,16 +1887,22 @@ export const OverlayApp: React.FC = () => {
         {/* 4. 主内容流：自适应画廊网格 / 单列列表 (接入 CDS ScrollContainer 7阶非线性渐隐) */}
         <ScrollContainer
           containerRef={modListContainerRef}
-          className="flex-1 min-h-0 p-2.5 overscroll-contain"
+          className="flex-1 min-h-0 p-2.5 overscroll-contain overflow-x-hidden"
         >
           {currentMods.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-text-muted space-y-2">
+            <div
+              key={`empty:${modContentKey}`}
+              className={`h-full flex flex-col items-center justify-center text-text-muted space-y-2 ${modEnterDirectionClass} ${modEnterItemClass}`}
+            >
               <Layers className="w-10 h-10 stroke-[1.2] opacity-40" />
               <p className="text-xs">【{currentChar || '无'}】暂无符合条件的 Mod</p>
             </div>
           ) : viewMode === 'grid' ? (
             /* 严格一排显示 3 个 (grid-cols-3) 4:3 封面 + 底栏 Mod 名与 Switch */
-            <div className="grid grid-cols-3 gap-2.5">
+            <div
+              key={`grid:${modContentKey}`}
+              className={`grid grid-cols-3 gap-2.5 ${modEnterDirectionClass}`}
+            >
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
                 const isPinned = !!pinnedMods[mod.fullPath]
@@ -1514,7 +1916,8 @@ export const OverlayApp: React.FC = () => {
                       mod.enabled
                         ? 'bg-surface border-primary ring-2 ring-primary/30 shadow-cds-sm'
                         : 'bg-surface/80 border-border/80 hover:border-primary/50 hover:-translate-y-0.5 shadow-2xs'
-                    } ${isFocused ? 'scale-[1.01]' : ''}`}
+                    } ${isFocused ? 'scale-[1.01]' : ''} ${modEnterItemClass}`}
+                    style={{ '--overlay-mod-enter-delay': `${getModEnterDelayMs(idx)}ms` } as React.CSSProperties}
                   >
                     {/* 4:3 封面大图 */}
                     <div className="relative aspect-[4/3] bg-surface-2/60 overflow-hidden flex items-center justify-center">
@@ -1565,7 +1968,10 @@ export const OverlayApp: React.FC = () => {
             </div>
           ) : (
             /* 单列紧凑列表视图 */
-            <div className="space-y-2">
+            <div
+              key={`list:${modContentKey}`}
+              className={`space-y-2 ${modEnterDirectionClass}`}
+            >
               {currentMods.map((mod, idx) => {
                 const isFocused = idx === focusedModIndex
                 const isPinned = !!pinnedMods[mod.fullPath]
@@ -1579,7 +1985,8 @@ export const OverlayApp: React.FC = () => {
                       mod.enabled
                         ? 'bg-surface border-primary ring-2 ring-primary/25 shadow-cds-sm'
                         : 'bg-surface/80 border-border/80 hover:border-primary/40 hover:bg-surface'
-                    } ${isFocused ? 'ring-2 ring-primary scale-[1.01]' : ''}`}
+                    } ${isFocused ? 'ring-2 ring-primary scale-[1.01]' : ''} ${modEnterItemClass}`}
+                    style={{ '--overlay-mod-enter-delay': `${getModEnterDelayMs(idx)}ms` } as React.CSSProperties}
                   >
                     <div className="w-11 h-11 rounded-lg bg-surface-2/60 overflow-hidden shrink-0 flex items-center justify-center border border-border/60">
                       {mod.coverPath ? (
@@ -1939,7 +2346,7 @@ export const OverlayApp: React.FC = () => {
                       key={name}
                       type="button"
                       onClick={() => {
-                        setSelectedCharName(name)
+                        selectCharacter(name)
                         if (filterOnlyWithMods && (!modsData[name] || modsData[name].length === 0)) {
                           setFilterOnlyWithMods(false)
                         }
@@ -2058,8 +2465,9 @@ export const OverlayApp: React.FC = () => {
                         key={g.id}
                         type="button"
                         onClick={async () => {
+                          selectCharacter(null, g.id)
                           await window.lz.setActiveGame(g.id)
-                          await loadData(g.id)
+                          await loadData(g.id, true)
                           showToast(`已切换至: ${g.name}`)
                         }}
                         className={`p-2.5 rounded-lg border text-left flex items-center space-x-2 transition-all cursor-pointer shadow-2xs ${

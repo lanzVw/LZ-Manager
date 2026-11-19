@@ -349,3 +349,40 @@ body.overlay-mode #root {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* 悬浮窗模组页切换：沿用角色轨道的方向感，用短距离滑入替代生硬替换 */
+.overlay-mod-enter-next {
+  --overlay-mod-enter-x: 12px;
+}
+
+.overlay-mod-enter-prev {
+  --overlay-mod-enter-x: -12px;
+}
+
+.overlay-mod-enter-neutral {
+  --overlay-mod-enter-x: 0px;
+}
+
+.overlay-mod-enter-item {
+  animation: overlay-mod-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: var(--overlay-mod-enter-delay, 0ms);
+  transform-origin: center top;
+  will-change: transform, opacity;
+}
+
+@keyframes overlay-mod-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--overlay-mod-enter-x, 0px), 5px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-mod-enter-item {
+    animation: none;
+  }
+}

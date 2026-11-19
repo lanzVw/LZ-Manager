@@ -9,6 +9,7 @@ export interface CharacterAvatarProps {
   enabledCount?: number
   totalCount?: number
   eager?: boolean
+  emphasizeSelected?: boolean
   className?: string
 }
 
@@ -24,6 +25,7 @@ export const CharacterAvatar: React.FC<CharacterAvatarProps> = ({
   enabledCount = 0,
   totalCount = 0,
   eager = false,
+  emphasizeSelected = false,
   className = ''
 }) => {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
@@ -41,11 +43,17 @@ export const CharacterAvatar: React.FC<CharacterAvatarProps> = ({
     size === 'lg'
       ? 'h-4 min-w-[18px] px-1 text-[9px]'
       : 'h-3 min-w-[16px] px-1 text-[8px] max-[420px]:h-2.5 max-[420px]:min-w-[14px] max-[420px]:text-[7px]'
+  const frameTransitionClass = emphasizeSelected
+    ? 'transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] motion-reduce:transition-none'
+    : 'transition-colors duration-150'
+  const emphasisClass = emphasizeSelected
+    ? `${selected ? 'scale-[1.08]' : 'scale-100'} motion-reduce:scale-100`
+    : ''
 
   return (
     <div className={`relative shrink-0 ${sizeClass} ${className}`} aria-hidden="true">
       <div
-        className={`w-full h-full p-[2px] transition-colors duration-150 ${frameRadius} ${
+        className={`w-full h-full p-[2px] ${frameTransitionClass} ${frameRadius} ${emphasisClass} ${
           selected ? 'bg-primary shadow-cds-sm' : 'bg-border/50'
         }`}
       >
